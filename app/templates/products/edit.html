@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} Düzenle - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-2">
+            <li class="breadcrumb-item"><a href="{{ url_for('products.index') }}">Ürünler</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('products.view', id=product.id) }}">{{ product.code }}</a>
+            </li>
+            <li class="breadcrumb-item active">Düzenle</li>
+        </ol>
+    </nav>
+    <h1 class="page-title">Ürün Düzenle</h1>
+    <p class="page-subtitle">{{ product.code }} - {{ product.name }}</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Ürün Kodu</label>
+                            <input type="text" class="form-control" value="{{ product.code }}" disabled>
+                            <div class="form-text">Ürün kodu değiştirilemez</div>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Ürün Adı *</label>
+                            <input type="text" name="name" class="form-control" required value="{{ product.name }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Kategori</label>
+                            <select name="category_id" class="form-select">
+                                <option value="">Kategori Seçin</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat.id }}" {% if product.category_id==cat.id %}selected{% endif %}>{{
+                                    cat.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Birim Tipi *</label>
+                            <select name="unit_type" class="form-select" required>
+                                <option value="adet" {% if product.unit_type=='adet' %}selected{% endif %}>Adet</option>
+                                <option value="kg" {% if product.unit_type=='kg' %}selected{% endif %}>Kilogram (kg)
+                                </option>
+                                <option value="metre" {% if product.unit_type=='metre' %}selected{% endif %}>Metre
+                                </option>
+                                <option value="litre" {% if product.unit_type=='litre' %}selected{% endif %}>Litre
+                                </option>
+                                <option value="paket" {% if product.unit_type=='paket' %}selected{% endif %}>Paket
+                                </option>
+                                <option value="kutu" {% if product.unit_type=='kutu' %}selected{% endif %}>Kutu</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Minimum Stok</label>
+                            <input type="number" name="minimum_stock" class="form-control" step="0.01" min="0"
+                                value="{{ product.minimum_stock }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Barkod</label>
+                            <input type="text" name="barcode" class="form-control" value="{{ product.barcode or '' }}">
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Ölçü Bilgisi</label>
+                            <input type="text" name="dimensions" class="form-control"
+                                value="{{ product.dimensions or '' }}">
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Notlar</label>
+                            <textarea name="notes" class="form-control" rows="3">{{ product.notes or '' }}</textarea>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-2"></i>Kaydet
+                        </button>
+                        <a href="{{ url_for('products.view', id=product.id) }}"
+                            class="btn btn-outline-secondary">İptal</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card bg-light">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-bar-chart me-2"></i>Mevcut Stok</h6>
+                <div class="display-6 fw-bold mb-2">{{ product.current_stock }} {{ product.unit_type }}</div>
+                <p class="small text-muted mb-0">Stok değiştirmek için stok hareketi kaydedin</p>
+            </div>
+        </div>
+
+        {% if current_user.role == 'admin' %}
+        <div class="card mt-3 border-danger">
+            <div class="card-body">
+                <h6 class="card-title text-danger"><i class="bi bi-trash me-2"></i>Tehlikeli Alan</h6>
+                <p class="small text-muted">Bu ürünü silmek geri alınamaz.</p>
+                <a href="{{ url_for('products.delete', id=product.id) }}" class="btn btn-outline-danger btn-sm"
+                    onclick="return confirm('Bu ürünü silmek istediğinize emin misiniz?')">
+                    <i class="bi bi-trash me-1"></i>Ürünü Sil
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

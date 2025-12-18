@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-3">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-2">
+                <li class="breadcrumb-item"><a href="{{ url_for('products.index') }}">Ürünler</a></li>
+                <li class="breadcrumb-item active">{{ product.code }}</li>
+            </ol>
+        </nav>
+        <h1 class="page-title">{{ product.name }}</h1>
+        <p class="page-subtitle">{{ product.category.name if product.category else 'Kategorisiz' }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('stock.stock_in') }}?product={{ product.id }}" class="btn btn-success">
+            <i class="bi bi-plus-lg me-1"></i>Giriş
+        </a>
+        <a href="{{ url_for('stock.stock_out') }}?product={{ product.id }}" class="btn btn-danger">
+            <i class="bi bi-dash-lg me-1"></i>Çıkış
+        </a>
+        <a href="{{ url_for('products.edit', id=product.id) }}" class="btn btn-outline-primary">
+            <i class="bi bi-pencil me-1"></i>Düzenle
+        </a>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Ürün Bilgileri -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-box me-2"></i>Ürün Bilgileri
+            </div>
+            <div class="card-body">
+                <table class="table table-sm table-borderless">
+                    <tr>
+                        <td class="text-muted" style="width: 40%;">Ürün Kodu</td>
+                        <td class="fw-medium">{{ product.code }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Kategori</td>
+                        <td>{{ product.category.name if product.category else '-' }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Birim</td>
+                        <td>{{ product.unit_type }}</td>
+                    </tr>
+                    {% if product.dimensions %}
+                    <tr>
+                        <td class="text-muted">Ölçüler</td>
+                        <td>{{ product.dimensions }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if product.barcode %}
+                    <tr>
+                        <td class="text-muted">Barkod</td>
+                        <td>{{ product.barcode }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+
+                {% if product.notes %}
+                <hr>
+                <h6 class="text-muted small">Notlar</h6>
+                <p class="small mb-0">{{ product.notes }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Stok Durumu -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-graph-up me-2"></i>Stok Durumu
+            </div>
+            <div class="card-body">
+                <div class="text-center mb-4">
+                    <div
+                        class="display-4 fw-bold {% if product.stock_status == 'critical' or product.stock_status == 'empty' %}text-danger{% elif product.stock_status == 'warning' %}text-warning{% else %}text-success{% endif %}">
+                        {{ product.current_stock }}
+                    </div>
+                    <div class="text-muted">{{ product.unit_type }}</div>
+
+                    {% if product.stock_status == 'empty' %}
+                    <span class="badge bg-secondary mt-2">Stok Yok</span>
+                    {% elif product.stock_status == 'critical' %}
+                    <span class="badge bg-danger mt-2">Kritik Stok!</span>
+                    {% elif product.stock_status == 'warning' %}
+                    <span class="badge bg-warning mt-2">Düşük Stok</span>
+                    {% else %}
+                    <span class="badge bg-success mt-2">Normal</span>
+                    {% endif %}
+                </div>
+
+                <div class="row g-2 text-center">
+                    <div class="col-6">
+                        <div class="border rounded p-2">
+                            <div class="fw-bold text-success">{{ "%.2f"|format(product.total_in or 0) }}</div>
+                            <small class="text-muted">Toplam Giren</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="border rounded p-2">
+                            <div class="fw-bold text-danger">{{ "%.2f"|format(product.total_out or 0) }}</div>
+                            <small class="text-muted">Toplam Çıkan</small>
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="text-muted">Minimum Stok</span>
+                    <span class="fw-medium">{{ product.minimum_stock }} {{ product.unit_type }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR Kod -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-qr-code me-2"></i>QR Kod
+            </div>
+            <div class="card-body text-center">
+                <img src="{{ url_for('products.qr_code', id=product.id) }}" alt="QR Code" class="img-fluid mb-3"
+                    style="max-width: 180px;">
+                <div>
+                    <a href="{{ url_for('products.download_qr', id=product.id) }}"
+                        class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-download me-1"></i>İndir
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Son Hareketler -->
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history me-2"></i>Son Stok Hareketleri</span>
+        <a href="{{ url_for('stock.index') }}?product={{ product.id }}" class="btn btn-sm btn-outline-primary">Tümünü
+            Gör</a>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Tarih</th>
+                        <th>Hareket</th>
+                        <th class="text-end">Miktar</th>
+                        <th>Kaynak</th>
+                        <th>Hedef</th>
+                        <th>Kullanıcı</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for movement in movements %}
+                    <tr>
+                        <td>{{ movement.date.strftime('%d.%m.%Y %H:%M') if movement.date else '-' }}</td>
+                        <td>
+                            {% if movement.movement_type == 'giris' %}
+                            <span class="badge bg-success">Giriş</span>
+                            {% elif movement.movement_type == 'cikis' %}
+                            <span class="badge bg-danger">Çıkış</span>
+                            {% elif movement.movement_type == 'transfer' %}
+                            <span class="badge bg-info">Transfer</span>
+                            {% elif movement.movement_type == 'fire' %}
+                            <span class="badge bg-warning">Fire</span>
+                            {% elif movement.movement_type == 'sayim' %}
+                            <span class="badge bg-secondary">Sayım</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ movement.movement_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td
+                            class="text-end fw-medium {% if movement.movement_type == 'giris' %}text-success{% else %}text-danger{% endif %}">
+                            {% if movement.movement_type == 'giris' %}+{% else %}-{% endif %}{{
+                            "%.2f"|format(movement.quantity) }}
+                        </td>
+                        <td><small class="text-muted">{{ movement.source or '-' }}</small></td>
+                        <td><small class="text-muted">{{ movement.destination or '-' }}</small></td>
+                        <td>
+                            <small class="text-muted">{{ movement.user.name if movement.user else '-' }}</small>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            Henüz hareket yok
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

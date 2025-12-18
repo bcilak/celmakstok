@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+
+{% block title %}{{ category.name }} - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-2">
+            <li class="breadcrumb-item"><a href="{{ url_for('production.index') }}">Üretim Hatları</a></li>
+            <li class="breadcrumb-item active">{{ category.name }}</li>
+        </ol>
+    </nav>
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+            <h1 class="page-title">{{ category.name }}</h1>
+            <p class="page-subtitle">{{ category.description or 'Kategorideki tüm ürünler' }}</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('production.category_recipes', id=category.id) }}" class="btn btn-info">
+                <i class="bi bi-journal-code me-1"></i>Reçeteler
+            </a>
+            <a href="{{ url_for('production.consume', id=category.id) }}" class="btn btn-danger">
+                <i class="bi bi-dash-circle me-1"></i>Malzeme Tüket
+            </a>
+            <a href="{{ url_for('products.add') }}?category={{ category.id }}" class="btn btn-success">
+                <i class="bi bi-plus-lg me-1"></i>Yeni Ürün
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- İstatistikler -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body py-3">
+                <h3 class="mb-0">{{ stats.total }}</h3>
+                <small>Toplam Ürün</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body py-3">
+                <h3 class="mb-0">{{ "%.0f"|format(stats.total_stock) }}</h3>
+                <small>Toplam Stok</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body py-3">
+                <h3 class="mb-0">{{ stats.critical }}</h3>
+                <small>Kritik Stok</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body py-3">
+                <h3 class="mb-0">{{ stats.empty }}</h3>
+                <small>Stok Yok</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filtreler -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" name="search" class="form-control" placeholder="Ürün adı veya kodu ara..."
+                        value="{{ search }}">
+                </div>
+            </div>
+            <div class="col-md-4">
+                <select name="status" class="form-select">
+                    <option value="">Tüm Durumlar</option>
+                    <option value="ok" {% if status=='ok' %}selected{% endif %}>Stok Yeterli</option>
+                    <option value="critical" {% if status=='critical' %}selected{% endif %}>Kritik Stok</option>
+                    <option value="empty" {% if status=='empty' %}selected{% endif %}>Stok Yok</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-funnel me-1"></i>Filtrele
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Ürün Listesi -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-box-seam me-2"></i>Ürünler</span>
+        <span class="badge bg-secondary">{{ products.total }} kayıt</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 120px;">Kod</th>
+                        <th>Ürün Adı</th>
+                        <th class="text-center" style="width: 100px;">Birim</th>
+                        <th class="text-end" style="width: 120px;">Mevcut Stok</th>
+                        <th class="text-end" style="width: 120px;">Min. Stok</th>
+                        <th class="text-center" style="width: 100px;">Durum</th>
+                        <th class="text-center" style="width: 150px;">İşlemler</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for product in products.items %}
+                    <tr>
+                        <td>
+                            <code class="bg-light px-2 py-1 rounded">{{ product.code }}</code>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('products.view', id=product.id) }}"
+                                class="text-decoration-none fw-medium">
+                                {{ product.name }}
+                            </a>
+                            {% if product.dimensions %}
+                            <br><small class="text-muted">{{ product.dimensions }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-light text-dark">{{ product.unit_type }}</span>
+                        </td>
+                        <td class="text-end">
+                            <span
+                                class="fw-bold {% if product.current_stock <= 0 %}text-danger{% elif product.minimum_stock > 0 and product.current_stock < product.minimum_stock %}text-warning{% else %}text-success{% endif %}">
+                                {{ "%.2f"|format(product.current_stock) }}
+                            </span>
+                        </td>
+                        <td class="text-end text-muted">
+                            {{ "%.2f"|format(product.minimum_stock) if product.minimum_stock else '-' }}
+                        </td>
+                        <td class="text-center">
+                            {% if product.current_stock <= 0 %} <span class="badge bg-danger">Stok Yok</span>
+                                {% elif product.minimum_stock > 0 and product.current_stock < product.minimum_stock %}
+                                    <span class="badge bg-warning text-dark">Kritik</span>
+                                    {% else %}
+                                    <span class="badge bg-success">Normal</span>
+                                    {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('products.view', id=product.id) }}" class="btn btn-outline-primary"
+                                    title="Detay">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <a href="{{ url_for('stock.stock_in') }}?product={{ product.id }}"
+                                    class="btn btn-outline-success" title="Stok Girişi">
+                                    <i class="bi bi-plus"></i>
+                                </a>
+                                <a href="{{ url_for('stock.stock_out') }}?product={{ product.id }}"
+                                    class="btn btn-outline-danger" title="Stok Çıkışı">
+                                    <i class="bi bi-dash"></i>
+                                </a>
+                                <a href="{{ url_for('products.edit', id=product.id) }}"
+                                    class="btn btn-outline-secondary" title="Düzenle">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <i class="bi bi-inbox fs-1 d-block mb-3"></i>
+                            {% if search or status %}
+                            Arama kriterlerine uygun ürün bulunamadı.
+                            {% else %}
+                            Bu kategoride henüz ürün yok.
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if products.pages > 1 %}
+    <div class="card-footer">
+        <nav>
+            <ul class="pagination pagination-sm justify-content-center mb-0">
+                {% if products.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ products.prev_num }}&search={{ search }}&status={{ status }}">
+                        <i class="bi bi-chevron-left"></i> Önceki
+                    </a>
+                </li>
+                {% endif %}
+
+                {% for page in products.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                {% if page %}
+                <li class="page-item {% if page == products.page %}active{% endif %}">
+                    <a class="page-link" href="?page={{ page }}&search={{ search }}&status={{ status }}">{{ page }}</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+                {% endfor %}
+
+                {% if products.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ products.next_num }}&search={{ search }}&status={{ status }}">
+                        Sonraki <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

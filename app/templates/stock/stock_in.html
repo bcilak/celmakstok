@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Stok Girişi - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Stok Girişi</h1>
+    <p class="page-subtitle">Depoya malzeme girişi kaydedin</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Ürün *</label>
+                            <div class="position-relative">
+                                <input type="text" class="form-control mb-2" id="productSearch"
+                                    placeholder="🔍 Ürün ara... (kod veya isim yazın)" autocomplete="off">
+                                <select name="product_id" class="form-select" id="productSelect" required size="8"
+                                    style="display:none;">
+                                    <option value="">Ürün Seçin</option>
+                                    {% for p in products %}
+                                    <option value="{{ p.id }}" data-unit="{{ p.unit_type }}"
+                                        data-stock="{{ p.current_stock }}" data-code="{{ p.code }}"
+                                        data-name="{{ p.name }}">
+                                        {{ p.code }} - {{ p.name }} (Mevcut: {{ p.current_stock }} {{ p.unit_type }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <div id="searchResults" class="list-group position-absolute w-100"
+                                    style="z-index:1000; max-height:300px; overflow-y:auto; display:none;"></div>
+                            </div>
+                            <div id="selectedProduct" class="alert alert-info mt-2" style="display:none;">
+                                <strong id="selectedProductName"></strong>
+                                <button type="button" class="btn-close float-end" onclick="clearSelection()"></button>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Giriş Miktarı *</label>
+                            <div class="input-group">
+                                <input type="number" name="quantity" class="form-control" step="0.01" min="0.01"
+                                    required>
+                                <span class="input-group-text" id="unitDisplay">birim</span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Giriş Türü *</label>
+                            <select name="movement_type" class="form-select" required>
+                                {% for type_code, type_name in movement_types %}
+                                <option value="{{ type_code }}">{{ type_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Referans No</label>
+                            <input type="text" name="reference_no" class="form-control"
+                                placeholder="Fatura/İrsaliye no">
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Notlar</label>
+                            <textarea name="notes" class="form-control" rows="2"
+                                placeholder="Ek bilgiler..."></textarea>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-plus-lg me-2"></i>Giriş Kaydet
+                        </button>
+                        <a href="{{ url_for('stock.index') }}" class="btn btn-outline-secondary">İptal</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card bg-success bg-opacity-10">
+            <div class="card-body">
+                <h6 class="card-title text-success"><i class="bi bi-arrow-down-circle me-2"></i>Stok Girişi Hakkında
+                </h6>
+                <ul class="small mb-0">
+                    <li><strong>Satın Alma:</strong> Tedarikçiden gelen malzeme</li>
+                    <li><strong>Depoya İade:</strong> Hattan depoya dönen malzeme</li>
+                    <li><strong>Üretimden Dönen:</strong> Kullanılmayan malzeme</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card mt-3" id="productInfo" style="display: none;">
+            <div class="card-body">
+                <h6 class="card-title">Seçili Ürün</h6>
+                <div class="text-center py-3">
+                    <div class="display-6 fw-bold" id="currentStock">0</div>
+                    <small class="text-muted">Mevcut Stok</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const productSelect = document.getElementById('productSelect');
+    const searchInput = document.getElementById('productSearch');
+    const searchResults = document.getElementById('searchResults');
+    const selectedProductDiv = document.getElementById('selectedProduct');
+    const selectedProductName = document.getElementById('selectedProductName');
+
+    // Tüm ürün seçeneklerini diziye al
+    const allProducts = [];
+    for (let option of productSelect.options) {
+        if (option.value) {
+            allProducts.push({
+                id: option.value,
+                code: option.dataset.code || '',
+                name: option.dataset.name || '',
+                unit: option.dataset.unit || 'birim',
+                stock: option.dataset.stock || '0',
+                text: option.textContent
+            });
+        }
+    }
+
+    // Arama fonksiyonu
+    searchInput.addEventListener('input', function () {
+        const query = this.value.toLowerCase().trim();
+
+        if (query.length < 2) {
+            searchResults.style.display = 'none';
+            return;
+        }
+
+        const filtered = allProducts.filter(p =>
+            p.code.toLowerCase().includes(query) ||
+            p.name.toLowerCase().includes(query)
+        ).slice(0, 20); // İlk 20 sonuç
+
+        if (filtered.length === 0) {
+            searchResults.innerHTML = '<div class="list-group-item text-muted">Sonuç bulunamadı</div>';
+        } else {
+            searchResults.innerHTML = filtered.map(p => `
+                <button type="button" class="list-group-item list-group-item-action" 
+                    onclick="selectProduct('${p.id}', '${p.code}', '${p.name.replace(/'/g, "\\'")}', '${p.unit}', '${p.stock}')">
+                    <strong>${p.code}</strong> - ${p.name}
+                    <span class="badge bg-secondary float-end">${p.stock} ${p.unit}</span>
+                </button>
+            `).join('');
+        }
+        searchResults.style.display = 'block';
+    });
+
+    // Ürün seçme
+    function selectProduct(id, code, name, unit, stock) {
+        productSelect.value = id;
+        searchInput.value = '';
+        searchResults.style.display = 'none';
+
+        selectedProductName.textContent = code + ' - ' + name + ' (Stok: ' + stock + ' ' + unit + ')';
+        selectedProductDiv.style.display = 'block';
+
+        document.getElementById('unitDisplay').textContent = unit;
+        document.getElementById('currentStock').textContent = stock + ' ' + unit;
+        document.getElementById('productInfo').style.display = 'block';
+    }
+
+    // Seçimi temizle
+    function clearSelection() {
+        productSelect.value = '';
+        selectedProductDiv.style.display = 'none';
+        document.getElementById('productInfo').style.display = 'none';
+        searchInput.focus();
+    }
+
+    // Dışarı tıklayınca sonuçları kapat
+    document.addEventListener('click', function (e) {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.style.display = 'none';
+        }
+    });
+
+    // Sayfa yüklendiğinde seçili ürün varsa göster
+    {% if selected_product %}
+    document.addEventListener('DOMContentLoaded', function () {
+        selectProduct(
+            '{{ selected_product.id }}',
+            '{{ selected_product.code }}',
+            '{{ selected_product.name|replace("'", "\\'")|safe }}',
+            '{{ selected_product.unit_type }}',
+            '{{ selected_product.current_stock }}'
+        );
+    });
+    {% endif %}
+</script>
+{% endblock %}

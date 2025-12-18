@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Kritik Stok - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h1 class="page-title"><i class="bi bi-exclamation-triangle me-2 text-warning"></i>Kritik Stok Raporu</h1>
+            <p class="page-subtitle">Minimum stok seviyesinin altındaki ürünler</p>
+        </div>
+        <a href="{{ url_for('reports.index') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Raporlar
+        </a>
+    </div>
+</div>
+
+<!-- Uyarı Kartı -->
+{% if products %}
+<div class="alert alert-warning border-0 shadow-sm mb-4">
+    <div class="d-flex align-items-center">
+        <i class="bi bi-exclamation-triangle-fill fs-3 me-3"></i>
+        <div>
+            <h5 class="alert-heading mb-1">Dikkat!</h5>
+            <p class="mb-0"><strong>{{ products|length }}</strong> ürün kritik stok seviyesinin altında. Acil tedarik
+                gerekebilir.</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Ürün Listesi -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>Kritik Ürünler</h5>
+        <span class="badge bg-danger rounded-pill">{{ products|length }} ürün</span>
+    </div>
+
+    {% if products %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-4">Ürün</th>
+                    <th>Kategori</th>
+                    <th class="text-end">Mevcut</th>
+                    <th class="text-end">Minimum</th>
+                    <th class="text-end">Eksik</th>
+                    <th class="text-center">İşlem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in products %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div
+                                class="{% if p.current_stock <= 0 %}bg-danger{% else %}bg-warning{% endif %} bg-opacity-10 rounded p-2 me-3">
+                                <i
+                                    class="bi bi-box {% if p.current_stock <= 0 %}text-danger{% else %}text-warning{% endif %}"></i>
+                            </div>
+                            <div>
+                                <div class="fw-semibold">{{ p.name }}</div>
+                                <small class="text-muted"><code>{{ p.code }}</code></small>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        {% if p.category %}
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary px-2 py-1">
+                            {{ p.category.name }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <span class="fw-bold {% if p.current_stock <= 0 %}text-danger{% else %}text-warning{% endif %}">
+                            {{ p.current_stock|round(1) }}
+                        </span>
+                        <small class="text-muted">{{ p.unit_type }}</small>
+                    </td>
+                    <td class="text-end text-muted">
+                        {{ p.minimum_stock|round(1) }} {{ p.unit_type }}
+                    </td>
+                    <td class="text-end">
+                        {% set shortage = p.minimum_stock - p.current_stock %}
+                        <span class="badge bg-danger rounded-pill px-3">{{ shortage|round(1) }}</span>
+                    </td>
+                    <td class="text-center">
+                        <a href="{{ url_for('stock.stock_in') }}?product={{ p.id }}" class="btn btn-sm btn-success">
+                            <i class="bi bi-plus-lg me-1"></i>Stok Gir
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% else %}
+    <div class="card-body text-center py-5">
+        <div class="mb-3">
+            <i class="bi bi-check-circle display-1 text-success"></i>
+        </div>
+        <h5 class="text-success">Harika!</h5>
+        <p class="text-muted mb-0">Kritik stok seviyesinde ürün yok.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

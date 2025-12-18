@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Depo Raporu - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h1 class="page-title"><i class="bi bi-building me-2"></i>Depo Raporu</h1>
+            <p class="page-subtitle">Kategori bazlı stok analizi</p>
+        </div>
+        <a href="{{ url_for('reports.index') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Raporlar
+        </a>
+    </div>
+</div>
+
+<!-- Özet Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <div class="rounded-circle p-3"
+                            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <i class="bi bi-box-seam fs-4 text-white"></i>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h3 class="mb-0 fw-bold">{{ total_products }}</h3>
+                        <small class="text-muted">Toplam Ürün</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <div class="rounded-circle p-3"
+                            style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <i class="bi bi-exclamation-triangle fs-4 text-white"></i>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h3 class="mb-0 fw-bold">{{ total_critical }}</h3>
+                        <small class="text-muted">Kritik Stok</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <div class="rounded-circle p-3"
+                            style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <i class="bi bi-layers fs-4 text-white"></i>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h3 class="mb-0 fw-bold">{{ category_stats|length }}</h3>
+                        <small class="text-muted">Kategori</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Kategori Kartları -->
+<div class="row g-4">
+    {% for stat in category_stats %}
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h5 class="fw-bold mb-1">{{ stat.category.name }}</h5>
+                        {% if stat.category.code %}
+                        <small class="text-muted">{{ stat.category.code }}</small>
+                        {% endif %}
+                    </div>
+                    {% if stat.critical_items > 0 %}
+                    <span class="badge bg-danger">Kritik</span>
+                    {% elif stat.empty_items > 0 %}
+                    <span class="badge bg-warning text-dark">Uyarı</span>
+                    {% else %}
+                    <span class="badge bg-success">İyi</span>
+                    {% endif %}
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <div class="bg-light rounded p-3 text-center">
+                            <div class="fw-bold fs-4 text-primary">{{ stat.total_items }}</div>
+                            <small class="text-muted">Ürün</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="bg-light rounded p-3 text-center">
+                            <div class="fw-bold fs-4">{{ "%.0f"|format(stat.total_stock) }}</div>
+                            <small class="text-muted">Stok</small>
+                        </div>
+                    </div>
+                </div>
+
+                {% if stat.critical_items > 0 or stat.empty_items > 0 %}
+                <div class="d-flex gap-2 mb-3">
+                    {% if stat.critical_items > 0 %}
+                    <span class="badge bg-danger bg-opacity-10 text-danger px-2 py-1">
+                        <i class="bi bi-exclamation-circle me-1"></i>{{ stat.critical_items }} kritik
+                    </span>
+                    {% endif %}
+                    {% if stat.empty_items > 0 %}
+                    <span class="badge bg-secondary bg-opacity-10 text-secondary px-2 py-1">
+                        <i class="bi bi-x-circle me-1"></i>{{ stat.empty_items }} tükenen
+                    </span>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <a href="{{ url_for('production.view_category', id=stat.category.id) }}"
+                    class="btn btn-outline-primary btn-sm w-100">
+                    <i class="bi bi-eye me-1"></i>Detayları Gör
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

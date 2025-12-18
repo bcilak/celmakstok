@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}Stok Sayımı - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+        <h1 class="page-title"><i class="bi bi-clipboard-check me-2"></i>Stok Sayımı</h1>
+        <p class="page-subtitle">Sayım oturumlarını yönetin ve takip edin</p>
+    </div>
+    <a href="{{ url_for('counting.new_session') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-2"></i>Yeni Sayım
+    </a>
+</div>
+
+<!-- Özet Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon primary me-3">
+                        <i class="bi bi-clipboard-check"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-dark">{{ sessions|length }}</div>
+                        <small class="text-muted">Toplam Sayım</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon warning me-3">
+                        <i class="bi bi-hourglass-split"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-warning">
+                            {{ sessions|selectattr('status', 'equalto', 'active')|list|length }}
+                        </div>
+                        <small class="text-muted">Devam Eden</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon success me-3">
+                        <i class="bi bi-check-circle"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-success">
+                            {{ sessions|selectattr('status', 'equalto', 'completed')|list|length }}
+                        </div>
+                        <small class="text-muted">Tamamlanan</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon info me-3">
+                        <i class="bi bi-calendar-event"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-info">
+                            {% if sessions %}{{ sessions[0].session_date.strftime('%d.%m') }}{% else %}-{% endif %}
+                        </div>
+                        <small class="text-muted">Son Sayım</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sayım Listesi -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0">
+            <i class="bi bi-list-ul me-2"></i>Sayım Oturumları
+        </h5>
+        <span class="badge bg-primary rounded-pill px-3">{{ sessions|length }} oturum</span>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4">Sayım Bilgisi</th>
+                    <th>Tarih</th>
+                    <th class="text-center">Durum</th>
+                    <th>Oluşturan</th>
+                    <th>Tamamlanma</th>
+                    <th class="text-center pe-4">İşlem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for session in sessions %}
+                <tr class="item-row">
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                {% if session.status == 'completed' %}
+                                <div class="gradient-icon success" style="width: 40px; height: 40px;">
+                                    <i class="bi bi-check-circle" style="font-size: 1rem;"></i>
+                                </div>
+                                {% elif session.status == 'active' %}
+                                <div class="gradient-icon warning" style="width: 40px; height: 40px;">
+                                    <i class="bi bi-hourglass-split" style="font-size: 1rem;"></i>
+                                </div>
+                                {% else %}
+                                <div class="gradient-icon info" style="width: 40px; height: 40px;">
+                                    <i class="bi bi-clipboard" style="font-size: 1rem;"></i>
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <div class="fw-semibold">{{ session.session_name }}</div>
+                                <small class="text-muted">#{{ session.id }}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="fw-medium">{{ session.session_date.strftime('%d.%m.%Y') }}</span>
+                    </td>
+                    <td class="text-center">
+                        {% if session.status == 'active' %}
+                        <span class="badge bg-warning bg-opacity-10 text-warning px-3 py-2">
+                            <i class="bi bi-hourglass-split me-1"></i>Devam Ediyor
+                        </span>
+                        {% elif session.status == 'completed' %}
+                        <span class="badge bg-success bg-opacity-10 text-success px-3 py-2">
+                            <i class="bi bi-check-circle me-1"></i>Tamamlandı
+                        </span>
+                        {% elif session.status == 'cancelled' %}
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2">
+                            <i class="bi bi-x-circle me-1"></i>İptal
+                        </span>
+                        {% else %}
+                        <span class="badge bg-info bg-opacity-10 text-info px-3 py-2">
+                            <i class="bi bi-folder2-open me-1"></i>Açık
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if session.user %}
+                        <div class="d-flex align-items-center">
+                            <div class="bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-2"
+                                style="width: 28px; height: 28px;">
+                                <small class="text-primary fw-bold">{{ session.user.full_name[0] }}</small>
+                            </div>
+                            <small>{{ session.user.full_name }}</small>
+                        </div>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if session.completed_at %}
+                        <span class="fw-medium">{{ session.completed_at.strftime('%d.%m.%Y') }}</span>
+                        <br><small class="text-muted">{{ session.completed_at.strftime('%H:%M') }}</small>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center pe-4">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <a href="{{ url_for('counting.view', id=session.id) }}"
+                                class="btn btn-outline-primary action-btn" title="Görüntüle">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            {% if session.status == 'active' %}
+                            <a href="{{ url_for('counting.count', id=session.id) }}" class="btn btn-success action-btn"
+                                title="Sayıma Devam Et">
+                                <i class="bi bi-qr-code-scan"></i>
+                            </a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6">
+                        <div class="text-center py-5">
+                            <div class="gradient-icon primary mx-auto mb-3" style="width: 64px; height: 64px;">
+                                <i class="bi bi-clipboard-check" style="font-size: 1.5rem;"></i>
+                            </div>
+                            <h5 class="text-muted">Henüz sayım oturumu yok</h5>
+                            <p class="text-muted mb-4">Yeni bir sayım başlatarak stok kontrolü yapın.</p>
+                            <a href="{{ url_for('counting.new_session') }}" class="btn btn-primary">
+                                <i class="bi bi-plus-lg me-2"></i>İlk Sayımı Başlat
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Bilgi Kartı -->
+<div class="card border-0 shadow-sm mt-4 bg-info bg-opacity-10">
+    <div class="card-body">
+        <div class="d-flex">
+            <div class="gradient-icon info me-3" style="min-width: 48px;">
+                <i class="bi bi-lightbulb"></i>
+            </div>
+            <div>
+                <h6 class="text-info mb-2">Stok Sayımı Nasıl Çalışır?</h6>
+                <p class="mb-0 text-dark small">
+                    1. <strong>Yeni Sayım</strong> oluşturun ve kategori seçin.<br>
+                    2. QR kod veya manuel giriş ile ürünleri <strong>sayın</strong>.<br>
+                    3. Sayım tamamlandığında sistem otomatik olarak <strong>farkları hesaplar</strong> ve stokları
+                    günceller.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}Reçeteler - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+        <h1 class="page-title"><i class="bi bi-journal-code me-2"></i>Reçete Yönetimi</h1>
+        <p class="page-subtitle">Üretim reçetelerini oluştur ve yönet</p>
+    </div>
+    <a href="{{ url_for('production.add_recipe') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Yeni Reçete
+    </a>
+</div>
+
+<!-- Özet Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon primary me-3">
+                        <i class="bi bi-journal-code"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-dark">{{ recipes|length }}</div>
+                        <small class="text-muted">Toplam Reçete</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon success me-3">
+                        <i class="bi bi-check-circle"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-success">
+                            {{ recipes|selectattr('is_active')|list|length }}
+                        </div>
+                        <small class="text-muted">Aktif</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon warning me-3">
+                        <i class="bi bi-collection"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-warning">
+                            {% set total_items = namespace(value=0) %}
+                            {% for recipe in recipes %}
+                            {% set total_items.value = total_items.value + recipe.total_items %}
+                            {% endfor %}
+                            {{ total_items.value }}
+                        </div>
+                        <small class="text-muted">Malzeme Tanım</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon info me-3">
+                        <i class="bi bi-tags"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-info">
+                            {% set unique_lines = [] %}
+                            {% for recipe in recipes %}
+                            {% if recipe.category and recipe.category.name not in unique_lines %}
+                            {% set _ = unique_lines.append(recipe.category.name) %}
+                            {% endif %}
+                            {% endfor %}
+                            {{ unique_lines|length }}
+                        </div>
+                        <small class="text-muted">Üretim Hattı</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reçete Listesi -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0">
+            <i class="bi bi-list-ul me-2"></i>Reçete Listesi
+        </h5>
+        <span class="badge bg-primary rounded-pill px-3">{{ recipes|length }} reçete</span>
+    </div>
+
+    {% if recipes %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4">Reçete Adı</th>
+                    <th>Üretim Hattı</th>
+                    <th>Model</th>
+                    <th class="text-center">Malzeme</th>
+                    <th class="text-center">Toplam Parça</th>
+                    <th class="text-center">Durum</th>
+                    <th class="text-center pe-4">İşlemler</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for recipe in recipes %}
+                <tr class="item-row">
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div class="gradient-icon primary me-3" style="width: 40px; height: 40px;">
+                                <i class="bi bi-journal-text" style="font-size: 1rem;"></i>
+                            </div>
+                            <div>
+                                <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
+                                    class="text-decoration-none text-dark fw-semibold d-block">
+                                    {{ recipe.name }}
+                                </a>
+                                {% if recipe.description %}
+                                <small class="text-muted">{{ recipe.description[:40] }}{% if recipe.description|length >
+                                    40 %}...{% endif %}</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        {% if recipe.category %}
+                        <span class="category-tag">
+                            <i class="bi bi-gear"></i>
+                            {{ recipe.category.name }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if recipe.model_variant %}
+                        <span class="badge bg-info bg-opacity-10 text-info px-2 py-1">
+                            {{ recipe.model_variant }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2">
+                            {{ recipe.total_items }} malzeme
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        {% set total_parts = namespace(value=0) %}
+                        {% for item in recipe.items %}
+                        {% set total_parts.value = total_parts.value + item.quantity %}
+                        {% endfor %}
+                        <span class="fw-bold fs-5">{{ total_parts.value|int }}</span>
+                        <small class="text-muted d-block">parça</small>
+                    </td>
+                    <td class="text-center">
+                        {% if recipe.is_active %}
+                        <span class="badge bg-success bg-opacity-10 text-success px-3 py-2">
+                            <i class="bi bi-check-circle me-1"></i>Aktif
+                        </span>
+                        {% else %}
+                        <span class="badge bg-danger bg-opacity-10 text-danger px-3 py-2">
+                            <i class="bi bi-x-circle me-1"></i>Pasif
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center pe-4">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <a href="{{ url_for('production.produce_with_recipe', id=recipe.id) }}"
+                                class="btn btn-success action-btn" title="Üretim Yap">
+                                <i class="bi bi-play-fill"></i>
+                            </a>
+                            <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
+                                class="btn btn-outline-primary action-btn" title="Görüntüle">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <a href="{{ url_for('production.edit_recipe', id=recipe.id) }}"
+                                class="btn btn-outline-warning action-btn" title="Düzenle">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-center py-5">
+        <div class="gradient-icon primary mx-auto mb-4" style="width: 80px; height: 80px; font-size: 2rem;">
+            <i class="bi bi-journal-x"></i>
+        </div>
+        <h4 class="text-muted">Henüz reçete oluşturulmamış</h4>
+        <p class="text-muted mb-4">Yeni bir reçete oluşturarak üretim süreçlerinizi otomatikleştirin.</p>
+        <a href="{{ url_for('production.add_recipe') }}" class="btn btn-primary btn-lg">
+            <i class="bi bi-plus-lg me-2"></i>İlk Reçeteyi Oluştur
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Bilgi Kartı -->
+<div class="card border-0 shadow-sm mt-4 bg-primary bg-opacity-10">
+    <div class="card-body">
+        <div class="d-flex">
+            <div class="gradient-icon info me-3" style="min-width: 48px;">
+                <i class="bi bi-lightbulb"></i>
+            </div>
+            <div>
+                <h5 class="text-primary mb-2">Reçete Nedir?</h5>
+                <p class="mb-0 text-dark">
+                    Reçete, bir ürün üretmek için gereken malzemelerin listesidir.
+                    Reçete ile üretim yaptığınızda, tüm malzemeler <strong>otomatik olarak stoktan düşülür</strong>.
+                    Örneğin "TAMBURLU Hat Ürünü" reçetesi için 5 adet M8 somun, 3 adet M10 civata gibi malzemeler
+                    tanımlayabilirsiniz.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

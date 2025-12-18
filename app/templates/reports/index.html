@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}Raporlar - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><i class="bi bi-bar-chart-fill me-2"></i>Raporlar</h1>
+    <p class="page-subtitle">Stok ve üretim raporlarını görüntüleyin</p>
+</div>
+
+<div class="row g-4">
+    <!-- Stok Raporları -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body text-center py-5">
+                <div class="gradient-icon primary mx-auto mb-4" style="width: 64px; height: 64px;">
+                    <i class="bi bi-boxes" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title">Stok Raporu</h5>
+                <p class="card-text text-muted mb-4">
+                    Güncel stok durumu ve kritik stok bildirimleri
+                </p>
+                <a href="{{ url_for('reports.stock_report') }}" class="btn btn-primary w-100">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Raporu Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Üretim Raporları -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body text-center py-5">
+                <div class="gradient-icon success mx-auto mb-4" style="width: 64px; height: 64px;">
+                    <i class="bi bi-gear" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title">Üretim Raporu</h5>
+                <p class="card-text text-muted mb-4">
+                    Üretim hatları ve reçete bazlı üretim kayıtları
+                </p>
+                <a href="{{ url_for('reports.production_report') }}" class="btn btn-success w-100">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Raporu Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sayım Raporları -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body text-center py-5">
+                <div class="gradient-icon warning mx-auto mb-4" style="width: 64px; height: 64px;">
+                    <i class="bi bi-clipboard-check" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title">Sayım Raporu</h5>
+                <p class="card-text text-muted mb-4">
+                    Envanter sayımları ve fark analizleri
+                </p>
+                <a href="{{ url_for('reports.counting_report') }}" class="btn btn-warning w-100">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Raporu Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Depo Raporları -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body text-center py-5">
+                <div class="gradient-icon info mx-auto mb-4" style="width: 64px; height: 64px;">
+                    <i class="bi bi-building" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title">Depo Raporu</h5>
+                <p class="card-text text-muted mb-4">
+                    Kategori bazlı stok durumu özeti
+                </p>
+                <a href="{{ url_for('reports.warehouse_report') }}" class="btn btn-info w-100">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Raporu Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hareket Raporları -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body text-center py-5">
+                <div class="gradient-icon danger mx-auto mb-4" style="width: 64px; height: 64px;">
+                    <i class="bi bi-arrow-left-right" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title">Hareket Raporu</h5>
+                <p class="card-text text-muted mb-4">
+                    Tüm stok hareketleri ve işlem geçmişi
+                </p>
+                <a href="{{ url_for('reports.movements_report') }}" class="btn btn-danger w-100">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Raporu Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ortak Ürünler -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body text-center py-5">
+                <div class="rounded-circle mx-auto mb-4 d-flex align-items-center justify-content-center"
+                    style="width: 64px; height: 64px; background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+                    <i class="bi bi-tools text-white" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title">Ortak Malzemeler</h5>
+                <p class="card-text text-muted mb-4">
+                    Tüm hatlarda kullanılan somun, civata vs.
+                </p>
+                <a href="{{ url_for('reports.common_products') }}" class="btn btn-secondary w-100">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Raporu Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kritik Stoklar -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow" style="border-left: 4px solid #dc3545 !important;">
+            <div class="card-body text-center py-5">
+                <div class="rounded-circle mx-auto mb-4 d-flex align-items-center justify-content-center pulse-danger"
+                    style="width: 64px; height: 64px; background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);">
+                    <i class="bi bi-exclamation-triangle text-white" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title text-danger">Kritik Stoklar</h5>
+                <p class="card-text text-muted mb-4">
+                    Acil tedarik gerektiren ürünler
+                </p>
+                <a href="{{ url_for('reports.critical_report') }}" class="btn btn-danger w-100">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Raporu Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hızlı Erişim -->
+<div class="card border-0 shadow-sm mt-4 bg-primary bg-opacity-10">
+    <div class="card-body">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <div class="d-flex">
+                    <div class="gradient-icon primary me-3" style="min-width: 48px;">
+                        <i class="bi bi-lightning-charge"></i>
+                    </div>
+                    <div>
+                        <h6 class="text-primary mb-1">Hızlı Erişim</h6>
+                        <p class="mb-0 text-dark small">
+                            En sık kullanılan işlemlere buradan hızlıca erişebilirsiniz.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                <a href="{{ url_for('stock.stock_in') }}" class="btn btn-success btn-sm me-2">
+                    <i class="bi bi-plus-lg"></i> Stok Girişi
+                </a>
+                <a href="{{ url_for('stock.stock_out') }}" class="btn btn-danger btn-sm">
+                    <i class="bi bi-dash-lg"></i> Stok Çıkışı
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .hover-shadow {
+        transition: all 0.25s ease;
+    }
+
+    .hover-shadow:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12) !important;
+    }
+</style>
+{% endblock %}

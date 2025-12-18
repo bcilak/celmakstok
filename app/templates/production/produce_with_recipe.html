@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}{{ recipe.name }} - Üretim{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">
+                        <i class="bi bi-play-fill"></i> Reçete ile Üretim: {{ recipe.name }}
+                    </h4>
+                </div>
+                <div class="card-body">
+                    {% if recipe.category %}
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        Üretim Hattı: <strong>{{ recipe.category.name }}</strong>
+                    </div>
+                    {% endif %}
+
+                    {% if missing_materials %}
+                    <div class="alert alert-danger">
+                        <h5><i class="bi bi-exclamation-triangle"></i> Eksik Malzemeler!</h5>
+                        <p>Aşağıdaki malzemelerin stoğu 1 adet üretim için bile yetersiz:</p>
+                        <ul class="mb-0">
+                            {% for m in missing_materials %}
+                            <li>
+                                <strong>{{ m.product.name }}</strong>:
+                                Gereken: {{ m.required }},
+                                Mevcut: {{ m.available }},
+                                <span class="text-danger">Eksik: {{ m.shortage }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    <form method="POST" id="productionForm">
+                        <div class="row mb-4">
+                            <div class="col-md-4">
+                                <label for="quantity" class="form-label">Üretim Miktarı</label>
+                                <input type="number" class="form-control form-control-lg" id="quantity" name="quantity"
+                                    value="1" min="1" step="1" required>
+                            </div>
+                            <div class="col-md-8">
+                                <label for="note" class="form-label">Not (Opsiyonel)</label>
+                                <input type="text" class="form-control form-control-lg" id="note" name="note"
+                                    placeholder="Üretim notu...">
+                            </div>
+                        </div>
+
+                        <h5><i class="bi bi-list-check"></i> Tüketilecek Malzemeler</h5>
+                        <div class="table-responsive">
+                            <table class="table table-bordered" id="materialsTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Malzeme</th>
+                                        <th>Kod</th>
+                                        <th class="text-center">Birim Miktar</th>
+                                        <th class="text-center">Toplam Tüketim</th>
+                                        <th class="text-center">Mevcut Stok</th>
+                                        <th class="text-center">Kalan Stok</th>
+                                        <th class="text-center">Durum</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in recipe.items %}
+                                    <tr data-unit-qty="{{ item.quantity }}"
+                                        data-stock="{{ item.product.current_stock }}">
+                                        <td>{{ item.product.name }}</td>
+                                        <td><code>{{ item.product.code }}</code></td>
+                                        <td class="text-center">{{ item.quantity }} {{ item.product.unit_type }}</td>
+                                        <td class="text-center total-consume">{{ item.quantity }}</td>
+                                        <td class="text-center">{{ item.product.current_stock|round(1) }}</td>
+                                        <td class="text-center remaining-stock">{{ (item.product.current_stock -
+                                            item.quantity)|round(1) }}</td>
+                                        <td class="text-center status-cell">
+                                            {% if item.product.current_stock >= item.quantity %}
+                                            <span class="badge bg-success"><i class="bi bi-check-lg"></i></span>
+                                            {% else %}
+                                            <span class="badge bg-danger"><i class="bi bi-x-lg"></i></span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
+                                class="btn btn-secondary btn-lg">
+                                <i class="bi bi-arrow-left"></i> İptal
+                            </a>
+                            <button type="submit" class="btn btn-success btn-lg" id="produceBtn">
+                                <i class="bi bi-check-lg"></i> Üretimi Tamamla ve Stoktan Düş
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const quantityInput = document.getElementById('quantity');
+        const rows = document.querySelectorAll('#materialsTable tbody tr');
+        const produceBtn = document.getElementById('produceBtn');
+
+        function updateTable() {
+            const qty = parseFloat(quantityInput.value) || 1;
+            let canProduce = true;
+
+            rows.forEach(row => {
+                const unitQty = parseFloat(row.dataset.unitQty);
+                const stock = parseFloat(row.dataset.stock);
+                const totalConsume = unitQty * qty;
+                const remaining = stock - totalConsume;
+
+                row.querySelector('.total-consume').textContent = totalConsume.toFixed(2);
+                row.querySelector('.remaining-stock').textContent = remaining.toFixed(1);
+
+                const statusCell = row.querySelector('.status-cell');
+                if (remaining >= 0) {
+                    statusCell.innerHTML = '<span class="badge bg-success"><i class="bi bi-check-lg"></i></span>';
+                } else {
+                    statusCell.innerHTML = '<span class="badge bg-danger"><i class="bi bi-x-lg"></i></span>';
+                    canProduce = false;
+                }
+            });
+
+            produceBtn.disabled = !canProduce;
+            if (!canProduce) {
+                produceBtn.classList.remove('btn-success');
+                produceBtn.classList.add('btn-danger');
+                produceBtn.innerHTML = '<i class="bi bi-x-lg"></i> Yetersiz Stok';
+            } else {
+                produceBtn.classList.remove('btn-danger');
+                produceBtn.classList.add('btn-success');
+                produceBtn.innerHTML = '<i class="bi bi-check-lg"></i> Üretimi Tamamla ve Stoktan Düş';
+            }
+        }
+
+        quantityInput.addEventListener('input', updateTable);
+        updateTable();
+
+        document.getElementById('productionForm').addEventListener('submit', function (e) {
+            if (!confirm('Üretimi tamamlamak ve tüm malzemeleri stoktan düşmek istediğinize emin misiniz?')) {
+                e.preventDefault();
+            }
+        });
+    });
+</script>
+{% endblock %}

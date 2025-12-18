@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Üretim Raporu - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title">Üretim Hattı Tüketim Raporu</h1>
+            <p class="page-subtitle">Üretim hatlarına yapılan malzeme tüketimleri</p>
+        </div>
+        <a href="{{ url_for('reports.index') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Raporlara Dön
+        </a>
+    </div>
+</div>
+
+<!-- Filtreler -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Üretim Hattı</label>
+                <select name="category" class="form-select">
+                    <option value="">Tümü</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}" {% if selected_category==cat.id %}selected{% endif %}>
+                        {{ cat.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Başlangıç Tarihi</label>
+                <input type="date" name="start_date" class="form-control" value="{{ start_date or '' }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Bitiş Tarihi</label>
+                <input type="date" name="end_date" class="form-control" value="{{ end_date or '' }}">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-funnel me-1"></i>Filtrele
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Kategori Bazlı Özet -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-gear me-2"></i>Üretim Hatları Tüketim Özeti
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Hat Adı</th>
+                        <th class="text-end">Giriş</th>
+                        <th class="text-end">Çıkış</th>
+                        <th class="text-end">Net</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat_id, data in category_totals.items() %}
+                    <tr>
+                        <td><strong>{{ data.name }}</strong></td>
+                        <td class="text-end text-success">+{{ data.in|round(1) }}</td>
+                        <td class="text-end text-danger">-{{ data.out|round(1) }}</td>
+                        <td class="text-end">
+                            {% set net = data.in - data.out %}
+                            <span class="{% if net >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                {{ net|round(1) }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Hareket Listesi -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list me-2"></i>Tüketim Hareketleri</span>
+        <span class="badge bg-primary">{{ movements|length }} hareket</span>
+    </div>
+    <div class="card-body p-0">
+        {% if movements %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Tarih</th>
+                        <th>Ürün</th>
+                        <th>Hareket</th>
+                        <th class="text-end">Miktar</th>
+                        <th>Kaynak</th>
+                        <th>Hedef</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in movements[:100] %}
+                    <tr>
+                        <td>{{ m.date.strftime('%d.%m.%Y %H:%M') if m.date else '-' }}</td>
+                        <td>{{ m.product.name if m.product else '-' }}</td>
+                        <td>
+                            {% if m.movement_type == 'giris' %}
+                            <span class="badge bg-success">Giriş</span>
+                            {% elif m.movement_type == 'cikis' %}
+                            <span class="badge bg-danger">Çıkış</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ m.movement_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">{{ m.quantity|round(1) }}</td>
+                        <td>{{ m.source or '-' }}</td>
+                        <td>{{ m.destination or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if movements|length > 100 %}
+        <div class="card-footer text-center text-muted">
+            İlk 100 hareket gösteriliyor. Toplam {{ movements|length }} hareket var.
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-inbox display-1 text-muted"></i>
+            <h4 class="mt-3 text-muted">Hareket bulunamadı</h4>
+            <p class="text-muted">Seçili kriterlere uygun hareket yok.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

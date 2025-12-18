@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}{{ recipe.name }} - Reçete Düzenle{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-journal-code"></i> {{ recipe.name }}</h2>
+        <div>
+            <a href="{{ url_for('production.produce_with_recipe', id=recipe.id) }}" class="btn btn-success">
+                <i class="bi bi-play-fill"></i> Üretim Yap
+            </a>
+            <a href="{{ url_for('production.recipes') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Geri
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Sol: Reçete Bilgileri -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Reçete Bilgileri</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="update_info">
+
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Reçete Adı</label>
+                            <input type="text" class="form-control" id="name" name="name" value="{{ recipe.name }}"
+                                required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="category_id" class="form-label">Üretim Hattı</label>
+                            <select class="form-select" id="category_id" name="category_id">
+                                <option value="">-- Seçiniz --</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat.id }}" {% if recipe.category_id==cat.id %}selected{% endif %}>
+                                    {{ cat.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="model_variant" class="form-label">Model Varyantı</label>
+                            <input type="text" class="form-control" id="model_variant" name="model_variant"
+                                value="{{ recipe.model_variant or '' }}" placeholder="Örn: 135'lik">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Açıklama</label>
+                            <textarea class="form-control" id="description" name="description"
+                                rows="2">{{ recipe.description or '' }}</textarea>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-check-lg"></i> Bilgileri Güncelle
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Malzeme Ekleme Formu -->
+            <div class="card mt-3">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="bi bi-plus-lg"></i> Malzeme Ekle</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="add_item">
+
+                        <div class="mb-3">
+                            <label for="product_search" class="form-label">Malzeme Ara</label>
+                            <input type="text" class="form-control" id="product_search"
+                                placeholder="Malzeme adı veya kodu...">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="product_id" class="form-label">Malzeme Seç</label>
+                            <select class="form-select" id="product_id" name="product_id" required>
+                                <option value="">-- Seçiniz --</option>
+                                {% for product in products %}
+                                <option value="{{ product.id }}" data-name="{{ product.name }}"
+                                    data-code="{{ product.code }}">
+                                    {{ product.name }} ({{ product.code }}) - Stok: {{ product.current_stock|round(1) }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="quantity" class="form-label">Miktar (1 üretim için)</label>
+                            <input type="number" class="form-control" id="quantity" name="quantity" min="0.01"
+                                step="0.01" required placeholder="Örn: 5">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="item_note" class="form-label">Not (Opsiyonel)</label>
+                            <input type="text" class="form-control" id="item_note" name="item_note"
+                                placeholder="Örn: Sol taraf için">
+                        </div>
+
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="bi bi-plus-lg"></i> Malzeme Ekle
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sağ: Malzeme Listesi -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-list-ul"></i> Reçete Malzemeleri</h5>
+                    <span class="badge bg-primary">{{ recipe.total_items }} malzeme</span>
+                </div>
+                <div class="card-body">
+                    {% if recipe.items.count() > 0 %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Malzeme</th>
+                                    <th>Kod</th>
+                                    <th class="text-center">Miktar</th>
+                                    <th class="text-center">Mevcut Stok</th>
+                                    <th>Not</th>
+                                    <th class="text-center">İşlem</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in recipe.items %}
+                                <tr>
+                                    <td>{{ item.product.name }}</td>
+                                    <td><code>{{ item.product.code }}</code></td>
+                                    <td class="text-center">
+                                        <strong>{{ item.quantity }}</strong> {{ item.product.unit_type }}
+                                    </td>
+                                    <td class="text-center">
+                                        {% if item.product.current_stock >= item.quantity %}
+                                        <span class="badge bg-success">{{ item.product.current_stock|round(1) }}</span>
+                                        {% else %}
+                                        <span class="badge bg-danger">{{ item.product.current_stock|round(1) }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ item.note or '-' }}</td>
+                                    <td class="text-center">
+                                        <form method="POST" style="display: inline;">
+                                            <input type="hidden" name="action" value="remove_item">
+                                            <input type="hidden" name="item_id" value="{{ item.id }}">
+                                            <button type="submit" class="btn btn-danger btn-sm"
+                                                onclick="return confirm('Bu malzemeyi reçeteden çıkarmak istediğinize emin misiniz?')">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="bi bi-inbox display-4 text-muted"></i>
+                        <p class="text-muted mt-2">Henüz malzeme eklenmemiş.<br>Sol taraftan malzeme ekleyin.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('product_search');
+        const productSelect = document.getElementById('product_id');
+        const options = productSelect.querySelectorAll('option');
+
+        searchInput.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase();
+
+            options.forEach(option => {
+                if (option.value === '') return;
+
+                const name = (option.dataset.name || '').toLowerCase();
+                const code = (option.dataset.code || '').toLowerCase();
+                const text = option.textContent.toLowerCase();
+
+                if (name.includes(searchTerm) || code.includes(searchTerm) || text.includes(searchTerm)) {
+                    option.style.display = '';
+                } else {
+                    option.style.display = 'none';
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

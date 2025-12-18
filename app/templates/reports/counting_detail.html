@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Sayım Detayı - {{ session.name }} - ÇELMAK{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title">{{ session.name }}</h1>
+            <p class="page-subtitle">
+                Sayım Tarihi: {{ session.completed_at.strftime('%d.%m.%Y %H:%M') if session.completed_at else '-' }}
+                {% if session.user %}
+                | Yapan: {{ session.user.name }}
+                {% endif %}
+            </p>
+        </div>
+        <a href="{{ url_for('reports.counting_report') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Sayım Raporlarına Dön
+        </a>
+    </div>
+</div>
+
+<!-- Özet Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body text-center">
+                <h3>{{ total_items }}</h3>
+                <small>Toplam Ürün</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center">
+                <h3>{{ counted_items }}</h3>
+                <small>Sayılan Ürün</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body text-center">
+                <h3>+{{ positive_diff|round(1) }}</h3>
+                <small>Fazla Bulunan</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body text-center">
+                <h3>{{ negative_diff|round(1) }}</h3>
+                <small>Eksik Bulunan</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fark Listesi -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-check me-2"></i>Fark Olan Ürünler</span>
+        <span class="badge bg-warning">{{ items|length }} ürün</span>
+    </div>
+    <div class="card-body p-0">
+        {% if items %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Ürün Kodu</th>
+                        <th>Ürün Adı</th>
+                        <th class="text-center">Sistem Stok</th>
+                        <th class="text-center">Sayılan</th>
+                        <th class="text-center">Fark</th>
+                        <th>Not</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td><code>{{ item.product.code }}</code></td>
+                        <td>{{ item.product.name }}</td>
+                        <td class="text-center">{{ item.system_quantity|round(1) }}</td>
+                        <td class="text-center">{{ item.counted_quantity|round(1) }}</td>
+                        <td class="text-center">
+                            {% if item.difference > 0 %}
+                            <span class="badge bg-success">+{{ item.difference|round(1) }}</span>
+                            {% else %}
+                            <span class="badge bg-danger">{{ item.difference|round(1) }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ item.note or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-check-circle display-1 text-success"></i>
+            <h4 class="mt-3 text-muted">Fark bulunamadı!</h4>
+            <p class="text-muted">Bu sayımda tüm ürünler sistem stokuyla uyuşuyor.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if session.note %}
+<div class="card mt-4">
+    <div class="card-header">
+        <i class="bi bi-chat-text me-2"></i>Sayım Notu
+    </div>
+    <div class="card-body">
+        {{ session.note }}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

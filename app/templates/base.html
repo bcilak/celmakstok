@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ÇELMAK Stok Takip{% endblock %}</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary-color: #64748b;
+            --success-color: #22c55e;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --sidebar-width: 260px;
+            --header-height: 60px;
+        }
+
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: #f1f5f9;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            z-index: 1000;
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-brand {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .sidebar-brand h4 {
+            color: #fff;
+            font-weight: 700;
+            margin: 0;
+            font-size: 1.25rem;
+        }
+
+        .sidebar-brand small {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.75rem;
+        }
+
+        .sidebar-nav {
+            padding: 1rem 0;
+        }
+
+        .nav-section {
+            padding: 0.5rem 1.5rem;
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 600;
+        }
+
+        .sidebar-nav .nav-link {
+            color: rgba(255, 255, 255, 0.7);
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .sidebar-nav .nav-link:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .sidebar-nav .nav-link.active {
+            color: #fff;
+            background: rgba(37, 99, 235, 0.2);
+            border-left-color: var(--primary-color);
+        }
+
+        .sidebar-nav .nav-link i {
+            font-size: 1.1rem;
+            width: 24px;
+            text-align: center;
+        }
+
+        /* Main Content */
+        .main-content {
+            margin-left: var(--sidebar-width);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .main-header {
+            background: #fff;
+            height: var(--header-height);
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-search {
+            max-width: 400px;
+            flex: 1;
+        }
+
+        .header-search .form-control {
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            padding: 0.5rem 1rem 0.5rem 2.5rem;
+            background: #f8fafc;
+        }
+
+        .header-search .search-icon {
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .user-dropdown .dropdown-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            border-radius: 8px;
+            background: none;
+            border: none;
+        }
+
+        .user-dropdown .dropdown-toggle:hover {
+            background: #f1f5f9;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+
+        /* Page Content */
+        .page-content {
+            padding: 1.5rem;
+        }
+
+        .page-header {
+            margin-bottom: 1.5rem;
+        }
+
+        .page-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin: 0;
+        }
+
+        .page-subtitle {
+            color: #64748b;
+            margin: 0.25rem 0 0;
+        }
+
+        /* Cards */
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+
+        .card-header {
+            background: none;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1rem 1.25rem;
+            font-weight: 600;
+        }
+
+        /* Stat Cards */
+        .stat-card {
+            padding: 1.25rem;
+            border-radius: 12px;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+
+        .stat-card .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .stat-card .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .stat-card .stat-label {
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+
+        .stat-card.primary .stat-icon {
+            background: rgba(37, 99, 235, 0.1);
+            color: var(--primary-color);
+        }
+
+        .stat-card.success .stat-icon {
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--success-color);
+        }
+
+        .stat-card.warning .stat-icon {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning-color);
+        }
+
+        .stat-card.danger .stat-icon {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger-color);
+        }
+
+        /* Tables */
+        .table {
+            margin-bottom: 0;
+        }
+
+        .table th {
+            font-weight: 600;
+            color: #64748b;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom-width: 1px;
+        }
+
+        .table td {
+            vertical-align: middle;
+            color: #334155;
+        }
+
+        /* Badges */
+        .badge {
+            font-weight: 500;
+            padding: 0.35em 0.65em;
+        }
+
+        .badge-status {
+            padding: 0.35em 0.75em;
+            border-radius: 6px;
+            font-size: 0.75rem;
+        }
+
+        .badge-status.normal {
+            background: rgba(34, 197, 94, 0.1);
+            color: #16a34a;
+        }
+
+        .badge-status.warning {
+            background: rgba(245, 158, 11, 0.1);
+            color: #d97706;
+        }
+
+        .badge-status.critical {
+            background: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+        }
+
+        .badge-status.empty {
+            background: rgba(100, 116, 139, 0.1);
+            color: #475569;
+        }
+
+        /* Buttons */
+        .btn {
+            border-radius: 8px;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            border-color: var(--primary-dark);
+        }
+
+        /* Forms */
+        .form-control,
+        .form-select {
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            padding: 0.625rem 0.875rem;
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .form-label {
+            font-weight: 500;
+            color: #334155;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Alerts */
+        .alert {
+            border: none;
+            border-radius: 10px;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 991px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+
+            .sidebar.show {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+        }
+
+        /* Quick action button */
+        .quick-action-fab {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            z-index: 1000;
+        }
+
+        .quick-action-fab:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+        }
+
+        /* QR Scanner styles */
+        .qr-scanner-container {
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .qr-scanner-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border: 3px solid var(--primary-color);
+            border-radius: 12px;
+        }
+
+        /* Enhanced Table Styles */
+        .table-hover tbody tr {
+            transition: all 0.15s ease;
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: rgba(37, 99, 235, 0.04);
+        }
+
+        .table th {
+            background-color: #f8fafc;
+            border-top: none;
+        }
+
+        .table td {
+            padding: 1rem 0.75rem;
+        }
+
+        /* Enhanced Card Styles */
+        .card {
+            transition: box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            background: linear-gradient(to right, #f8fafc, #fff);
+        }
+
+        /* Modern Filter Cards */
+        .filter-card {
+            background: linear-gradient(135deg, #fff 0%, #f8fafc 100%);
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .filter-card .form-control,
+        .filter-card .form-select {
+            background-color: #fff;
+            border-color: #e2e8f0;
+        }
+
+        .filter-card .form-control:focus,
+        .filter-card .form-select:focus {
+            background-color: #fff;
+            border-color: var(--primary-color);
+        }
+
+        /* Enhanced Status Badges */
+        .badge-status {
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+
+        /* Enhanced Buttons */
+        .btn-group-sm .btn {
+            padding: 0.375rem 0.625rem;
+        }
+
+        .btn-group .btn:first-child {
+            border-top-left-radius: 6px;
+            border-bottom-left-radius: 6px;
+        }
+
+        .btn-group .btn:last-child {
+            border-top-right-radius: 6px;
+            border-bottom-right-radius: 6px;
+        }
+
+        /* Product/Item Row */
+        .item-row {
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+        }
+
+        .item-row:hover {
+            transform: translateX(2px);
+        }
+
+        /* Code/SKU styling */
+        .item-code {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.8rem;
+            color: #64748b;
+            background: #f1f5f9;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+        }
+
+        /* Category Tags */
+        .category-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.625rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            color: #475569;
+        }
+
+        /* Stock Quantity Display */
+        .stock-qty {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .stock-qty.danger {
+            color: var(--danger-color);
+        }
+
+        .stock-qty.warning {
+            color: var(--warning-color);
+        }
+
+        .stock-qty.success {
+            color: var(--success-color);
+        }
+
+        /* Empty State */
+        .empty-state {
+            padding: 3rem 1rem;
+            text-align: center;
+        }
+
+        .empty-state i {
+            font-size: 3rem;
+            color: #cbd5e1;
+            margin-bottom: 1rem;
+        }
+
+        .empty-state h5 {
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .empty-state p {
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+
+        /* Hover Shadow Effect */
+        .hover-shadow {
+            transition: all 0.2s ease;
+        }
+
+        .hover-shadow:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transform: translateY(-1px);
+        }
+
+        /* Gradient Icons */
+        .gradient-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            color: #fff;
+        }
+
+        .gradient-icon.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .gradient-icon.success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .gradient-icon.warning {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .gradient-icon.danger {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+        }
+
+        .gradient-icon.info {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        /* Animated Pulse for Critical Items */
+        @keyframes pulse-danger {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+
+        .pulse-danger {
+            animation: pulse-danger 2s infinite;
+        }
+
+        /* Action Buttons */
+        .action-btn {
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn:hover {
+            transform: scale(1.1);
+        }
+
+        /* Search Input Enhancement */
+        .search-input-wrapper {
+            position: relative;
+        }
+
+        .search-input-wrapper .form-control {
+            padding-left: 2.5rem;
+        }
+
+        .search-input-wrapper .search-icon {
+            position: absolute;
+            left: 0.875rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+        }
+
+        /* Modern Pagination */
+        .pagination {
+            gap: 0.25rem;
+        }
+
+        .pagination .page-link {
+            border-radius: 8px;
+            border: none;
+            padding: 0.5rem 0.875rem;
+            color: #64748b;
+            font-weight: 500;
+            margin: 0 2px;
+        }
+
+        .pagination .page-item.active .page-link {
+            background: var(--primary-color);
+            color: #fff;
+        }
+
+        .pagination .page-link:hover {
+            background: #f1f5f9;
+            color: var(--primary-color);
+        }
+
+        /* Loading Spinner */
+        .spinner-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 9999;
+        }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+    {% if current_user.is_authenticated %}
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <h4><i class="bi bi-box-seam me-2"></i>ÇELMAK</h4>
+            <small>Stok Takip Sistemi</small>
+        </div>
+
+        <div class="sidebar-nav">
+            <div class="nav-section">Ana Menü</div>
+            <a href="{{ url_for('main.dashboard') }}"
+                class="nav-link {% if request.endpoint == 'main.dashboard' %}active{% endif %}">
+                <i class="bi bi-grid-1x2-fill"></i>
+                <span>Dashboard</span>
+            </a>
+
+            <div class="nav-section mt-3">Stok Yönetimi</div>
+            <a href="{{ url_for('products.index') }}"
+                class="nav-link {% if 'products' in request.endpoint %}active{% endif %}">
+                <i class="bi bi-box-fill"></i>
+                <span>Ürünler</span>
+            </a>
+            <a href="{{ url_for('stock.index') }}"
+                class="nav-link {% if 'stock' in request.endpoint %}active{% endif %}">
+                <i class="bi bi-arrow-left-right"></i>
+                <span>Stok Hareketleri</span>
+            </a>
+            <a href="{{ url_for('stock.quick_movement') }}" class="nav-link">
+                <i class="bi bi-qr-code-scan"></i>
+                <span>Hızlı İşlem</span>
+            </a>
+
+            <div class="nav-section mt-3">Üretim</div>
+            <a href="{{ url_for('production.index') }}"
+                class="nav-link {% if request.endpoint == 'production.index' or 'category' in (request.endpoint or '') %}active{% endif %}">
+                <i class="bi bi-gear-fill"></i>
+                <span>Üretim Hatları</span>
+            </a>
+            <a href="{{ url_for('production.recipes') }}"
+                class="nav-link {% if 'recipe' in (request.endpoint or '') %}active{% endif %}">
+                <i class="bi bi-journal-code"></i>
+                <span>Reçeteler</span>
+            </a>
+
+            <div class="nav-section mt-3">Depo</div>
+            <a href="{{ url_for('warehouse.index') }}"
+                class="nav-link {% if 'warehouse' in request.endpoint %}active{% endif %}">
+                <i class="bi bi-house-fill"></i>
+                <span>Depo Yönetimi</span>
+            </a>
+            <a href="{{ url_for('warehouse.critical') }}" class="nav-link">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <span>Kritik Stoklar</span>
+            </a>
+
+            <div class="nav-section mt-3">Sayım</div>
+            <a href="{{ url_for('counting.index') }}"
+                class="nav-link {% if 'counting' in request.endpoint %}active{% endif %}">
+                <i class="bi bi-clipboard-check-fill"></i>
+                <span>Stok Sayımı</span>
+            </a>
+
+            <div class="nav-section mt-3">Raporlar</div>
+            <a href="{{ url_for('reports.index') }}"
+                class="nav-link {% if 'reports' in request.endpoint %}active{% endif %}">
+                <i class="bi bi-bar-chart-fill"></i>
+                <span>Raporlar</span>
+            </a>
+
+            {% if current_user.role == 'admin' %}
+            <div class="nav-section mt-3">Yönetim</div>
+            <a href="{{ url_for('auth.users') }}"
+                class="nav-link {% if request.endpoint == 'auth.users' %}active{% endif %}">
+                <i class="bi bi-people-fill"></i>
+                <span>Kullanıcılar</span>
+            </a>
+            <a href="{{ url_for('products.categories') }}" class="nav-link">
+                <i class="bi bi-tags-fill"></i>
+                <span>Kategoriler</span>
+            </a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Header -->
+        <header class="main-header">
+            <button class="btn btn-link d-lg-none p-0 me-3" onclick="toggleSidebar()">
+                <i class="bi bi-list fs-4"></i>
+            </button>
+
+            <div class="header-search position-relative d-none d-md-block">
+                <i class="bi bi-search search-icon"></i>
+                <input type="text" class="form-control" placeholder="Ürün ara..." id="globalSearch">
+            </div>
+
+            <div class="header-actions">
+                <a href="{{ url_for('stock.stock_in') }}" class="btn btn-success btn-sm">
+                    <i class="bi bi-plus-lg me-1"></i>Giriş
+                </a>
+                <a href="{{ url_for('stock.stock_out') }}" class="btn btn-danger btn-sm">
+                    <i class="bi bi-dash-lg me-1"></i>Çıkış
+                </a>
+
+                <div class="dropdown user-dropdown">
+                    <button class="dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <div class="user-avatar">{{ current_user.full_name[0] }}</div>
+                        <span class="d-none d-md-inline">{{ current_user.full_name }}</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{{ url_for('auth.profile') }}">
+                                <i class="bi bi-person me-2"></i>Profil
+                            </a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('auth.change_password') }}">
+                                <i class="bi bi-key me-2"></i>Şifre Değiştir
+                            </a></li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li><a class="dropdown-item" href="{{ url_for('main.about') }}">
+                                <i class="bi bi-info-circle me-2"></i>Proje Hakkında
+                            </a></li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}">
+                                <i class="bi bi-box-arrow-right me-2"></i>Çıkış Yap
+                            </a></li>
+                    </ul>
+                </div>
+            </div>
+        </header>
+
+        <!-- Page Content -->
+        <main class="page-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show"
+                role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% else %}
+    <!-- Login Page Content -->
+    {% block auth_content %}{% endblock %}
+    {% endif %}
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('show');
+        }
+
+        // Global search
+        document.getElementById('globalSearch')?.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                window.location.href = '/products?search=' + encodeURIComponent(this.value);
+            }
+        });
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+
+</html>

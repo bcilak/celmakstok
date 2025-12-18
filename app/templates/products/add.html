@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Yeni Ürün - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Yeni Ürün Ekle</h1>
+    <p class="page-subtitle">Sisteme yeni ürün tanımlayın</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Ürün Kodu *</label>
+                            <input type="text" name="code" class="form-control" required placeholder="ÖRN: MLZ-001">
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Ürün Adı *</label>
+                            <input type="text" name="name" class="form-control" required placeholder="Ürün adını girin">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Kategori</label>
+                            <select name="category_id" class="form-select">
+                                <option value="">Kategori Seçin</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Birim Tipi *</label>
+                            <select name="unit_type" class="form-select" required>
+                                <option value="adet">Adet</option>
+                                <option value="kg">Kilogram (kg)</option>
+                                <option value="metre">Metre</option>
+                                <option value="litre">Litre</option>
+                                <option value="paket">Paket</option>
+                                <option value="kutu">Kutu</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Başlangıç Stoğu</label>
+                            <input type="number" name="current_stock" class="form-control" step="0.01" min="0"
+                                value="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Minimum Stok</label>
+                            <input type="number" name="minimum_stock" class="form-control" step="0.01" min="0"
+                                value="0">
+                            <div class="form-text">Bu seviyenin altında uyarı verilir</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Barkod</label>
+                            <input type="text" name="barcode" class="form-control" placeholder="Opsiyonel">
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Ölçü Bilgisi</label>
+                            <input type="text" name="dimensions" class="form-control" placeholder="Örn: 100x50x25 mm">
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Notlar</label>
+                            <textarea name="notes" class="form-control" rows="3"
+                                placeholder="Ek bilgiler..."></textarea>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus-lg me-2"></i>Ürün Ekle
+                        </button>
+                        <a href="{{ url_for('products.index') }}" class="btn btn-outline-secondary">İptal</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card bg-light">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-info-circle me-2"></i>Bilgi</h6>
+                <ul class="small text-muted mb-0">
+                    <li>Ürün kodu benzersiz olmalıdır</li>
+                    <li>Minimum stok seviyesi belirlemeyi unutmayın</li>
+                    <li>Ürün eklendikten sonra QR kod otomatik oluşturulur</li>
+                    <li>Maliyet bilgisi bu sistemde tutulmaz</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}{{ category.name }} - Reçeteler{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>
+            <i class="bi bi-journal-code"></i>
+            {{ category.name }} - Reçeteler
+        </h2>
+        <div>
+            <a href="{{ url_for('production.add_recipe') }}?category={{ category.id }}" class="btn btn-primary">
+                <i class="bi bi-plus-lg"></i> Yeni Reçete
+            </a>
+            <a href="{{ url_for('production.view_category', id=category.id) }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Geri
+            </a>
+        </div>
+    </div>
+
+    {% if recipes %}
+    <div class="row">
+        {% for recipe in recipes %}
+        <div class="col-md-6 col-lg-4 mb-3">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">{{ recipe.name }}</h5>
+                    {% if recipe.model_variant %}
+                    <span class="badge bg-primary">{{ recipe.model_variant }}</span>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    {% if recipe.description %}
+                    <p class="text-muted small">{{ recipe.description }}</p>
+                    {% endif %}
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>Malzeme:</strong>
+                            <span class="badge bg-secondary">{{ recipe.total_items }}</span>
+                        </div>
+                        <div>
+                            <strong>Toplam Parça:</strong>
+                            {% set total_parts = namespace(value=0) %}
+                            {% for item in recipe.items %}
+                            {% set total_parts.value = total_parts.value + item.quantity %}
+                            {% endfor %}
+                            <span class="badge bg-info">{{ total_parts.value|int }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <div class="btn-group w-100">
+                        <a href="{{ url_for('production.produce_with_recipe', id=recipe.id) }}" class="btn btn-success">
+                            <i class="bi bi-play-fill"></i> Üret
+                        </a>
+                        <a href="{{ url_for('production.view_recipe', id=recipe.id) }}" class="btn btn-info">
+                            <i class="bi bi-eye"></i> Görüntüle
+                        </a>
+                        <a href="{{ url_for('production.edit_recipe', id=recipe.id) }}" class="btn btn-warning">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-journal-x display-1 text-muted"></i>
+            <h4 class="mt-3 text-muted">Bu hat için reçete yok</h4>
+            <p class="text-muted">Üretim hattı için reçete oluşturun.</p>
+            <a href="{{ url_for('production.add_recipe') }}?category={{ category.id }}" class="btn btn-primary">
+                <i class="bi bi-plus-lg"></i> Reçete Oluştur
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

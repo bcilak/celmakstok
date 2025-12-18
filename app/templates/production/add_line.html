@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Yeni Üretim Hattı - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Yeni Üretim Hattı</h1>
+    <p class="page-subtitle">Sisteme yeni üretim hattı ekleyin</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">Hat Kodu *</label>
+                        <input type="text" name="code" class="form-control" required placeholder="Örn: TALASLI">
+                        <div class="form-text">Kısa, benzersiz bir kod</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Hat Adı *</label>
+                        <input type="text" name="name" class="form-control" required placeholder="Örn: Talaşlı İmalat">
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label">Açıklama</label>
+                        <textarea name="description" class="form-control" rows="2"></textarea>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus-lg me-2"></i>Hat Ekle
+                        </button>
+                        <a href="{{ url_for('production.index') }}" class="btn btn-outline-secondary">İptal</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

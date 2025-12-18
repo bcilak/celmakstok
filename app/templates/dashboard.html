@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+        <h1 class="page-title"><i class="bi bi-grid-1x2-fill me-2"></i>Dashboard</h1>
+        <p class="page-subtitle">Stok durumu ve güncel aktiviteler</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('counting.new_session') }}" class="btn btn-outline-primary">
+            <i class="bi bi-clipboard-check me-1"></i>Yeni Sayım
+        </a>
+    </div>
+</div>
+
+<!-- Stat Cards -->
+<div class="row g-4 mb-4">
+    <div class="col-md-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fs-2 fw-bold text-dark">{{ total_products }}</div>
+                        <div class="text-muted">Toplam Ürün</div>
+                    </div>
+                    <div class="gradient-icon primary" style="width: 48px; height: 48px;">
+                        <i class="bi bi-box-seam" style="font-size: 1.25rem;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100 {% if critical_count > 0 %}pulse-danger{% endif %}">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div
+                            class="fs-2 fw-bold {% if critical_count > 0 %}text-danger{% else %}text-success{% endif %}">
+                            {{ critical_count }}
+                        </div>
+                        <div class="text-muted">Kritik Stok</div>
+                    </div>
+                    <div class="gradient-icon danger" style="width: 48px; height: 48px;">
+                        <i class="bi bi-exclamation-triangle" style="font-size: 1.25rem;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fs-2 fw-bold text-success">{{ "%.0f"|format(week_in) }}</div>
+                        <div class="text-muted">Haftalık Giriş</div>
+                    </div>
+                    <div class="gradient-icon success" style="width: 48px; height: 48px;">
+                        <i class="bi bi-arrow-down-circle" style="font-size: 1.25rem;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fs-2 fw-bold text-warning">{{ "%.0f"|format(week_out) }}</div>
+                        <div class="text-muted">Haftalık Çıkış</div>
+                    </div>
+                    <div class="gradient-icon warning" style="width: 48px; height: 48px;">
+                        <i class="bi bi-arrow-up-circle" style="font-size: 1.25rem;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Kritik Stoklar -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon danger me-2" style="width: 32px; height: 32px;">
+                        <i class="bi bi-exclamation-triangle" style="font-size: 0.9rem;"></i>
+                    </div>
+                    <h6 class="mb-0">Kritik Stoklar</h6>
+                </div>
+                <a href="{{ url_for('warehouse.critical') }}" class="btn btn-sm btn-outline-danger">Tümünü Gör</a>
+            </div>
+            <div class="card-body p-0">
+                {% if critical_products %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th class="ps-4">Ürün</th>
+                                <th class="text-end">Stok</th>
+                                <th class="text-end">Min</th>
+                                <th class="text-end pe-4"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in critical_products[:5] %}
+                            <tr class="item-row">
+                                <td class="ps-4">
+                                    <div class="fw-semibold">{{ product.name }}</div>
+                                    <code class="item-code">{{ product.code }}</code>
+                                </td>
+                                <td class="text-end">
+                                    <span class="badge bg-danger bg-opacity-10 text-danger px-2 py-1">
+                                        {{ "%.0f"|format(product.current_stock) }} {{ product.unit_type }}
+                                    </span>
+                                </td>
+                                <td class="text-end text-muted">{{ "%.0f"|format(product.minimum_stock) }}</td>
+                                <td class="text-end pe-4">
+                                    <a href="{{ url_for('stock.stock_in') }}?product={{ product.id }}"
+                                        class="btn btn-sm btn-success action-btn">
+                                        <i class="bi bi-plus"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <div class="gradient-icon success mx-auto mb-3" style="width: 56px; height: 56px;">
+                        <i class="bi bi-check-circle" style="font-size: 1.5rem;"></i>
+                    </div>
+                    <h6 class="text-muted">Kritik stok yok!</h6>
+                    <small class="text-muted">Tüm ürünler yeterli stok seviyesinde.</small>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Üretim Hatları -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon primary me-2" style="width: 32px; height: 32px;">
+                        <i class="bi bi-gear" style="font-size: 0.9rem;"></i>
+                    </div>
+                    <h6 class="mb-0">Üretim Hatları</h6>
+                </div>
+                <a href="{{ url_for('production.index') }}" class="btn btn-sm btn-outline-primary">Tümünü Gör</a>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {% for line in production_lines %}
+                    <div class="col-md-6">
+                        <a href="{{ url_for('production.view', id=line.id) }}" class="text-decoration-none">
+                            <div class="card border h-100 hover-shadow">
+                                <div class="card-body py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="gradient-icon primary me-3" style="width: 36px; height: 36px;">
+                                            <i class="bi bi-gear-fill" style="font-size: 0.9rem;"></i>
+                                        </div>
+                                        <div>
+                                            <div class="fw-semibold text-dark">{{ line.name }}</div>
+                                            <code class="item-code">{{ line.code }}</code>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Son Hareketler -->
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+        <div class="d-flex align-items-center">
+            <div class="gradient-icon info me-2" style="width: 32px; height: 32px;">
+                <i class="bi bi-clock-history" style="font-size: 0.9rem;"></i>
+            </div>
+            <h6 class="mb-0">Son Hareketler</h6>
+        </div>
+        <a href="{{ url_for('stock.index') }}" class="btn btn-sm btn-outline-primary">Tümünü Gör</a>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th class="ps-4">Tarih</th>
+                        <th>Ürün</th>
+                        <th>Hareket</th>
+                        <th class="text-end">Miktar</th>
+                        <th class="text-end pe-4">Kullanıcı</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for movement in recent_movements %}
+                    <tr class="item-row">
+                        <td class="ps-4">
+                            <div class="d-flex align-items-center">
+                                <div class="me-2">
+                                    {% if movement.direction == 'in' %}
+                                    <div class="gradient-icon success" style="width: 32px; height: 32px;">
+                                        <i class="bi bi-arrow-down" style="font-size: 0.8rem;"></i>
+                                    </div>
+                                    {% else %}
+                                    <div class="gradient-icon danger" style="width: 32px; height: 32px;">
+                                        <i class="bi bi-arrow-up" style="font-size: 0.8rem;"></i>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <small class="text-muted">{{ movement.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                            </div>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('products.view', id=movement.product.id) }}"
+                                class="text-decoration-none text-dark fw-semibold">
+                                {{ movement.product.name }}
+                            </a>
+                        </td>
+                        <td>
+                            {% if movement.direction == 'in' %}
+                            <span class="badge bg-success bg-opacity-10 text-success px-2 py-1">Giriş</span>
+                            {% else %}
+                            <span class="badge bg-danger bg-opacity-10 text-danger px-2 py-1">Çıkış</span>
+                            {% endif %}
+                            <small class="text-muted ms-1">
+                                {% if movement.movement_type == 'purchase' %}Satın Alma
+                                {% elif movement.movement_type == 'production_use' %}Üretim
+                                {% elif movement.movement_type == 'transfer' %}Transfer
+                                {% elif movement.movement_type == 'count_adjustment' %}Sayım
+                                {% elif movement.movement_type == 'waste' %}Fire
+                                {% else %}{{ movement.movement_type }}{% endif %}
+                            </small>
+                        </td>
+                        <td class="text-end">
+                            <span
+                                class="fw-bold {% if movement.direction == 'in' %}text-success{% else %}text-danger{% endif %}">
+                                {% if movement.direction == 'in' %}+{% else %}-{% endif %}{{
+                                "%.0f"|format(movement.quantity) }}
+                            </span>
+                            <small class="text-muted">{{ movement.product.unit_type }}</small>
+                        </td>
+                        <td class="text-end pe-4">
+                            {% if movement.user %}
+                            <div class="d-flex align-items-center justify-content-end">
+                                <div class="bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-2"
+                                    style="width: 24px; height: 24px;">
+                                    <small class="text-primary fw-bold" style="font-size: 0.7rem;">{{
+                                        movement.user.full_name[0] }}</small>
+                                </div>
+                                <small class="text-muted">{{ movement.user.full_name }}</small>
+                            </div>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Action FAB -->
+<a href="{{ url_for('stock.quick_movement') }}" class="quick-action-fab" title="Hızlı İşlem">
+    <i class="bi bi-qr-code-scan"></i>
+</a>
+{% endblock %}

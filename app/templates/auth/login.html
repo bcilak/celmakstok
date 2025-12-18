@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Giriş - ÇELMAK Stok Takip{% endblock %}
+
+{% block auth_content %}
+<div class="min-vh-100 d-flex align-items-center justify-content-center"
+    style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-5 col-lg-4">
+                <div class="text-center mb-4">
+                    <div class="d-inline-flex align-items-center justify-content-center bg-primary rounded-circle mb-3"
+                        style="width: 64px; height: 64px;">
+                        <i class="bi bi-box-seam text-white fs-2"></i>
+                    </div>
+                    <h3 class="text-white fw-bold">ÇELMAK</h3>
+                    <p class="text-white-50">Stok Takip Sistemi</p>
+                </div>
+
+                <div class="card border-0 shadow-lg">
+                    <div class="card-body p-4">
+                        <h5 class="mb-4 text-center">Giriş Yap</h5>
+
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                        {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-sm py-2">
+                            {{ message }}
+                        </div>
+                        {% endfor %}
+                        {% endif %}
+                        {% endwith %}
+
+                        <form method="POST">
+                            <div class="mb-3">
+                                <label class="form-label">Kullanıcı Adı</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0">
+                                        <i class="bi bi-person text-muted"></i>
+                                    </span>
+                                    <input type="text" name="username" class="form-control border-start-0"
+                                        placeholder="Kullanıcı adınız" required autofocus>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Şifre</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0">
+                                        <i class="bi bi-lock text-muted"></i>
+                                    </span>
+                                    <input type="password" name="password" class="form-control border-start-0"
+                                        placeholder="Şifreniz" required>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <div class="form-check">
+                                    <input type="checkbox" name="remember" class="form-check-input" id="remember">
+                                    <label class="form-check-label" for="remember">Beni hatırla</label>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100 py-2">
+                                <i class="bi bi-box-arrow-in-right me-2"></i>Giriş Yap
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <p class="text-center text-white-50 mt-4 small">
+                    &copy; 2024 ÇELMAK Stok Takip Sistemi
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

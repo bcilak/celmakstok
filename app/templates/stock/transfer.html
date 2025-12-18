@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Hatlar Arası Transfer - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Hatlar Arası Transfer</h1>
+    <p class="page-subtitle">Üretim hatları arasında malzeme transferi</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Ürün *</label>
+                            <select name="product_id" class="form-select" required>
+                                <option value="">Ürün Seçin</option>
+                                {% for p in products %}
+                                <option value="{{ p.id }}">{{ p.code }} - {{ p.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Kaynak Hat *</label>
+                            <select name="from_line_id" class="form-select" required>
+                                <option value="">Seçin</option>
+                                {% for l in lines %}
+                                <option value="{{ l.id }}">{{ l.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Hedef Hat *</label>
+                            <select name="to_line_id" class="form-select" required>
+                                <option value="">Seçin</option>
+                                {% for l in lines %}
+                                <option value="{{ l.id }}">{{ l.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Transfer Miktarı *</label>
+                            <input type="number" name="quantity" class="form-control" step="0.01" min="0.01" required>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Notlar</label>
+                            <textarea name="notes" class="form-control" rows="2"
+                                placeholder="Transfer sebebi..."></textarea>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-arrow-left-right me-2"></i>Transferi Kaydet
+                        </button>
+                        <a href="{{ url_for('stock.index') }}" class="btn btn-outline-secondary">İptal</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card bg-primary bg-opacity-10">
+            <div class="card-body">
+                <h6 class="card-title text-primary"><i class="bi bi-info-circle me-2"></i>Transfer Bilgisi</h6>
+                <p class="small mb-0">
+                    Hatlar arası transfer, depo stokunu etkilemez.
+                    Sadece malzemenin hangi hatta olduğunu takip eder.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

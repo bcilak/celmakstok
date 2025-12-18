@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}Aylık Rapor - ÇELMAK{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title">Aylık Stok Raporu</h1>
+            <p class="page-subtitle">{{ year }} - {{ '%02d'|format(month) }} ayı giriş/çıkış özeti</p>
+        </div>
+        <a href="{{ url_for('reports.index') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Raporlara Dön
+        </a>
+    </div>
+</div>
+
+<!-- Ay Seçimi -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Yıl</label>
+                <select name="year" class="form-select">
+                    {% for y in range(2023, 2026) %}
+                    <option value="{{ y }}" {% if y==year %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Ay</label>
+                <select name="month" class="form-select">
+                    {% set months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+                    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'] %}
+                    {% for m in range(1, 13) %}
+                    <option value="{{ m }}" {% if m==month %}selected{% endif %}>{{ months[m-1] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search me-1"></i>Göster
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Özet Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center">
+                <h3>{{ total_in|round(1) }}</h3>
+                <small>Toplam Giriş</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-danger text-white">
+            <div class="card-body text-center">
+                <h3>{{ total_out|round(1) }}</h3>
+                <small>Toplam Çıkış</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-primary text-white">
+            <div class="card-body text-center">
+                <h3>{{ (total_in - total_out)|round(1) }}</h3>
+                <small>Net Fark</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Günlük Özet -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-calendar-day me-2"></i>Günlük Özet
+    </div>
+    <div class="card-body">
+        {% if daily_stats %}
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Tarih</th>
+                        <th>Hareket Tipi</th>
+                        <th class="text-end">Miktar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stat in daily_stats %}
+                    <tr>
+                        <td>{{ stat.date }}</td>
+                        <td>
+                            {% if stat.movement_type == 'giris' %}
+                            <span class="badge bg-success">Giriş</span>
+                            {% elif stat.movement_type == 'cikis' %}
+                            <span class="badge bg-danger">Çıkış</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ stat.movement_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">{{ stat.total|round(1) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted text-center mb-0">Bu ay için hareket bulunamadı.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Ürün Bazlı Özet -->
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-box-seam me-2"></i>Ürün Bazlı Özet
+    </div>
+    <div class="card-body">
+        {% if product_stats %}
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Ürün</th>
+                        <th>Birim</th>
+                        <th>Hareket</th>
+                        <th class="text-end">Toplam</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stat in product_stats %}
+                    <tr>
+                        <td>{{ stat.name }}</td>
+                        <td>{{ stat.unit_type }}</td>
+                        <td>
+                            {% if stat.movement_type == 'giris' %}
+                            <span class="badge bg-success">Giriş</span>
+                            {% elif stat.movement_type == 'cikis' %}
+                            <span class="badge bg-danger">Çıkış</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ stat.movement_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">{{ stat.total|round(1) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted text-center mb-0">Bu ay için ürün hareketi bulunamadı.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

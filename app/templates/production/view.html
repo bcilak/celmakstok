@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}{{ line.name }} - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-3">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-2">
+                <li class="breadcrumb-item"><a href="{{ url_for('production.index') }}">Üretim Hatları</a></li>
+                <li class="breadcrumb-item active">{{ line.code }}</li>
+            </ol>
+        </nav>
+        <h1 class="page-title">{{ line.name }}</h1>
+        <p class="page-subtitle">{{ line.description or 'Üretim hattı detayları' }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('production.consume', id=line.id) }}" class="btn btn-danger">
+            <i class="bi bi-dash-lg me-1"></i>Malzeme Tüketimi
+        </a>
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('production.edit_line', id=line.id) }}" class="btn btn-outline-primary">
+            <i class="bi bi-pencil me-1"></i>Düzenle
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Aylık Özet -->
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="stat-card success">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="stat-value">{{ "%.1f"|format(month_in) }}</div>
+                    <div class="stat-label">Bu Ay Giriş</div>
+                </div>
+                <div class="stat-icon">
+                    <i class="bi bi-arrow-down-circle"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card danger">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="stat-value">{{ "%.1f"|format(month_out) }}</div>
+                    <div class="stat-label">Bu Ay Tüketim</div>
+                </div>
+                <div class="stat-icon">
+                    <i class="bi bi-arrow-up-circle"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card primary">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="stat-value">{{ movements.total }}</div>
+                    <div class="stat-label">Toplam Hareket</div>
+                </div>
+                <div class="stat-icon">
+                    <i class="bi bi-arrow-left-right"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- En Çok Kullanılan Ürünler -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-graph-up me-2"></i>En Çok Tüketilen
+            </div>
+            <div class="card-body p-0">
+                {% if top_products %}
+                <div class="list-group list-group-flush">
+                    {% for p in top_products %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="fw-medium">{{ p.name }}</div>
+                            <small class="text-muted">{{ p.unit_type }}</small>
+                        </div>
+                        <span class="badge bg-danger">{{ "%.1f"|format(p.total) }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-inbox fs-3"></i>
+                    <p class="small mb-0 mt-2">Henüz veri yok</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Hareket Geçmişi -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-clock-history me-2"></i>Hareket Geçmişi
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Ürün</th>
+                                <th>Hareket</th>
+                                <th class="text-end">Miktar</th>
+                                <th>Kullanıcı</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for movement in movements.items %}
+                            <tr>
+                                <td><small>{{ movement.created_at.strftime('%d.%m.%Y %H:%M') }}</small></td>
+                                <td>
+                                    <a href="{{ url_for('products.view', id=movement.product.id) }}"
+                                        class="text-decoration-none">
+                                        {{ movement.product.name }}
+                                    </a>
+                                </td>
+                                <td>
+                                    {% if movement.direction == 'in' %}
+                                    <span class="badge bg-success">Giriş</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">Çıkış</span>
+                                    {% endif %}
+                                </td>
+                                <td
+                                    class="text-end fw-medium {% if movement.direction == 'in' %}text-success{% else %}text-danger{% endif %}">
+                                    {% if movement.direction == 'in' %}+{% else %}-{% endif %}{{ movement.quantity }} {{
+                                    movement.product.unit_type }}
+                                </td>
+                                <td><small class="text-muted">{{ movement.user.full_name if movement.user else '-'
+                                        }}</small></td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">
+                                    Henüz hareket yok
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% if movements.pages > 1 %}
+            <div class="card-footer">
+                <nav>
+                    <ul class="pagination pagination-sm justify-content-center mb-0">
+                        {% if movements.has_prev %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ movements.prev_num }}">Önceki</a>
+                        </li>
+                        {% endif %}
+
+                        {% for page in movements.iter_pages() %}
+                        {% if page %}
+                        <li class="page-item {% if page == movements.page %}active{% endif %}">
+                            <a class="page-link" href="?page={{ page }}">{{ page }}</a>
+                        </li>
+                        {% endif %}
+                        {% endfor %}
+
+                        {% if movements.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ movements.next_num }}">Sonraki</a>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

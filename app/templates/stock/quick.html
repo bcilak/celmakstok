@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+
+{% block title %}Hızlı Stok İşlemi - ÇELMAK Stok Takip{% endblock %}
+
+{% block extra_css %}
+<style>
+    .product-search-box {
+        position: relative;
+    }
+
+    .search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        z-index: 1050;
+        max-height: 350px;
+        overflow-y: auto;
+        background: white;
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+        display: none;
+    }
+
+    .search-results.show {
+        display: block;
+    }
+
+    .search-result-item {
+        padding: 12px 16px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        transition: background 0.15s;
+    }
+
+    .search-result-item:hover {
+        background: #f8f9fa;
+    }
+
+    .search-result-item:last-child {
+        border-bottom: none;
+    }
+
+    .search-result-item .product-name {
+        font-weight: 600;
+        color: #333;
+    }
+
+    .search-result-item .product-code {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .search-result-item .product-stock {
+        font-weight: 700;
+    }
+
+    .stock-positive {
+        color: #198754;
+    }
+
+    .stock-zero {
+        color: #dc3545;
+    }
+
+    .selected-product-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 1rem;
+        padding: 1.5rem;
+    }
+
+    .action-buttons .btn {
+        padding: 1.25rem 2rem;
+        font-size: 1.25rem;
+        border-radius: 1rem;
+    }
+
+    .quantity-input {
+        font-size: 2rem;
+        font-weight: 700;
+        text-align: center;
+        height: 80px;
+        border-radius: 1rem;
+    }
+
+    .quick-amount-btn {
+        width: 60px;
+        height: 50px;
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+
+    .recent-item {
+        transition: transform 0.2s;
+    }
+
+    .recent-item:hover {
+        transform: translateX(5px);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><i class="bi bi-lightning-charge me-2"></i>Hızlı Stok İşlemi</h1>
+    <p class="page-subtitle">Ürün ara, miktar gir, işlemi seç - bu kadar basit!</p>
+</div>
+
+<div class="row g-4">
+    <!-- Sol Taraf: Ürün Arama ve Seçim -->
+    <div class="col-lg-7">
+        <!-- Arama Kutusu -->
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-4">
+                <label class="form-label fw-bold fs-5 mb-3">
+                    <i class="bi bi-search me-2"></i>Ürün Ara
+                </label>
+                <div class="product-search-box">
+                    <input type="text" id="productSearch" class="form-control form-control-lg"
+                        placeholder="Ürün kodu veya adı yazın..." autocomplete="off">
+                    <div id="searchResults" class="search-results"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Seçili Ürün -->
+        <div id="selectedProductSection" style="display: none;">
+            <div class="selected-product-card mb-4">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h3 class="mb-1" id="selectedProductName">-</h3>
+                        <span class="badge bg-white text-dark fs-6" id="selectedProductCode">-</span>
+                    </div>
+                    <button type="button" class="btn btn-light btn-sm" onclick="clearProduct()">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="row mt-4 text-center">
+                    <div class="col-6">
+                        <div class="display-4 fw-bold" id="selectedProductStock">0</div>
+                        <small class="opacity-75">Mevcut Stok</small>
+                    </div>
+                    <div class="col-6">
+                        <div class="display-4 fw-bold" id="selectedProductMin">0</div>
+                        <small class="opacity-75">Minimum</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Miktar Girişi -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <label class="form-label fw-bold fs-5 mb-3">
+                        <i class="bi bi-123 me-2"></i>Miktar
+                    </label>
+
+                    <div class="row g-3 align-items-center">
+                        <div class="col">
+                            <input type="number" id="quantityInput" class="form-control quantity-input" value="1"
+                                min="0.01" step="0.01">
+                        </div>
+                        <div class="col-auto">
+                            <span class="fs-4 text-muted" id="unitDisplay">adet</span>
+                        </div>
+                    </div>
+
+                    <!-- Hızlı Miktar Butonları -->
+                    <div class="d-flex gap-2 mt-3 flex-wrap">
+                        <button type="button" class="btn btn-outline-secondary quick-amount-btn"
+                            onclick="setAmount(1)">1</button>
+                        <button type="button" class="btn btn-outline-secondary quick-amount-btn"
+                            onclick="setAmount(5)">5</button>
+                        <button type="button" class="btn btn-outline-secondary quick-amount-btn"
+                            onclick="setAmount(10)">10</button>
+                        <button type="button" class="btn btn-outline-secondary quick-amount-btn"
+                            onclick="setAmount(25)">25</button>
+                        <button type="button" class="btn btn-outline-secondary quick-amount-btn"
+                            onclick="setAmount(50)">50</button>
+                        <button type="button" class="btn btn-outline-secondary quick-amount-btn"
+                            onclick="setAmount(100)">100</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- İşlem Butonları -->
+            <div class="action-buttons">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <button type="button" class="btn btn-success w-100" onclick="doStockIn()">
+                            <i class="bi bi-plus-circle me-2"></i>GİRİŞ
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button type="button" class="btn btn-danger w-100" onclick="doStockOut()">
+                            <i class="bi bi-dash-circle me-2"></i>ÇIKIŞ
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ürün Seçilmeden Önce -->
+        <div id="noProductSection">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center py-5">
+                    <div class="display-1 text-muted mb-3">
+                        <i class="bi bi-box-seam"></i>
+                    </div>
+                    <h4 class="text-muted">Ürün Aramaya Başlayın</h4>
+                    <p class="text-muted mb-0">Yukarıdaki arama kutusuna ürün kodu veya adı yazın</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sağ Taraf: Son İşlemler -->
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0">
+                    <i class="bi bi-clock-history me-2"></i>Son İşlemler
+                </h5>
+            </div>
+            <div class="card-body p-0" id="recentTransactions">
+                {% if recent_movements %}
+                <div class="list-group list-group-flush">
+                    {% for m in recent_movements %}
+                    <div class="list-group-item recent-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-medium">{{ m.product.name[:30] }}{% if m.product.name|length > 30 %}...{%
+                                    endif %}</div>
+                                <small class="text-muted">{{ m.created_at.strftime('%H:%M') }}</small>
+                            </div>
+                            <div class="text-end">
+                                {% if m.movement_type == 'giris' %}
+                                <span class="badge bg-success fs-6">+{{ m.quantity|int }}</span>
+                                {% else %}
+                                <span class="badge bg-danger fs-6">-{{ m.quantity|int }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-hourglass fs-1"></i>
+                    <p class="mt-2 mb-0">Henüz işlem yapılmadı</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Hızlı Bilgi -->
+        <div class="card border-0 shadow-sm mt-4 bg-info bg-opacity-10">
+            <div class="card-body">
+                <h6 class="text-info"><i class="bi bi-lightbulb me-2"></i>İpuçları</h6>
+                <ul class="small mb-0 text-dark">
+                    <li>Ürün adı veya kodu ile arama yapabilirsiniz</li>
+                    <li>Hızlı miktar butonları ile kolayca sayı girin</li>
+                    <li><span class="text-success fw-bold">GİRİŞ</span>: Stok ekleme (satın alma, iade)</li>
+                    <li><span class="text-danger fw-bold">ÇIKIŞ</span>: Stok düşme (üretime verme)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- İşlem Sonuç Modal -->
+<div class="modal fade" id="resultModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center py-5" id="resultModalBody">
+            </div>
+        </div>
+    </div>
+</div>
+
+<form id="stockForm" method="POST" style="display: none;">
+    <input type="hidden" name="product_id" id="formProductId">
+    <input type="hidden" name="quantity" id="formQuantity">
+    <input type="hidden" name="direction" id="formDirection">
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Ürün verileri
+    const products = {{ products_json| safe }};
+
+    console.log('Toplam ürün sayısı:', products.length);
+
+    let selectedProduct = null;
+
+    const searchInput = document.getElementById('productSearch');
+    const searchResults = document.getElementById('searchResults');
+    const selectedSection = document.getElementById('selectedProductSection');
+    const noProductSection = document.getElementById('noProductSection');
+
+    // Arama
+    searchInput.addEventListener('input', function () {
+        const query = this.value.toLowerCase().trim();
+
+        console.log('Arama:', query, 'Ürün sayısı:', products.length);
+
+        if (query.length < 1) {
+            searchResults.classList.remove('show');
+            return;
+        }
+
+        const filtered = products.filter(p =>
+            (p.code && p.code.toLowerCase().includes(query)) ||
+            (p.name && p.name.toLowerCase().includes(query))
+        ).slice(0, 15);
+
+        if (filtered.length === 0) {
+            searchResults.innerHTML = '<div class="p-3 text-muted text-center">Sonuç bulunamadı</div>';
+        } else {
+            searchResults.innerHTML = filtered.map(p => `
+            <div class="search-result-item" onclick="selectProduct(${p.id})">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="product-name">${p.name}</div>
+                        <div class="product-code">${p.code}</div>
+                    </div>
+                    <div class="text-end">
+                        <div class="product-stock ${p.stock > 0 ? 'stock-positive' : 'stock-zero'}">${p.stock}</div>
+                        <small class="text-muted">${p.unit}</small>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        }
+
+        searchResults.classList.add('show');
+    });
+
+    // Dışarı tıklayınca kapat
+    document.addEventListener('click', function (e) {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.classList.remove('show');
+        }
+    });
+
+    // Ürün seç
+    function selectProduct(id) {
+        selectedProduct = products.find(p => p.id === id);
+        if (!selectedProduct) return;
+
+        document.getElementById('selectedProductName').textContent = selectedProduct.name;
+        document.getElementById('selectedProductCode').textContent = selectedProduct.code;
+        document.getElementById('selectedProductStock').textContent = selectedProduct.stock;
+        document.getElementById('selectedProductMin').textContent = selectedProduct.min;
+        document.getElementById('unitDisplay').textContent = selectedProduct.unit;
+
+        searchInput.value = '';
+        searchResults.classList.remove('show');
+
+        noProductSection.style.display = 'none';
+        selectedSection.style.display = 'block';
+
+        document.getElementById('quantityInput').value = 1;
+        document.getElementById('quantityInput').focus();
+    }
+
+    // Ürün temizle
+    function clearProduct() {
+        selectedProduct = null;
+        selectedSection.style.display = 'none';
+        noProductSection.style.display = 'block';
+        searchInput.focus();
+    }
+
+    // Hızlı miktar
+    function setAmount(val) {
+        document.getElementById('quantityInput').value = val;
+    }
+
+    // Stok Girişi
+    function doStockIn() {
+        if (!selectedProduct) return;
+        submitStock('in');
+    }
+
+    // Stok Çıkışı
+    function doStockOut() {
+        if (!selectedProduct) return;
+
+        const qty = parseFloat(document.getElementById('quantityInput').value);
+        if (qty > selectedProduct.stock) {
+            showResult('error', 'Yetersiz Stok!', `Mevcut: ${selectedProduct.stock} ${selectedProduct.unit}`);
+            return;
+        }
+
+        submitStock('out');
+    }
+
+    // İşlemi gönder
+    function submitStock(direction) {
+        const qty = parseFloat(document.getElementById('quantityInput').value);
+
+        if (!qty || qty <= 0) {
+            showResult('error', 'Geçersiz Miktar', 'Lütfen geçerli bir miktar girin');
+            return;
+        }
+
+        document.getElementById('formProductId').value = selectedProduct.id;
+        document.getElementById('formQuantity').value = qty;
+        document.getElementById('formDirection').value = direction;
+        document.getElementById('stockForm').submit();
+    }
+
+    // Sonuç göster
+    function showResult(type, title, message) {
+        const modal = new bootstrap.Modal(document.getElementById('resultModal'));
+        const body = document.getElementById('resultModalBody');
+
+        if (type === 'success') {
+            body.innerHTML = `
+            <div class="text-success display-1 mb-3"><i class="bi bi-check-circle-fill"></i></div>
+            <h3>${title}</h3>
+            <p class="text-muted">${message}</p>
+            <button class="btn btn-success" data-bs-dismiss="modal">Tamam</button>
+        `;
+        } else {
+            body.innerHTML = `
+            <div class="text-danger display-1 mb-3"><i class="bi bi-x-circle-fill"></i></div>
+            <h3>${title}</h3>
+            <p class="text-muted">${message}</p>
+            <button class="btn btn-danger" data-bs-dismiss="modal">Tamam</button>
+        `;
+        }
+
+        modal.show();
+    }
+
+    // Sayfa yüklendiğinde
+    document.addEventListener('DOMContentLoaded', function () {
+        searchInput.focus();
+    });
+
+    // Enter ile arama sonucu seç
+    searchInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const firstResult = searchResults.querySelector('.search-result-item');
+            if (firstResult) {
+                firstResult.click();
+            }
+        }
+    });
+</script>
+{% endblock %}

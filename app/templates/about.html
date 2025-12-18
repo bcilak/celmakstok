@@ -1,0 +1,763 @@
+{% extends "base.html" %}
+
+{% block title %}Kullanım Kılavuzu - {{ config.APP_NAME }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .hero-section {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        border-radius: 20px;
+        padding: 3rem;
+        margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .hero-section::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+        pointer-events: none;
+    }
+
+    .hero-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #fff;
+        margin-bottom: 1rem;
+    }
+
+    .hero-subtitle {
+        font-size: 1.2rem;
+        color: rgba(255, 255, 255, 0.8);
+        margin-bottom: 0;
+    }
+
+    .version-badge {
+        background: linear-gradient(135deg, #00d4ff, #0099cc);
+        color: #fff;
+        padding: 0.5rem 1.5rem;
+        border-radius: 50px;
+        font-weight: 600;
+        display: inline-block;
+        margin-top: 1rem;
+    }
+
+    .guide-card {
+        background: #fff;
+        border-radius: 16px;
+        padding: 2rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        border: none;
+    }
+
+    .guide-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        margin-right: 1rem;
+        flex-shrink: 0;
+    }
+
+    .icon-blue {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+    }
+
+    .icon-green {
+        background: linear-gradient(135deg, #11998e, #38ef7d);
+        color: #fff;
+    }
+
+    .icon-orange {
+        background: linear-gradient(135deg, #f7b731, #fc8c1a);
+        color: #fff;
+    }
+
+    .icon-purple {
+        background: linear-gradient(135deg, #4facfe, #00f2fe);
+        color: #fff;
+    }
+
+    .icon-red {
+        background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+        color: #fff;
+    }
+
+    .icon-teal {
+        background: linear-gradient(135deg, #20bf6b, #26de81);
+        color: #fff;
+    }
+
+    .icon-pink {
+        background: linear-gradient(135deg, #f093fb, #f5576c);
+        color: #fff;
+    }
+
+    .guide-title {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        margin-bottom: 0.5rem;
+    }
+
+    .guide-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #f0f0f0;
+    }
+
+    .step-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        counter-reset: step-counter;
+    }
+
+    .step-list li {
+        position: relative;
+        padding: 1rem 1rem 1rem 3.5rem;
+        margin-bottom: 0.75rem;
+        background: #f8f9fa;
+        border-radius: 10px;
+        border-left: 4px solid #667eea;
+    }
+
+    .step-list li::before {
+        counter-increment: step-counter;
+        content: counter(step-counter);
+        position: absolute;
+        left: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 24px;
+        height: 24px;
+        background: #667eea;
+        color: #fff;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .step-list li strong {
+        color: #1a1a2e;
+    }
+
+    .tip-box {
+        background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+        border: 1px solid #81c784;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin-top: 1rem;
+    }
+
+    .tip-box i {
+        color: #388e3c;
+    }
+
+    .warning-box {
+        background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+        border: 1px solid #ffb74d;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin-top: 1rem;
+    }
+
+    .warning-box i {
+        color: #f57c00;
+    }
+
+    .quick-nav {
+        position: sticky;
+        top: 1rem;
+    }
+
+    .quick-nav-item {
+        display: block;
+        padding: 0.6rem 1rem;
+        color: #6c757d;
+        text-decoration: none;
+        border-left: 3px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .quick-nav-item:hover,
+    .quick-nav-item.active {
+        color: #667eea;
+        background: #f8f9fa;
+        border-left-color: #667eea;
+    }
+
+    .stats-mini {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .stat-mini-box {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 1rem 1.5rem;
+        text-align: center;
+        flex: 1;
+        min-width: 120px;
+    }
+
+    .stat-mini-number {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #667eea;
+    }
+
+    .stat-mini-label {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+
+    .timeline {
+        position: relative;
+        padding-left: 30px;
+    }
+
+    .timeline::before {
+        content: '';
+        position: absolute;
+        left: 8px;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: linear-gradient(180deg, #20bf6b, #667eea, #a5b1c2);
+        border-radius: 3px;
+    }
+
+    .timeline-item {
+        position: relative;
+        padding-bottom: 1.25rem;
+    }
+
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: -26px;
+        top: 5px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 3px solid #fff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .timeline-item.done::before {
+        background: #20bf6b;
+    }
+
+    .timeline-item.current::before {
+        background: #f7b731;
+        animation: pulse 2s infinite;
+    }
+
+    .timeline-item.planned::before {
+        background: #a5b1c2;
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            box-shadow: 0 0 0 0 rgba(247, 183, 49, 0.7);
+        }
+
+        50% {
+            box-shadow: 0 0 0 8px rgba(247, 183, 49, 0);
+        }
+    }
+
+    .accordion-button:not(.collapsed) {
+        background: linear-gradient(135deg, #667eea15, #764ba215);
+        color: #667eea;
+    }
+
+    .accordion-button:focus {
+        box-shadow: none;
+        border-color: #667eea33;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <!-- Hero Section -->
+    <div class="hero-section text-center">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <h1 class="hero-title">
+                    <i class="bi bi-book me-3"></i>Kullanım Kılavuzu
+                </h1>
+                <p class="hero-subtitle">
+                    ÇELMAK Stok Takip Sistemi'ni verimli kullanmak için ihtiyacınız olan tüm bilgiler.
+                    Adım adım rehberler, ipuçları ve kısa yollar.
+                </p>
+                <span class="version-badge">
+                    <i class="bi bi-code-slash me-2"></i>Versiyon 1.0 - Aralık 2025
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Sol Kolon - Ana İçerik -->
+        <div class="col-lg-8">
+
+            <!-- Hızlı Başlangıç -->
+            <div class="guide-card" id="baslangic">
+                <div class="guide-header">
+                    <div class="guide-icon icon-green">
+                        <i class="bi bi-rocket-takeoff"></i>
+                    </div>
+                    <div>
+                        <h3 class="guide-title mb-0">Hızlı Başlangıç</h3>
+                        <small class="text-muted">Sistemi kullanmaya başlamak için temel adımlar</small>
+                    </div>
+                </div>
+
+                <ol class="step-list">
+                    <li><strong>Giriş Yapın:</strong> Kullanıcı adı ve şifrenizle sisteme giriş yapın. İlk kullanımda
+                        yöneticinizden bilgilerinizi alın.</li>
+                    <li><strong>Dashboard'u İnceleyin:</strong> Ana sayfada güncel stok durumu, kritik uyarılar ve son
+                        işlemler görüntülenir.</li>
+                    <li><strong>Ürünleri Keşfedin:</strong> Sol menüden "Ürünler" sekmesine giderek tüm malzemeleri
+                        görüntüleyin.</li>
+                    <li><strong>İlk İşleminizi Yapın:</strong> "Hızlı İşlem" sayfasından kolayca stok girişi veya çıkışı
+                        yapabilirsiniz.</li>
+                </ol>
+
+                <div class="tip-box">
+                    <i class="bi bi-lightbulb-fill me-2"></i>
+                    <strong>İpucu:</strong> Hızlı erişim için sol menüdeki "Hızlı İşlem" butonunu kullanın. Tek sayfada
+                    arama, miktar ve işlem!
+                </div>
+            </div>
+
+            <!-- Stok Giriş/Çıkış -->
+            <div class="guide-card" id="stok-islemleri">
+                <div class="guide-header">
+                    <div class="guide-icon icon-blue">
+                        <i class="bi bi-arrow-left-right"></i>
+                    </div>
+                    <div>
+                        <h3 class="guide-title mb-0">Stok Giriş / Çıkış İşlemleri</h3>
+                        <small class="text-muted">Depo stok hareketlerini kaydetme</small>
+                    </div>
+                </div>
+
+                <h6 class="fw-bold mb-3"><i class="bi bi-lightning-charge text-warning me-2"></i>Hızlı İşlem (Önerilen)
+                </h6>
+                <ol class="step-list">
+                    <li><strong>Hızlı İşlem</strong> sayfasına gidin (Sol menü → Hızlı İşlem)</li>
+                    <li>Arama kutusuna ürün adı veya kodu yazın</li>
+                    <li>Listeden ürünü seçin - ürün bilgileri görüntülenecek</li>
+                    <li>Miktarı girin (hazır butonlar: 1, 5, 10, 25, 50, 100)</li>
+                    <li><span class="badge bg-success">GİRİŞ</span> veya <span class="badge bg-danger">ÇIKIŞ</span>
+                        butonuna tıklayın</li>
+                </ol>
+
+                <h6 class="fw-bold mb-3 mt-4"><i class="bi bi-box-arrow-in-down text-success me-2"></i>Detaylı Stok
+                    Girişi</h6>
+                <ol class="step-list">
+                    <li><strong>Stok Yönetimi → Stok Girişi</strong> menüsüne gidin</li>
+                    <li>Ürünü seçin, miktarı ve varsa notu girin</li>
+                    <li>Tedarikçi bilgisi ekleyebilirsiniz</li>
+                    <li>"Kaydet" butonuna tıklayın</li>
+                </ol>
+
+                <div class="warning-box">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <strong>Dikkat:</strong> Stok çıkışı yaparken mevcut stoktan fazla miktar giremezsiniz. Önce stok
+                    kontrolü yapın.
+                </div>
+            </div>
+
+            <!-- Ürün Yönetimi -->
+            <div class="guide-card" id="urun-yonetimi">
+                <div class="guide-header">
+                    <div class="guide-icon icon-purple">
+                        <i class="bi bi-box-seam"></i>
+                    </div>
+                    <div>
+                        <h3 class="guide-title mb-0">Ürün Yönetimi</h3>
+                        <small class="text-muted">Ürün ekleme, düzenleme ve kategorilendirme</small>
+                    </div>
+                </div>
+
+                <h6 class="fw-bold mb-3">Yeni Ürün Ekleme</h6>
+                <ol class="step-list">
+                    <li><strong>Ürünler</strong> sayfasına gidin ve <span class="badge bg-primary">+ Yeni Ürün</span>
+                        butonuna tıklayın</li>
+                    <li><strong>Ürün Adı:</strong> Açık ve anlaşılır bir isim girin (örn: "M8x20 Civata")</li>
+                    <li><strong>Kategori:</strong> Ürünün ait olduğu kategoriyi seçin</li>
+                    <li><strong>Birim:</strong> Adet, Kg, Metre, Kutu vb. seçin</li>
+                    <li><strong>Minimum Stok:</strong> Kritik seviye uyarısı için alt limit belirleyin</li>
+                    <li>"Kaydet" butonuna tıklayın</li>
+                </ol>
+
+                <h6 class="fw-bold mb-3 mt-4">Kategori Yapısı</h6>
+                <p class="text-muted small mb-3">Ürünler üretim hatlarına göre kategorize edilmiştir:</p>
+                <div class="row">
+                    <div class="col-md-6">
+                        <ul class="list-unstyled">
+                            <li><i class="bi bi-folder-fill text-warning me-2"></i>ORTAK MALZEMELER</li>
+                            <li><i class="bi bi-folder-fill text-primary me-2"></i>1 NOLU TAMBURLU HAT</li>
+                            <li><i class="bi bi-folder-fill text-success me-2"></i>2 NOLU TAMBURLU HAT</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <ul class="list-unstyled">
+                            <li><i class="bi bi-folder-fill text-info me-2"></i>3 NOLU TAMBURLU HAT</li>
+                            <li><i class="bi bi-folder-fill text-danger me-2"></i>KURUTMA HATTI</li>
+                            <li><i class="bi bi-folder-fill text-secondary me-2"></i>Diğer hatlar...</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="tip-box">
+                    <i class="bi bi-lightbulb-fill me-2"></i>
+                    <strong>İpucu:</strong> "ORTAK MALZEMELER" kategorisindeki ürünler tüm hatlar tarafından
+                    kullanılabilir (civata, somun, conta vb.)
+                </div>
+            </div>
+
+            <!-- Stok Sayımı -->
+            <div class="guide-card" id="stok-sayimi">
+                <div class="guide-header">
+                    <div class="guide-icon icon-orange">
+                        <i class="bi bi-clipboard-check"></i>
+                    </div>
+                    <div>
+                        <h3 class="guide-title mb-0">Stok Sayımı</h3>
+                        <small class="text-muted">Fiziksel sayım ve envanter kontrolü</small>
+                    </div>
+                </div>
+
+                <ol class="step-list">
+                    <li><strong>Sayım → Stok Sayımı</strong> menüsünden yeni sayım başlatın</li>
+                    <li>Sayım yapılacak kategoriyi seçin (veya tümü için boş bırakın)</li>
+                    <li>Her ürün için fiziksel sayımı girin</li>
+                    <li>Sistemdeki stokla farklılıklar otomatik hesaplanır</li>
+                    <li>Sayımı tamamlayın - stoklar otomatik güncellenir</li>
+                </ol>
+
+                <div class="warning-box">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <strong>Önemli:</strong> Sayım sırasında stok hareketleri yapmayın. Sayım tamamlandığında stoklar
+                    güncellenir.
+                </div>
+            </div>
+
+            <!-- Üretim Modülü -->
+            <div class="guide-card" id="uretim">
+                <div class="guide-header">
+                    <div class="guide-icon icon-red">
+                        <i class="bi bi-gear-wide-connected"></i>
+                    </div>
+                    <div>
+                        <h3 class="guide-title mb-0">Üretim ve Reçeteler</h3>
+                        <small class="text-muted">Üretim takibi ve malzeme tüketimi</small>
+                    </div>
+                </div>
+
+                <h6 class="fw-bold mb-3">Üretim Hatları</h6>
+                <p class="text-muted">Her üretim hattı bir kategori olarak tanımlanmıştır. Hat bazlı malzeme takibi
+                    yapabilirsiniz.</p>
+
+                <h6 class="fw-bold mb-3 mt-4">Reçete Tanımlama</h6>
+                <ol class="step-list">
+                    <li><strong>Üretim → Reçeteler</strong> menüsüne gidin</li>
+                    <li>Yeni reçete oluşturun ve üretilecek ürünü seçin</li>
+                    <li>Reçeteye hammadde ve malzemeleri ekleyin</li>
+                    <li>Her malzeme için birim miktar belirleyin</li>
+                    <li>Reçeteyi kaydedin</li>
+                </ol>
+
+                <h6 class="fw-bold mb-3 mt-4">Üretim Kaydı</h6>
+                <ol class="step-list">
+                    <li>Reçeteyi seçin ve üretim miktarını girin</li>
+                    <li>Sistem otomatik olarak malzeme tüketimini hesaplar</li>
+                    <li>Stoklar otomatik düşürülür</li>
+                </ol>
+            </div>
+
+            <!-- Raporlar -->
+            <div class="guide-card" id="raporlar">
+                <div class="guide-header">
+                    <div class="guide-icon icon-teal">
+                        <i class="bi bi-graph-up"></i>
+                    </div>
+                    <div>
+                        <h3 class="guide-title mb-0">Raporlar ve Analizler</h3>
+                        <small class="text-muted">Stok durumu ve hareket raporları</small>
+                    </div>
+                </div>
+
+                <div class="accordion" id="reportAccordion">
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#report1">
+                                <i class="bi bi-file-earmark-bar-graph me-2"></i>Stok Durum Raporu
+                            </button>
+                        </h2>
+                        <div id="report1" class="accordion-collapse collapse" data-bs-parent="#reportAccordion">
+                            <div class="accordion-body">
+                                Tüm ürünlerin güncel stok miktarlarını, minimum stok seviyelerini ve kritik durumda olan
+                                ürünleri görüntüler.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#report2">
+                                <i class="bi bi-arrow-left-right me-2"></i>Hareket Geçmişi
+                            </button>
+                        </h2>
+                        <div id="report2" class="accordion-collapse collapse" data-bs-parent="#reportAccordion">
+                            <div class="accordion-body">
+                                Belirli tarih aralığında yapılan tüm stok hareketlerini listeler. Ürün, kullanıcı veya
+                                hareket tipine göre filtrelenebilir.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#report3">
+                                <i class="bi bi-exclamation-triangle me-2"></i>Kritik Stok Raporu
+                            </button>
+                        </h2>
+                        <div id="report3" class="accordion-collapse collapse" data-bs-parent="#reportAccordion">
+                            <div class="accordion-body">
+                                Minimum stok seviyesinin altına düşmüş ürünleri listeler. Acil sipariş gerektiren
+                                malzemeleri hızlıca görün.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SSS -->
+            <div class="guide-card" id="sss">
+                <div class="guide-header">
+                    <div class="guide-icon icon-pink">
+                        <i class="bi bi-question-circle"></i>
+                    </div>
+                    <div>
+                        <h3 class="guide-title mb-0">Sık Sorulan Sorular</h3>
+                        <small class="text-muted">Yaygın sorunlar ve çözümleri</small>
+                    </div>
+                </div>
+
+                <div class="accordion" id="faqAccordion">
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#faq1">
+                                Şifremi unuttum, ne yapmalıyım?
+                            </button>
+                        </h2>
+                        <div id="faq1" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body">
+                                Sistem yöneticisiyle iletişime geçin. Yönetici, kullanıcı yönetimi panelinden şifrenizi
+                                sıfırlayabilir.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#faq2">
+                                Yanlış stok girişi yaptım, nasıl düzeltebilirim?
+                            </button>
+                        </h2>
+                        <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body">
+                                Yanlış girişi telafi etmek için ters işlem yapın. Örneğin fazla giriş yaptıysanız, aynı
+                                miktarda çıkış yapın.
+                                Veya stok sayımı yaparak gerçek duruma göre düzeltin.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#faq3">
+                                Kritik stok uyarısı alıyorum, ne anlama geliyor?
+                            </button>
+                        </h2>
+                        <div id="faq3" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body">
+                                Ürünün mevcut stoğu, tanımlanan minimum stok seviyesinin altına düşmüş demektir.
+                                Bu ürün için sipariş vermeniz veya tedarik etmeniz gerekebilir.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#faq4">
+                                Birden fazla kullanıcı aynı anda kullanabilir mi?
+                            </button>
+                        </h2>
+                        <div id="faq4" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body">
+                                Evet! Sistem çoklu kullanıcı desteğine sahiptir. Farklı bilgisayarlardan veya
+                                cihazlardan
+                                aynı anda giriş yapılabilir. Her kullanıcının işlemleri ayrı ayrı kayıt altına alınır.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Sağ Kolon - Yan Panel -->
+        <div class="col-lg-4">
+
+            <!-- Hızlı Navigasyon -->
+            <div class="guide-card quick-nav">
+                <h5 class="fw-bold mb-3"><i class="bi bi-list-ul me-2"></i>İçindekiler</h5>
+                <nav>
+                    <a href="#baslangic" class="quick-nav-item">
+                        <i class="bi bi-rocket-takeoff me-2"></i>Hızlı Başlangıç
+                    </a>
+                    <a href="#stok-islemleri" class="quick-nav-item">
+                        <i class="bi bi-arrow-left-right me-2"></i>Stok İşlemleri
+                    </a>
+                    <a href="#urun-yonetimi" class="quick-nav-item">
+                        <i class="bi bi-box-seam me-2"></i>Ürün Yönetimi
+                    </a>
+                    <a href="#stok-sayimi" class="quick-nav-item">
+                        <i class="bi bi-clipboard-check me-2"></i>Stok Sayımı
+                    </a>
+                    <a href="#uretim" class="quick-nav-item">
+                        <i class="bi bi-gear-wide-connected me-2"></i>Üretim ve Reçeteler
+                    </a>
+                    <a href="#raporlar" class="quick-nav-item">
+                        <i class="bi bi-graph-up me-2"></i>Raporlar
+                    </a>
+                    <a href="#sss" class="quick-nav-item">
+                        <i class="bi bi-question-circle me-2"></i>SSS
+                    </a>
+                </nav>
+            </div>
+
+            <!-- Sistem İstatistikleri -->
+            <div class="guide-card">
+                <h5 class="fw-bold mb-3"><i class="bi bi-bar-chart me-2"></i>Sistem Durumu</h5>
+                <div class="stats-mini">
+                    <div class="stat-mini-box">
+                        <div class="stat-mini-number">{{ stats.products }}</div>
+                        <div class="stat-mini-label">Ürün</div>
+                    </div>
+                    <div class="stat-mini-box">
+                        <div class="stat-mini-number">{{ stats.categories }}</div>
+                        <div class="stat-mini-label">Kategori</div>
+                    </div>
+                    <div class="stat-mini-box">
+                        <div class="stat-mini-number">{{ stats.movements }}</div>
+                        <div class="stat-mini-label">Hareket</div>
+                    </div>
+                    <div class="stat-mini-box">
+                        <div class="stat-mini-number">{{ stats.users }}</div>
+                        <div class="stat-mini-label">Kullanıcı</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kısayollar -->
+            <div class="guide-card">
+                <h5 class="fw-bold mb-3"><i class="bi bi-lightning-charge me-2"></i>Hızlı Erişim</h5>
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-speedometer2 me-2"></i>Dashboard
+                    </a>
+                    <a href="{{ url_for('stock.quick_movement') }}" class="btn btn-outline-success btn-sm">
+                        <i class="bi bi-lightning me-2"></i>Hızlı İşlem
+                    </a>
+                    <a href="{{ url_for('products.index') }}" class="btn btn-outline-info btn-sm">
+                        <i class="bi bi-box-seam me-2"></i>Ürünler
+                    </a>
+                    <a href="{{ url_for('warehouse.critical') }}" class="btn btn-outline-danger btn-sm">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Kritik Stoklar
+                    </a>
+                </div>
+            </div>
+
+            <!-- Geliştirme Planı -->
+            <div class="guide-card">
+                <h5 class="fw-bold mb-3"><i class="bi bi-calendar3 me-2"></i>Geliştirme Planı</h5>
+                <div class="timeline">
+                    <div class="timeline-item done">
+                        <div class="small text-muted">Aralık 2025</div>
+                        <div class="fw-medium">Temel Sistem</div>
+                        <div class="small text-muted">Stok, ürün, kullanıcı modülleri</div>
+                    </div>
+                    <div class="timeline-item done">
+                        <div class="small text-muted">Aralık 2025</div>
+                        <div class="fw-medium">Üretim Modülü</div>
+                        <div class="small text-muted">Reçeteler, üretim takibi</div>
+                    </div>
+                    <div class="timeline-item current">
+                        <div class="small text-muted">Ocak 2026</div>
+                        <div class="fw-medium">UI İyileştirmeleri</div>
+                        <div class="small text-muted">Hızlı işlem, modern tasarım</div>
+                    </div>
+                    <div class="timeline-item planned">
+                        <div class="small text-muted">Şubat 2026</div>
+                        <div class="fw-medium">Raporlama</div>
+                        <div class="small text-muted">Gelişmiş raporlar, grafikler</div>
+                    </div>
+                    <div class="timeline-item planned">
+                        <div class="small text-muted">Mart 2026</div>
+                        <div class="fw-medium">Entegrasyonlar</div>
+                        <div class="small text-muted">Barkod, Excel, API</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Destek -->
+            <div class="guide-card">
+                <h5 class="fw-bold mb-3"><i class="bi bi-headset me-2"></i>Destek</h5>
+                <p class="text-muted small mb-3">
+                    Sorun veya önerileriniz için sistem yöneticisiyle iletişime geçin.
+                </p>
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-person-badge text-primary"></i>
+                    <span class="small">Sistem Yöneticisi</span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-code-slash text-muted"></i>
+                    <span class="small text-muted">Sürüm 1.0.0</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+{% endblock %}

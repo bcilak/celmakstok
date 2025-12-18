@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Profil - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Profil</h1>
+    <p class="page-subtitle">Hesap bilgileriniz</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex align-items-center gap-3 mb-4">
+                    <div class="user-avatar" style="width: 64px; height: 64px; font-size: 1.5rem;">
+                        {{ current_user.full_name[0] }}
+                    </div>
+                    <div>
+                        <h5 class="mb-1">{{ current_user.full_name }}</h5>
+                        <span class="badge bg-primary">{{ current_user.role }}</span>
+                    </div>
+                </div>
+
+                <table class="table table-borderless">
+                    <tr>
+                        <td class="text-muted" style="width: 40%;">Kullanıcı Adı</td>
+                        <td class="fw-medium">{{ current_user.username }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Rol</td>
+                        <td class="fw-medium">
+                            {% if current_user.role == 'admin' %}Yönetici
+                            {% elif current_user.role == 'user' %}Kullanıcı
+                            {% else %}İzleyici{% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Kayıt Tarihi</td>
+                        <td class="fw-medium">{{ current_user.created_at.strftime('%d.%m.%Y') }}</td>
+                    </tr>
+                </table>
+
+                <hr>
+
+                <a href="{{ url_for('auth.change_password') }}" class="btn btn-outline-primary">
+                    <i class="bi bi-key me-2"></i>Şifre Değiştir
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

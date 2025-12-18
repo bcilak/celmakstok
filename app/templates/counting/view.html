@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}{{ session.session_name }} - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-3">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-2">
+                <li class="breadcrumb-item"><a href="{{ url_for('counting.index') }}">Sayım</a></li>
+                <li class="breadcrumb-item active">{{ session.session_name }}</li>
+            </ol>
+        </nav>
+        <h1 class="page-title">{{ session.session_name }}</h1>
+        <p class="page-subtitle">{{ session.session_date.strftime('%d.%m.%Y') }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        {% if session.status == 'active' %}
+        <a href="{{ url_for('counting.count', id=session.id) }}" class="btn btn-success">
+            <i class="bi bi-qr-code-scan me-1"></i>Sayım Yap
+        </a>
+        <form method="POST" action="{{ url_for('counting.complete_session', id=session.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-primary"
+                onclick="return confirm('Sayımı tamamlamak istediğinize emin misiniz?')">
+                <i class="bi bi-check-lg me-1"></i>Tamamla
+            </button>
+        </form>
+        {% endif %}
+
+        {% if session.status == 'completed' and current_user.role == 'admin' %}
+        <form method="POST" action="{{ url_for('counting.apply_differences', id=session.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-warning"
+                onclick="return confirm('Sayım farklarını sisteme uygulamak istediğinize emin misiniz?')">
+                <i class="bi bi-arrow-repeat me-1"></i>Farkları Uygula
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Durum -->
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="stat-card primary">
+            <div class="stat-value">{{ total_items }}</div>
+            <div class="stat-label">Toplam Ürün</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card success">
+            <div class="stat-value">{{ counted_items }}</div>
+            <div class="stat-label">Sayılan</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card warning">
+            <div class="stat-value">{{ total_items - counted_items }}</div>
+            <div class="stat-label">Bekleyen</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card danger">
+            <div class="stat-value">{{ items_with_diff }}</div>
+            <div class="stat-label">Fark Olan</div>
+        </div>
+    </div>
+</div>
+
+<!-- Progress -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between mb-2">
+            <span>İlerleme</span>
+            <span>{{ ((counted_items / total_items) * 100)|round(1) if total_items > 0 else 0 }}%</span>
+        </div>
+        <div class="progress" style="height: 10px;">
+            <div class="progress-bar bg-success"
+                style="width: {{ (counted_items / total_items) * 100 if total_items > 0 else 0 }}%"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="btn-group">
+            <a href="?status=" class="btn btn-outline-secondary {% if not filter_status %}active{% endif %}">Tümü</a>
+            <a href="?status=pending"
+                class="btn btn-outline-secondary {% if filter_status == 'pending' %}active{% endif %}">Bekleyen</a>
+            <a href="?status=counted"
+                class="btn btn-outline-secondary {% if filter_status == 'counted' %}active{% endif %}">Sayılan</a>
+            <a href="?status=difference"
+                class="btn btn-outline-secondary {% if filter_status == 'difference' %}active{% endif %}">Fark Olan</a>
+        </div>
+    </div>
+</div>
+
+<!-- Items -->
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Ürün</th>
+                        <th class="text-end">Sistem Stoku</th>
+                        <th class="text-end">Sayılan</th>
+                        <th class="text-end">Fark</th>
+                        <th>Durum</th>
+                        <th class="text-end">İşlem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td>
+                            <div class="fw-medium">{{ item.product.name }}</div>
+                            <small class="text-muted">{{ item.product.code }}</small>
+                        </td>
+                        <td class="text-end">{{ item.system_quantity }} {{ item.product.unit_type }}</td>
+                        <td class="text-end">
+                            {% if item.is_counted %}
+                            {{ item.counted_quantity }} {{ item.product.unit_type }}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if item.is_counted and item.difference %}
+                            <span
+                                class="fw-bold {% if item.difference > 0 %}text-success{% else %}text-danger{% endif %}">
+                                {% if item.difference > 0 %}+{% endif %}{{ item.difference }}
+                            </span>
+                            {% elif item.is_counted %}
+                            <span class="text-success">0</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.is_counted %}
+                            <span class="badge bg-success">Sayıldı</span>
+                            {% else %}
+                            <span class="badge bg-warning">Bekliyor</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if session.status == 'active' and not item.is_counted %}
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                                data-bs-target="#countModal{{ item.id }}">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Count Modals -->
+{% for item in items %}
+{% if session.status == 'active' and not item.is_counted %}
+<div class="modal fade" id="countModal{{ item.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('counting.count_item', id=session.id, item_id=item.id) }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Sayım: {{ item.product.name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center mb-4">
+                        <div class="display-6 fw-bold text-primary">{{ item.system_quantity }}</div>
+                        <small class="text-muted">Sistem Stoku ({{ item.product.unit_type }})</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Sayılan Miktar *</label>
+                        <input type="number" name="counted_quantity" class="form-control form-control-lg text-center"
+                            step="0.01" min="0" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Notlar</label>
+                        <input type="text" name="notes" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">İptal</button>
+                    <button type="submit" class="btn btn-primary">Kaydet</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endblock %}

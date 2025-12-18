@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Üretim Raporu - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h1 class="page-title"><i class="bi bi-gear-wide-connected me-2"></i>Üretim Raporu</h1>
+            <p class="page-subtitle">Reçetelerden yapılan üretimler</p>
+        </div>
+        <a href="{{ url_for('reports.index') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Raporlara Dön
+        </a>
+    </div>
+</div>
+
+<!-- Özet Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-gradient"
+            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+            <div class="card-body text-white">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <div class="bg-white bg-opacity-25 rounded-circle p-3">
+                            <i class="bi bi-box-seam fs-3"></i>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h2 class="mb-0 fw-bold">{{ total_productions or 0 }}</h2>
+                        <small class="text-white-50">Toplam Üretim</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-gradient"
+            style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+            <div class="card-body text-white">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <div class="bg-white bg-opacity-25 rounded-circle p-3">
+                            <i class="bi bi-hash fs-3"></i>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h2 class="mb-0 fw-bold">{{ total_quantity|round(0)|int if total_quantity else 0 }}</h2>
+                        <small class="text-white-50">Toplam Adet</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-gradient"
+            style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+            <div class="card-body text-white">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <div class="bg-white bg-opacity-25 rounded-circle p-3">
+                            <i class="bi bi-layers fs-3"></i>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h2 class="mb-0 fw-bold">{{ categories|length }}</h2>
+                        <small class="text-white-50">Üretim Hattı</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filtreler -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-semibold"><i class="bi bi-funnel me-1"></i>Üretim Hattı</label>
+                <select name="category" class="form-select">
+                    <option value="">Tüm Hatlar</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}" {% if selected_category==cat.id %}selected{% endif %}>
+                        {{ cat.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold"><i class="bi bi-calendar me-1"></i>Başlangıç</label>
+                <input type="date" name="start_date" class="form-control" value="{{ start_date or '' }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold"><i class="bi bi-calendar-check me-1"></i>Bitiş</label>
+                <input type="date" name="end_date" class="form-control" value="{{ end_date or '' }}">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-search me-1"></i>Filtrele
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Üretim Listesi -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>Üretim Kayıtları</h5>
+        <span class="badge bg-primary rounded-pill">{{ productions|length }} kayıt</span>
+    </div>
+
+    {% if productions %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-4">Tarih</th>
+                    <th>Üretilen Ürün</th>
+                    <th>Üretim Hattı</th>
+                    <th class="text-center">Miktar</th>
+                    <th>Kullanıcı</th>
+                    <th>Not</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in productions[:100] %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-light rounded-circle p-2 me-2">
+                                <i class="bi bi-calendar3 text-muted"></i>
+                            </div>
+                            <div>
+                                <div class="fw-semibold">{{ p.date.strftime('%d.%m.%Y') if p.date else '-' }}</div>
+                                <small class="text-muted">{{ p.date.strftime('%H:%M') if p.date else '' }}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <div class="bg-success bg-opacity-10 rounded-circle p-2 me-2">
+                                <i class="bi bi-box text-success"></i>
+                            </div>
+                            <div>
+                                <div class="fw-semibold">{{ p.recipe.name if p.recipe else 'Bilinmiyor' }}</div>
+                                {% if p.recipe and p.recipe.model_variant %}
+                                <span class="badge bg-info bg-opacity-10 text-info">{{ p.recipe.model_variant }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        {% if p.recipe and p.recipe.category %}
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2">
+                            <i class="bi bi-gear me-1"></i>{{ p.recipe.category.name }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-success fs-6 px-3 py-2">{{ p.quantity|round(0)|int }} adet</span>
+                    </td>
+                    <td>
+                        {% if p.user %}
+                        <div class="d-flex align-items-center">
+                            <div class="bg-primary bg-opacity-10 rounded-circle p-1 me-2"
+                                style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                <i class="bi bi-person text-primary small"></i>
+                            </div>
+                            <small>{{ p.user.name }}</small>
+                        </div>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if p.note %}
+                        <small class="text-muted" title="{{ p.note }}">{{ p.note[:30] }}{% if p.note|length > 30 %}...{%
+                            endif %}</small>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if productions|length > 100 %}
+    <div class="card-footer bg-light text-center">
+        <small class="text-muted">İlk 100 kayıt gösteriliyor. Toplam {{ productions|length }} üretim var.</small>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="card-body text-center py-5">
+        <div class="mb-3">
+            <i class="bi bi-inbox display-1 text-muted"></i>
+        </div>
+        <h5 class="text-muted">Henüz üretim kaydı yok</h5>
+        <p class="text-muted mb-4">Reçetelerden üretim yaparak kayıt oluşturabilirsiniz.</p>
+        <a href="{{ url_for('production.recipes') }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Üretim Yap
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Kategori Bazlı Özet (Varsa) -->
+{% if category_totals and productions %}
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white border-bottom py-3">
+        <h5 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Hat Bazlı Üretim Özeti</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Üretim Hattı</th>
+                        <th class="text-center">Üretim Sayısı</th>
+                        <th class="text-center">Toplam Adet</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat_id, data in category_totals.items() %}
+                    {% if data.count > 0 %}
+                    <tr>
+                        <td class="ps-4">
+                            <div class="d-flex align-items-center">
+                                <div class="bg-primary bg-opacity-10 rounded p-2 me-3">
+                                    <i class="bi bi-gear text-primary"></i>
+                                </div>
+                                <span class="fw-semibold">{{ data.name }}</span>
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-secondary rounded-pill px-3">{{ data.count }}</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-success rounded-pill px-3">{{ data.total|round(0)|int }} adet</span>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

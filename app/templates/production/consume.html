@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}Malzeme Tüketimi - {{ category.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-2">
+            <li class="breadcrumb-item"><a href="{{ url_for('production.index') }}">Üretim Hatları</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('production.view', id=category.id) }}">{{ category.name
+                    }}</a></li>
+            <li class="breadcrumb-item active">Tüketim</li>
+        </ol>
+    </nav>
+    <h1 class="page-title">Malzeme Tüketimi</h1>
+    <p class="page-subtitle">{{ category.name }} için malzeme tüketimi kaydedin</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Ürün * <small class="text-muted">(Tüm ürünlerden seçebilirsiniz -
+                                    Ortak malzemeler dahil)</small></label>
+                            <div class="position-relative">
+                                <input type="text" class="form-control mb-2" id="productSearch"
+                                    placeholder="🔍 Ürün ara... (kod veya isim yazın)" autocomplete="off">
+                                <select name="product_id" class="form-select" id="productSelect" required
+                                    style="display:none;">
+                                    <option value="">Ürün Seçin</option>
+                                    {% for p in products %}
+                                    <option value="{{ p.id }}" data-unit="{{ p.unit_type }}"
+                                        data-stock="{{ p.current_stock }}" data-code="{{ p.code }}"
+                                        data-name="{{ p.name }}"
+                                        data-category="{{ p.category.name if p.category else '' }}">
+                                        {{ p.code }} - {{ p.name }} (Stok: {{ p.current_stock }} {{ p.unit_type }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <div id="searchResults" class="list-group position-absolute w-100"
+                                    style="z-index:1000; max-height:300px; overflow-y:auto; display:none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                                </div>
+                            </div>
+                            <div id="selectedProduct" class="alert alert-warning mt-2" style="display:none;">
+                                <strong id="selectedProductName"></strong>
+                                <button type="button" class="btn-close float-end" onclick="clearSelection()"></button>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Tüketim Miktarı *</label>
+                            <div class="input-group">
+                                <input type="number" name="quantity" class="form-control" id="quantityInput" step="0.01"
+                                    min="0.01" required>
+                                <span class="input-group-text" id="unitDisplay">birim</span>
+                            </div>
+                            <div class="form-text text-danger" id="stockWarning" style="display: none;">
+                                <i class="bi bi-exclamation-triangle me-1"></i>Yetersiz stok!
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Notlar</label>
+                            <textarea name="notes" class="form-control" rows="2"
+                                placeholder="İş emri, parça numarası vb."></textarea>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-danger" id="submitBtn">
+                            <i class="bi bi-dash-lg me-2"></i>Tüketimi Kaydet (Stoktan Düş)
+                        </button>
+                        <a href="{{ url_for('production.view', id=category.id) }}"
+                            class="btn btn-outline-secondary">İptal</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card bg-danger bg-opacity-10">
+            <div class="card-body text-center">
+                <i class="bi bi-gear-wide-connected fs-1 text-danger mb-2"></i>
+                <h5>{{ category.name }}</h5>
+                <p class="text-muted small mb-0">
+                    Seçtiğiniz malzeme <strong>genel stoktan</strong> düşülecektir
+                </p>
+            </div>
+        </div>
+
+        <div class="card mt-3" id="productInfo" style="display: none;">
+            <div class="card-body">
+                <h6 class="card-title">Seçili Ürün</h6>
+                <div class="text-center py-3">
+                    <div class="display-6 fw-bold" id="currentStock">0</div>
+                    <small class="text-muted">Mevcut Stok</small>
+                </div>
+                <div class="text-center">
+                    <small class="text-muted" id="productCategory"></small>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3 bg-info bg-opacity-10">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-info-circle me-2"></i>Bilgi</h6>
+                <p class="small mb-0">
+                    Burada <strong>tüm ürünler</strong> arasından seçim yapabilirsiniz.
+                    Ortak malzemeler (somun, civata vb.) dahil tüm ürünlerin stoku
+                    bu sayfadan düşürülebilir.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentStock = 0;
+    const productSelect = document.getElementById('productSelect');
+    const searchInput = document.getElementById('productSearch');
+    const searchResults = document.getElementById('searchResults');
+    const selectedProductDiv = document.getElementById('selectedProduct');
+    const selectedProductName = document.getElementById('selectedProductName');
+
+    // Tüm ürün seçeneklerini diziye al
+    const allProducts = [];
+    for (let option of productSelect.options) {
+        if (option.value) {
+            allProducts.push({
+                id: option.value,
+                code: option.dataset.code || '',
+                name: option.dataset.name || '',
+                unit: option.dataset.unit || 'birim',
+                stock: parseFloat(option.dataset.stock) || 0,
+                category: option.dataset.category || '',
+                text: option.textContent
+            });
+        }
+    }
+
+    // Arama fonksiyonu
+    searchInput.addEventListener('input', function () {
+        const query = this.value.toLowerCase().trim();
+
+        if (query.length < 2) {
+            searchResults.style.display = 'none';
+            return;
+        }
+
+        const filtered = allProducts.filter(p =>
+            p.code.toLowerCase().includes(query) ||
+            p.name.toLowerCase().includes(query)
+        ).slice(0, 20);
+
+        if (filtered.length === 0) {
+            searchResults.innerHTML = '<div class="list-group-item text-muted">Sonuç bulunamadı</div>';
+        } else {
+            searchResults.innerHTML = filtered.map(p => {
+                const stockClass = p.stock <= 0 ? 'bg-danger' : 'bg-success';
+                const isOrtak = p.category === 'ORTAK MALZEMELER' ? '<span class="badge bg-info ms-1">Ortak</span>' : '';
+                return `
+                <button type="button" class="list-group-item list-group-item-action ${p.stock <= 0 ? 'list-group-item-danger' : ''}" 
+                    onclick="selectProduct('${p.id}', '${p.code}', '${p.name.replace(/'/g, "\\'")}', '${p.unit}', ${p.stock}, '${p.category.replace(/'/g, "\\'")}')">
+                    <strong>${p.code}</strong> - ${p.name} ${isOrtak}
+                    <span class="badge ${stockClass} float-end">${p.stock} ${p.unit}</span>
+                </button>
+            `;
+            }).join('');
+        }
+        searchResults.style.display = 'block';
+    });
+
+    // Ürün seçme
+    function selectProduct(id, code, name, unit, stock, category) {
+        productSelect.value = id;
+        currentStock = stock;
+        searchInput.value = '';
+        searchResults.style.display = 'none';
+
+        const categoryBadge = category === 'ORTAK MALZEMELER' ? ' <span class="badge bg-info">Ortak Malzeme</span>' : '';
+        selectedProductName.innerHTML = code + ' - ' + name + ' (Stok: ' + stock + ' ' + unit + ')' + categoryBadge;
+        selectedProductDiv.style.display = 'block';
+
+        document.getElementById('unitDisplay').textContent = unit;
+        document.getElementById('currentStock').textContent = stock + ' ' + unit;
+        document.getElementById('productCategory').textContent = 'Kategori: ' + category;
+        document.getElementById('productInfo').style.display = 'block';
+
+        checkStock();
+    }
+
+    // Seçimi temizle
+    function clearSelection() {
+        productSelect.value = '';
+        currentStock = 0;
+        selectedProductDiv.style.display = 'none';
+        document.getElementById('productInfo').style.display = 'none';
+        searchInput.focus();
+    }
+
+    // Dışarı tıklayınca sonuçları kapat
+    document.addEventListener('click', function (e) {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.style.display = 'none';
+        }
+    });
+
+    document.getElementById('quantityInput').addEventListener('input', checkStock);
+
+    function checkStock() {
+        const qty = parseFloat(document.getElementById('quantityInput').value) || 0;
+        const warning = document.getElementById('stockWarning');
+        const btn = document.getElementById('submitBtn');
+
+        if (qty > currentStock) {
+            warning.style.display = 'block';
+            btn.disabled = true;
+        } else {
+            warning.style.display = 'none';
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+
+{% block title %}Üretim Hatları / Kategoriler - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+        <h1 class="page-title"><i class="bi bi-gear-fill me-2"></i>Üretim Hatları</h1>
+        <p class="page-subtitle">Kategorilere göre ürünleri görüntüle ve yönet</p>
+    </div>
+    <a href="{{ url_for('production.recipes') }}" class="btn btn-outline-primary">
+        <i class="bi bi-journal-code me-1"></i>Reçeteler
+    </a>
+</div>
+
+<!-- Özet Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon primary me-3">
+                        <i class="bi bi-folder2"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-dark">{{ categories|length }}</div>
+                        <small class="text-muted">Kategori</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon success me-3">
+                        <i class="bi bi-box-seam"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-success">
+                            {% set total_products = namespace(value=0) %}
+                            {% for cat in categories %}
+                            {% set total_products.value = total_products.value + category_stats[cat.id].product_count %}
+                            {% endfor %}
+                            {{ total_products.value }}
+                        </div>
+                        <small class="text-muted">Toplam Ürün</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon warning me-3">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-warning">
+                            {% set total_critical = namespace(value=0) %}
+                            {% for cat in categories %}
+                            {% set total_critical.value = total_critical.value + category_stats[cat.id].critical_count
+                            %}
+                            {% endfor %}
+                            {{ total_critical.value }}
+                        </div>
+                        <small class="text-muted">Kritik Stok</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                    <div class="gradient-icon info me-3">
+                        <i class="bi bi-boxes"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold text-info">
+                            {% set total_stock = namespace(value=0) %}
+                            {% for cat in categories %}
+                            {% set total_stock.value = total_stock.value + category_stats[cat.id].total_stock %}
+                            {% endfor %}
+                            {{ "%.0f"|format(total_stock.value) }}
+                        </div>
+                        <small class="text-muted">Toplam Stok</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Arama ve Filtre -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-8">
+                <label class="form-label small text-muted">
+                    <i class="bi bi-search me-1"></i>Kategori Ara
+                </label>
+                <div class="search-input-wrapper">
+                    <i class="bi bi-search search-icon"></i>
+                    <input type="text" id="categorySearch" class="form-control" placeholder="Kategori adı yazın...">
+                </div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small text-muted">
+                    <i class="bi bi-sort-down me-1"></i>Sıralama
+                </label>
+                <select id="categorySort" class="form-select">
+                    <option value="name">Ada Göre</option>
+                    <option value="count">Ürün Sayısına Göre</option>
+                    <option value="stock">Stok Miktarına Göre</option>
+                    <option value="critical">Kritik Stoğa Göre</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Kategori Kartları -->
+<div class="row g-4" id="categoryList">
+    {% for cat in categories %}
+    <div class="col-md-6 col-xl-4 category-card" data-name="{{ cat.name.lower() }}"
+        data-count="{{ category_stats[cat.id].product_count }}" data-stock="{{ category_stats[cat.id].total_stock }}"
+        data-critical="{{ category_stats[cat.id].critical_count }}">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div class="d-flex align-items-center">
+                        <div class="gradient-icon primary me-3">
+                            <i class="bi bi-folder-fill"></i>
+                        </div>
+                        <div>
+                            <h5 class="card-title mb-0 fw-bold">{{ cat.name }}</h5>
+                            {% if cat.description %}
+                            <small class="text-muted">{{ cat.description }}</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if category_stats[cat.id].critical_count > 0 %}
+                    <span class="badge bg-danger bg-opacity-10 text-danger px-2 py-1 pulse-danger">
+                        <i class="bi bi-exclamation-triangle me-1"></i>{{ category_stats[cat.id].critical_count }}
+                    </span>
+                    {% endif %}
+                </div>
+
+                <div class="row text-center g-2 mb-4">
+                    <div class="col-4">
+                        <div class="bg-primary bg-opacity-10 rounded-3 p-3">
+                            <div class="fw-bold text-primary fs-4">{{ category_stats[cat.id].product_count }}</div>
+                            <small class="text-muted">Ürün</small>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="bg-success bg-opacity-10 rounded-3 p-3">
+                            <div class="fw-bold text-success fs-4">{{ "%.0f"|format(category_stats[cat.id].total_stock)
+                                }}</div>
+                            <small class="text-muted">Stok</small>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="bg-danger bg-opacity-10 rounded-3 p-3">
+                            <div class="fw-bold text-danger fs-4">{{ category_stats[cat.id].critical_count }}</div>
+                            <small class="text-muted">Kritik</small>
+                        </div>
+                    </div>
+                </div>
+
+                <a href="{{ url_for('production.view_category', id=cat.id) }}" class="btn btn-primary w-100">
+                    <i class="bi bi-box-seam me-2"></i>Ürünleri Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-folder-x display-1 text-muted"></i>
+                <h4 class="mt-3 text-muted">Kategori bulunamadı</h4>
+                <p class="text-muted">Henüz kategori oluşturulmamış.</p>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+    document.getElementById('categorySearch').addEventListener('input', function () {
+        const search = this.value.toLowerCase();
+        document.querySelectorAll('.category-card').forEach(card => {
+            const name = card.dataset.name;
+            card.style.display = name.includes(search) ? '' : 'none';
+        });
+    });
+
+    document.getElementById('categorySort').addEventListener('change', function () {
+        const container = document.getElementById('categoryList');
+        const cards = Array.from(container.querySelectorAll('.category-card'));
+
+        cards.sort((a, b) => {
+            if (this.value === 'name') {
+                return a.dataset.name.localeCompare(b.dataset.name, 'tr');
+            } else if (this.value === 'count') {
+                return parseInt(b.dataset.count) - parseInt(a.dataset.count);
+            } else if (this.value === 'critical') {
+                return parseInt(b.dataset.critical) - parseInt(a.dataset.critical);
+            } else {
+                return parseFloat(b.dataset.stock) - parseFloat(a.dataset.stock);
+            }
+        });
+
+        cards.forEach(card => container.appendChild(card));
+    });
+</script>
+{% endblock %}
