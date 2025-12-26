@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+
+{% block title %}Ürün İmport - ÇELMAK Stok{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h2 class="mb-3">
+                <i class="bi bi-file-earmark-excel"></i> Excel'den Toplu Ürün İmport
+            </h2>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('main.dashboard') }}">Ana Sayfa</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('products.index') }}">Ürünler</a></li>
+                    <li class="breadcrumb-item active">Excel İmport</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Adım 1: Şablon İndir -->
+        <div class="col-md-4 mb-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-download"></i> Adım 1: Şablon İndir</h5>
+                </div>
+                <div class="card-body">
+                    <p>Önce Excel şablonunu indirin ve doldurun.</p>
+                    <ul class="small mb-3">
+                        <li>Şablon otomatik formatlanmıştır</li>
+                        <li>Örnek veriler bulunmaktadır</li>
+                        <li>Açıklama sayfası vardır</li>
+                        <li>Kategori ID'leri aşağıdaki listeden alınmalıdır</li>
+                    </ul>
+                    <a href="{{ url_for('products.download_template') }}" class="btn btn-primary w-100">
+                        <i class="bi bi-file-earmark-excel"></i> Şablonu İndir
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Adım 2: Dosya Yükle -->
+        <div class="col-md-4 mb-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="bi bi-upload"></i> Adım 2: Dosya Yükle</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('products.upload_import') }}" enctype="multipart/form-data">
+                        <p>Doldurduğunuz Excel dosyasını yükleyin.</p>
+                        <div class="mb-3">
+                            <label for="file" class="form-label">Excel Dosyası (.xlsx, .xls)</label>
+                            <input type="file" class="form-control" id="file" name="file" accept=".xlsx,.xls" required>
+                        </div>
+                        <div class="alert alert-info small mb-3">
+                            <i class="bi bi-info-circle"></i>
+                            <strong>Önemli:</strong>
+                            <ul class="mb-0 mt-2">
+                                <li>Mevcut ürün kodları güncellenecek</li>
+                                <li>Yeni ürün kodları eklenecek</li>
+                                <li>Şablon formatı değiştirilmemelidir</li>
+                            </ul>
+                        </div>
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="bi bi-upload"></i> Dosyayı Yükle ve İmport Et
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Adım 3: Kategori Listesi -->
+        <div class="col-md-4 mb-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="bi bi-list-ul"></i> Adım 3: Kategori Listesi</h5>
+                </div>
+                <div class="card-body">
+                    <p class="small">Excel'de kullanacağınız Kategori ID'leri:</p>
+                    <div style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead class="sticky-top bg-white">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Kategori Adı</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for category in categories %}
+                                <tr>
+                                    <td><code>{{ category.id }}</code></td>
+                                    <td>{{ category.name }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kullanım Talimatları -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0"><i class="bi bi-book"></i> Kullanım Talimatları</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-check-circle-fill text-success"></i> Zorunlu Alanlar:</h6>
+                            <ul>
+                                <li><strong>Ürün Kodu:</strong> Benzersiz olmalıdır (örn: HM-001, OS-123)</li>
+                                <li><strong>Ürün Adı:</strong> Malzemenin tam adı</li>
+                                <li><strong>Kategori ID:</strong> Sağdaki listeden seçilmelidir</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-info-circle-fill text-primary"></i> Opsiyonel Alanlar:</h6>
+                            <ul>
+                                <li><strong>Birim Tipi:</strong> adet, kg, metre, litre vb. (varsayılan: adet)</li>
+                                <li><strong>Mevcut Stok:</strong> Başlangıç stok miktarı (varsayılan: 0)</li>
+                                <li><strong>Minimum Stok:</strong> Kritik stok seviyesi (varsayılan: 0)</li>
+                                <li><strong>Barkod:</strong> Ürün barkodu</li>
+                                <li><strong>Notlar:</strong> Ek bilgiler</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="alert alert-warning mb-0">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <strong>Dikkat:</strong> Aynı ürün koduna sahip ürünler güncellen ecektir. Yeni ürün kodları eklenecektir. İşlem geri alınamaz!
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

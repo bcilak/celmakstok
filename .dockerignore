@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# Database (local development)
+*.db
+*.sqlite
+*.sqlite3
+instance/*.db
+
+# Environment variables (will be set via docker-compose)
+.env.local
+.env.development
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Migration helper (not needed in container)
+migrate_to_postgres.py
+
+# Temporary files
+*.tmp
+*.temp

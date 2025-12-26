@@ -229,10 +229,14 @@
                             </div>
                         </td>
                         <td>
+                            {% if movement.product %}
                             <a href="{{ url_for('products.view', id=movement.product.id) }}"
                                 class="text-decoration-none text-dark fw-semibold">
                                 {{ movement.product.name }}
                             </a>
+                            {% else %}
+                            <span class="text-danger">Ürün bulunamadı</span>
+                            {% endif %}
                         </td>
                         <td>
                             {% if movement.direction == 'in' %}

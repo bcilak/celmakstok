@@ -3,6 +3,12 @@ from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement
 from app import db
 from app.utils.qr_generator import generate_qr_code
+from app.utils.excel_utils import (
+    create_product_template,
+    parse_product_excel,
+    export_products_to_excel
+)
+from datetime import datetime
 import io
 
 products_bp = Blueprint('products', __name__)
@@ -216,3 +222,171 @@ def delete_category(id):
         flash('Kategori başarıyla silindi.', 'success')
     
     return redirect(url_for('products.categories'))
+
+# Excel Import/Export Routes
+
+@products_bp.route('/import')
+@login_required
+def import_page():
+    """Excel import sayfası"""
+    if current_user.role not in ['admin', 'yonetici']:
+        flash('Bu işlem için yetkiniz yok.', 'error')
+        return redirect(url_for('products.index'))
+    
+    categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
+    return render_template('products/import.html', categories=categories)
+
+
+@products_bp.route('/import/template')
+@login_required
+def download_template():
+    """Excel şablonunu indir"""
+    template = create_product_template()
+    
+    return send_file(
+        template,
+        as_attachment=True,
+        download_name=f'urun_import_sablonu_{datetime.now().strftime("%Y%m%d")}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@products_bp.route('/import/upload', methods=['POST'])
+@login_required
+def upload_import():
+    """Excel dosyasını yükle ve import et"""
+    if current_user.role not in ['admin', 'yonetici']:
+        flash('Bu işlem için yetkiniz yok.', 'error')
+        return redirect(url_for('products.index'))
+    
+    if 'file' not in request.files:
+        flash('Dosya seçilmedi.', 'error')
+        return redirect(url_for('products.import_page'))
+    
+    file = request.files['file']
+    
+    if file.filename == '':
+        flash('Dosya seçilmedi.', 'error')
+        return redirect(url_for('products.import_page'))
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Sadece Excel dosyaları yükleyebilirsiniz (.xlsx, .xls)', 'error')
+        return redirect(url_for('products.import_page'))
+    
+    try:
+        # Excel dosyasını parse et
+        success_list, error_list = parse_product_excel(file)
+        
+        if not success_list and error_list:
+            flash(f'Dosya okunamadı: {error_list[0]["error"]}', 'error')
+            return redirect(url_for('products.import_page'))
+        
+        # Ürünleri ekle
+        added_count = 0
+        updated_count = 0
+        skipped_count = 0
+        
+        for product_data in success_list:
+            # Kategori kontrolü
+            category = Category.query.get(product_data['category_id'])
+            if not category:
+                error_list.append({
+                    'row': 'N/A',
+                    'error': f'Kategori bulunamadı: {product_data["category_id"]} (Ürün: {product_data["code"]})'
+                })
+                skipped_count += 1
+                continue
+            
+            # Mevcut ürün kontrolü
+            existing_product = Product.query.filter_by(code=product_data['code']).first()
+            
+            if existing_product:
+                # Güncelle
+                existing_product.name = product_data['name']
+                existing_product.category_id = product_data['category_id']
+                existing_product.unit_type = product_data['unit_type']
+                existing_product.current_stock = product_data['current_stock']
+                existing_product.minimum_stock = product_data['minimum_stock']
+                existing_product.barcode = product_data['barcode']
+                existing_product.notes = product_data['notes']
+                updated_count += 1
+            else:
+                # Yeni ekle
+                new_product = Product(
+                    code=product_data['code'],
+                    name=product_data['name'],
+                    category_id=product_data['category_id'],
+                    unit_type=product_data['unit_type'],
+                    current_stock=product_data['current_stock'],
+                    minimum_stock=product_data['minimum_stock'],
+                    barcode=product_data['barcode'],
+                    notes=product_data['notes']
+                )
+                db.session.add(new_product)
+                added_count += 1
+        
+        db.session.commit()
+        
+        # Sonuç mesajı
+        messages = []
+        if added_count > 0:
+            messages.append(f'{added_count} ürün eklendi')
+        if updated_count > 0:
+            messages.append(f'{updated_count} ürün güncellendi')
+        if skipped_count > 0:
+            messages.append(f'{skipped_count} ürün atlandı')
+        if error_list:
+            messages.append(f'{len(error_list)} hata')
+        
+        if added_count > 0 or updated_count > 0:
+            flash(f'İşlem tamamlandı: {", ".join(messages)}', 'success')
+        else:
+            flash(f'İşlem tamamlandı ancak hiç ürün eklenmedi/güncellenmedi.', 'warning')
+        
+        if error_list:
+            for error in error_list[:5]:  # İlk 5 hatayı göster
+                flash(f'Satır {error["row"]}: {error["error"]}', 'error')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Import sırasında hata oluştu: {str(e)}', 'error')
+    
+    return redirect(url_for('products.import_page'))
+
+
+@products_bp.route('/export')
+@login_required
+def export_products():
+    """Ürünleri Excel'e aktar"""
+    category_id = request.args.get('category', type=int)
+    search = request.args.get('search', '')
+    
+    query = Product.query.filter_by(is_active=True)
+    
+    if category_id:
+        query = query.filter_by(category_id=category_id)
+    
+    if search:
+        query = query.filter(
+            db.or_(
+                Product.name.ilike(f'%{search}%'),
+                Product.code.ilike(f'%{search}%')
+            )
+        )
+    
+    products = query.order_by(Product.name).all()
+    
+    if not products:
+        flash('Dışa aktarılacak ürün bulunamadı.', 'warning')
+        return redirect(url_for('products.index'))
+    
+    excel_file = export_products_to_excel(products)
+    
+    filename = f'urunler_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    
+    return send_file(
+        excel_file,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )

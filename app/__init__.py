@@ -1,9 +1,11 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
+from flask_migrate import Migrate
 from config import Config
 
 db = SQLAlchemy()
+migrate = Migrate()
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 login_manager.login_message = 'Bu sayfayı görüntülemek için giriş yapmalısınız.'
@@ -11,10 +13,12 @@ login_manager.login_message = 'Bu sayfayı görüntülemek için giriş yapmalı
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
-    
+
+    # Extensions
     db.init_app(app)
+    migrate.init_app(app, db)
     login_manager.init_app(app)
-    
+
     # Blueprint'leri kaydet
     from app.routes.main import main_bp
     from app.routes.auth import auth_bp
@@ -25,7 +29,7 @@ def create_app(config_class=Config):
     from app.routes.counting import counting_bp
     from app.routes.reports import reports_bp
     from app.routes.api import api_bp
-    
+
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(products_bp, url_prefix='/products')
@@ -35,8 +39,5 @@ def create_app(config_class=Config):
     app.register_blueprint(counting_bp, url_prefix='/counting')
     app.register_blueprint(reports_bp, url_prefix='/reports')
     app.register_blueprint(api_bp, url_prefix='/api')
-    
-    with app.app_context():
-        db.create_all()
-    
+
     return app
