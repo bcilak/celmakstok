@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file
+from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, current_app
 from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement
 from app import db
@@ -81,8 +81,8 @@ def add():
             )
             db.session.add(product)
             db.session.commit()
-            
-            # QR kod oluştur
+
+            # QR kod referansı oluştur (veritabanında sadece ID saklıyoruz)
             product.qr_code = f"CELMAK-{product.id}"
             db.session.commit()
             
@@ -156,11 +156,12 @@ def delete(id):
 @login_required
 def qr_code(id):
     product = Product.query.get_or_404(id)
-    
-    # QR kod oluştur
-    qr_data = f"CELMAK-{product.id}|{product.code}|{product.name}"
+
+    # QR kod oluştur - tam URL ile
+    base_url = current_app.config.get('BASE_URL', 'http://localhost:5000')
+    qr_data = f"{base_url}/products/{product.id}"
     img_io = generate_qr_code(qr_data)
-    
+
     return send_file(
         img_io,
         mimetype='image/png',
@@ -172,10 +173,12 @@ def qr_code(id):
 @login_required
 def download_qr(id):
     product = Product.query.get_or_404(id)
-    
-    qr_data = f"CELMAK-{product.id}|{product.code}|{product.name}"
+
+    # QR kod oluştur - tam URL ile
+    base_url = current_app.config.get('BASE_URL', 'http://localhost:5000')
+    qr_data = f"{base_url}/products/{product.id}"
     img_io = generate_qr_code(qr_data)
-    
+
     return send_file(
         img_io,
         mimetype='image/png',

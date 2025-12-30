@@ -24,6 +24,7 @@ class Config:
     # Uygulama ayarları
     APP_NAME = "ÇELMAK Stok Takip Sistemi"
     ITEMS_PER_PAGE = int(os.environ.get('ITEMS_PER_PAGE', 25))
+    BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
 
     # QR Kod ayarları
     QR_CODE_VERSION = 1
@@ -32,3 +33,10 @@ class Config:
 
     # Debug mod (production'da False olmalı)
     DEBUG = os.environ.get('FLASK_ENV') == 'development'
+
+    # Session ayarları (HTTPS proxy için)
+    SESSION_COOKIE_SECURE = False  # Apache zaten HTTPS yapıyor
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    REMEMBER_COOKIE_SECURE = False
+    REMEMBER_COOKIE_HTTPONLY = True

@@ -1,0 +1,21 @@
+RewriteEngine On
+
+# Gunicorn'a proxy yap
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L]
+
+# Proxy ayarları
+ProxyPreserveHost On
+ProxyPass /static !
+ProxyPass / http://127.0.0.1:5000/
+ProxyPassReverse / http://127.0.0.1:5000/
+
+# Static dosyalar için doğrudan erişim
+<IfModule mod_alias.c>
+    Alias /static /home/altikodtech/domains/celmak.altikodtech.com.tr/public_html/celmakstok/app/static
+</IfModule>
+
+<Directory /home/altikodtech/domains/celmak.altikodtech.com.tr/public_html/celmakstok/app/static>
+    Require all granted
+</Directory>
