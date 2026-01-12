@@ -46,7 +46,10 @@ def generate_qr_with_label(data, label, size=10):
 
     # Basit font kullan
     try:
-        font = ImageFont.truetype("arial.ttf", 14)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        except:
+            font = ImageFont.truetype("arial.ttf", 14)
     except:
         font = ImageFont.load_default()
 
@@ -91,10 +94,17 @@ def generate_celmak_label(qr_data, part_no, part_name):
 
     # Fontları yükle
     try:
-        # Label fontları (bold)
-        font_label = ImageFont.truetype("arialbd.ttf", 32)
+        # Label fontları (bold) - Sistem fontları dene
+        try:
+            font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        except:
+            font_label = ImageFont.truetype("arialbd.ttf", 32)
+
         # Value fontları (normal)
-        font_value = ImageFont.truetype("arial.ttf", 36)
+        try:
+            font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+        except:
+            font_value = ImageFont.truetype("arial.ttf", 36)
     except:
         font_label = ImageFont.load_default()
         font_value = ImageFont.load_default()
@@ -131,7 +141,10 @@ def generate_celmak_label(qr_data, part_no, part_name):
         else:
             # Fallback: Text olarak ÇELMAK
             try:
-                font_fallback = ImageFont.truetype("arial.ttf", 48)
+                try:
+                    font_fallback = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+                except:
+                    font_fallback = ImageFont.truetype("arial.ttf", 48)
             except:
                 font_fallback = ImageFont.load_default()
             draw.text((red_strip_width + 100, 60), "ÇELMAK", fill='black', font=font_fallback)
