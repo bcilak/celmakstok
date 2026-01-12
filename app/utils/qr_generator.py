@@ -233,3 +233,178 @@ def generate_celmak_label(qr_data, part_no, part_name):
     img_io.seek(0)
 
     return img_io
+
+
+def generate_celmak_label_with_size(qr_data, part_no, part_name, size='medium'):
+    """ÇELMAK etiket formatında QR kod oluşturur - Boyut seçenekleriyle
+
+    Args:
+        qr_data: QR kod için veri
+        part_no: Parça numarası
+        part_name: Parça adı
+        size: Etiket boyutu ('small', 'medium', 'large')
+
+    Returns:
+        BytesIO: PNG formatında etiket
+    """
+    # Boyut tanımları (piksel)
+    size_configs = {
+        'small': {
+            'width': 600,
+            'height': 600,
+            'red_strip': 96,
+            'logo_height': 54,
+            'font_label_size': 19,
+            'font_value_size': 22,
+            'qr_size': 240,
+            'padding': 30
+        },
+        'medium': {
+            'width': 1000,
+            'height': 1000,
+            'red_strip': 160,
+            'logo_height': 90,
+            'font_label_size': 32,
+            'font_value_size': 36,
+            'qr_size': 400,
+            'padding': 50
+        },
+        'large': {
+            'width': 1500,
+            'height': 1500,
+            'red_strip': 240,
+            'logo_height': 135,
+            'font_label_size': 48,
+            'font_value_size': 54,
+            'qr_size': 600,
+            'padding': 75
+        }
+    }
+
+    # Boyut konfigürasyonunu al
+    config = size_configs.get(size, size_configs['medium'])
+
+    label_width = config['width']
+    label_height = config['height']
+    red_strip_width = config['red_strip']
+
+    # Kırmızı renk
+    celmak_red = (226, 35, 26)
+
+    # Arka plan oluştur
+    label = Image.new('RGB', (label_width, label_height), 'white')
+    draw = ImageDraw.Draw(label)
+
+    # Sol tarafta kırmızı şerit
+    draw.rectangle([0, 0, red_strip_width, label_height], fill=celmak_red)
+
+    # Fontları yükle
+    try:
+        try:
+            font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", config['font_label_size'])
+        except:
+            font_label = ImageFont.truetype("arialbd.ttf", config['font_label_size'])
+
+        try:
+            font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", config['font_value_size'])
+        except:
+            font_value = ImageFont.truetype("arial.ttf", config['font_value_size'])
+    except:
+        font_label = ImageFont.load_default()
+        font_value = ImageFont.load_default()
+
+    # Logo dosyalarının yolu
+    current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    main_logo_path = os.path.join(current_dir, 'static', 'images', 'celmak_logo.png')
+    white_logo_path = os.path.join(current_dir, 'static', 'images', 'celmak_logo_white.png')
+
+    # Ana logo
+    try:
+        if os.path.exists(main_logo_path):
+            main_logo = Image.open(main_logo_path)
+            logo_target_height = config['logo_height']
+            aspect_ratio = main_logo.width / main_logo.height
+            logo_target_width = int(logo_target_height * aspect_ratio)
+            main_logo = main_logo.resize((logo_target_width, logo_target_height), Image.Resampling.LANCZOS)
+
+            content_area_width = label_width - red_strip_width
+            logo_x = red_strip_width + (content_area_width - logo_target_width) // 2
+            logo_y = int(55 * (label_height / 1000))
+
+            if main_logo.mode == 'RGBA':
+                label.paste(main_logo, (logo_x, logo_y), main_logo)
+            else:
+                label.paste(main_logo, (logo_x, logo_y))
+    except Exception as e:
+        print(f"Ana logo yükleme hatası: {e}")
+
+    # Beyaz logo (sol şeritte)
+    try:
+        if os.path.exists(white_logo_path):
+            white_logo = Image.open(white_logo_path)
+            side_logo_width = int(red_strip_width * 0.70)
+            aspect_ratio = white_logo.width / white_logo.height
+            side_logo_height = int(side_logo_width / aspect_ratio)
+            white_logo = white_logo.resize((side_logo_width, side_logo_height), Image.Resampling.LANCZOS)
+
+            side_logo_x = (red_strip_width - side_logo_width) // 2
+            side_logo_y = label_height - side_logo_height - int(60 * (label_height / 1000))
+
+            if white_logo.mode == 'RGBA':
+                label.paste(white_logo, (side_logo_x, side_logo_y), white_logo)
+            else:
+                label.paste(white_logo, (side_logo_x, side_logo_y))
+    except Exception as e:
+        print(f"Beyaz logo yükleme hatası: {e}")
+
+    # İçerik alanı
+    content_x = red_strip_width + config['padding']
+    content_width = label_width - red_strip_width - (config['padding'] * 2)
+
+    # PARÇA NUM
+    part_no_y = int(200 * (label_height / 1000))
+    draw.text((content_x, part_no_y), "PARÇA NUM / PART NO:", fill='black', font=font_label)
+
+    line_y = part_no_y + int(50 * (label_height / 1000))
+    draw.line([(content_x, line_y), (content_x + content_width, line_y)], fill='#CCCCCC', width=2)
+
+    draw.text((content_x, line_y + int(15 * (label_height / 1000))), str(part_no), fill='black', font=font_value)
+
+    # PARÇA ADI
+    part_name_y = line_y + int(90 * (label_height / 1000))
+    draw.text((content_x, part_name_y), "PARÇA ADI / PART NAME:", fill='black', font=font_label)
+
+    line2_y = part_name_y + int(50 * (label_height / 1000))
+    draw.line([(content_x, line2_y), (content_x + content_width, line2_y)], fill='#CCCCCC', width=2)
+
+    # Parça adı (uzunsa kısalt)
+    part_name_display = str(part_name)
+    max_chars = 28 if size == 'medium' else (18 if size == 'small' else 40)
+    if len(part_name_display) > max_chars:
+        part_name_display = part_name_display[:max_chars-3] + "..."
+    draw.text((content_x, line2_y + int(15 * (label_height / 1000))), part_name_display, fill='black', font=font_value)
+
+    # QR KOD
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=2,
+    )
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+
+    qr_img = qr.make_image(fill_color="black", back_color="white")
+    qr_img = qr_img.resize((config['qr_size'], config['qr_size']), Image.Resampling.LANCZOS)
+
+    qr_x = red_strip_width + (label_width - red_strip_width - config['qr_size']) // 2
+    qr_y = line2_y + int(120 * (label_height / 1000))
+
+    label.paste(qr_img, (qr_x, qr_y))
+
+    # Etiketi BytesIO'ya kaydet
+    img_io = io.BytesIO()
+    label.save(img_io, 'PNG', dpi=(300, 300), optimize=False)
+    img_io.seek(0)
+
+    return img_io

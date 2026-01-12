@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement
 from app import db
-from app.utils.qr_generator import generate_qr_code, generate_celmak_label
+from app.utils.qr_generator import generate_qr_code, generate_celmak_label, generate_celmak_label_with_size
 from app.utils.excel_utils import (
     create_product_template,
     parse_product_excel,
@@ -506,4 +506,114 @@ def export_products():
         as_attachment=True,
         download_name=filename,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@products_bp.route('/bulk-qr')
+@login_required
+def bulk_qr():
+    """Toplu QR kod yazdırma sayfası"""
+    page = request.args.get('page', 1, type=int)
+    category_id = request.args.get('category', type=int)
+    search = request.args.get('search', '')
+
+    query = Product.query.filter_by(is_active=True)
+
+    if category_id:
+        query = query.filter_by(category_id=category_id)
+
+    if search:
+        query = query.filter(
+            db.or_(
+                Product.name.ilike(f'%{search}%'),
+                Product.code.ilike(f'%{search}%')
+            )
+        )
+
+    products = query.order_by(Product.name).paginate(page=page, per_page=50)
+    categories = Category.query.all()
+
+    return render_template('products/bulk_qr.html',
+        products=products,
+        categories=categories,
+        selected_category=category_id,
+        search=search
+    )
+
+
+@products_bp.route('/generate-bulk-qr', methods=['POST'])
+@login_required
+def generate_bulk_qr():
+    """Seçili ürünler için toplu QR kod oluştur ve ZIP olarak indir"""
+    product_ids = request.form.getlist('product_ids[]')
+    label_size = request.form.get('label_size', 'medium')  # small, medium, large
+
+    if not product_ids:
+        flash('Lütfen en az bir ürün seçin.', 'warning')
+        return redirect(url_for('products.bulk_qr'))
+
+    # Seçili ürünleri al
+    products = Product.query.filter(Product.id.in_(product_ids)).all()
+
+    if not products:
+        flash('Seçili ürünler bulunamadı.', 'error')
+        return redirect(url_for('products.bulk_qr'))
+
+    # ZIP dosyası oluştur
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for product in products:
+            # QR kod verisi
+            qr_data = f"{current_app.config.get('BASE_URL', 'http://localhost:5000')}/products/{product.id}"
+
+            # Etiket oluştur
+            label_image = generate_celmak_label_with_size(
+                qr_data=qr_data,
+                part_no=product.code,
+                part_name=product.name,
+                size=label_size
+            )
+
+            # Dosya adı
+            filename = f"{product.code}_{product.name[:30]}.png".replace('/', '_').replace('\\', '_')
+
+            # ZIP'e ekle
+            zip_file.writestr(filename, label_image.getvalue())
+
+    zip_buffer.seek(0)
+
+    # ZIP dosyasını indir
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    zip_filename = f'qr_etiketleri_{label_size}_{timestamp}.zip'
+
+    return send_file(
+        zip_buffer,
+        as_attachment=True,
+        download_name=zip_filename,
+        mimetype='application/zip'
+    )
+
+
+@products_bp.route('/preview-qr/<int:product_id>')
+@login_required
+def preview_qr(product_id):
+    """Tek ürün için QR kod önizleme"""
+    product = Product.query.get_or_404(product_id)
+    label_size = request.args.get('size', 'medium')
+
+    qr_data = f"{current_app.config.get('BASE_URL', 'http://localhost:5000')}/products/{product.id}"
+
+    label_image = generate_celmak_label_with_size(
+        qr_data=qr_data,
+        part_no=product.code,
+        part_name=product.name,
+        size=label_size
+    )
+
+    return send_file(
+        label_image,
+        mimetype='image/png',
+        as_attachment=False,
+        download_name=f'{product.code}_preview.png'
     )

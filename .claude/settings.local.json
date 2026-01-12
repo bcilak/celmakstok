@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pg_ctl status:*)",
+      "Bash(sc query:*)",
+      "Bash(python test_label.py:*)",
+      "Bash(ls:*)",
+      "Bash(python run.py:*)",
+      "Bash(timeout:*)",
+      "Bash(echo:*)",
+      "Bash(du:*)"
+    ]
+  }
+}

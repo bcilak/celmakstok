@@ -732,6 +732,11 @@
                 <i class="bi bi-qr-code-scan"></i>
                 <span>Hızlı İşlem</span>
             </a>
+            <a href="{{ url_for('products.bulk_qr') }}"
+                class="nav-link {% if request.endpoint == 'products.bulk_qr' %}active{% endif %}">
+                <i class="bi bi-upc-scan"></i>
+                <span>Toplu QR Yazdır</span>
+            </a>
 
             <div class="nav-section mt-3">Üretim</div>
             <a href="{{ url_for('production.index') }}"
