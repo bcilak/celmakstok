@@ -1,10 +1,30 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
-from app.models import Product, Category, StockMovement, CountSession, CountItem
+from app.models import Product, Category, StockMovement, CountSession, CountItem, Recipe, RecipeItem
 from app import db
 from sqlalchemy import func
+from functools import wraps
 
 api_bp = Blueprint('api', __name__)
+
+# API Key Authentication (Opsiyonel)
+def require_api_key(f):
+    """API Key kontrolü (opsiyonel - güvenlik için)"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Header'dan API key al
+        api_key = request.headers.get('X-API-Key')
+
+        # .env'den API_KEY varsa kontrol et, yoksa login_required gibi çalış
+        import os
+        expected_key = os.environ.get('API_KEY')
+
+        if expected_key:
+            if not api_key or api_key != expected_key:
+                return jsonify({'error': 'Geçersiz veya eksik API key'}), 401
+
+        return f(*args, **kwargs)
+    return decorated_function
 
 @api_bp.route('/products')
 @login_required
@@ -210,27 +230,581 @@ def dashboard_stats():
 def api_count_item(session_id, item_id):
     """Sayım kalemi güncelleme API"""
     from datetime import datetime
-    
+
     data = request.get_json()
     counted_quantity = data.get('counted_quantity', 0)
     notes = data.get('notes', '')
-    
+
     item = CountItem.query.get_or_404(item_id)
-    
+
     if item.session_id != session_id:
         return jsonify({'error': 'Geçersiz oturum'}), 400
-    
+
     item.counted_quantity = counted_quantity
     item.difference = counted_quantity - item.system_quantity
     item.is_counted = True
     item.counted_by = current_user.id
     item.counted_at = datetime.utcnow()
     item.notes = notes
-    
+
     db.session.commit()
-    
+
     return jsonify({
         'success': True,
         'item_id': item.id,
         'difference': item.difference
+    })
+
+# ================== ÜRÜN AĞACI API'LERİ ==================
+
+@api_bp.route('/v1/products/full', methods=['GET'])
+@login_required
+def api_products_full():
+    """Tüm ürün listesi (detaylı) - Dış uygulama entegrasyonu için"""
+    category_id = request.args.get('category_id', type=int)
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+
+    query = Product.query
+
+    if not include_inactive:
+        query = query.filter_by(is_active=True)
+
+    if category_id:
+        query = query.filter_by(category_id=category_id)
+
+    products = query.order_by(Product.code).all()
+
+    result = []
+    for p in products:
+        result.append({
+            'id': p.id,
+            'code': p.code,
+            'name': p.name,
+            'category_id': p.category_id,
+            'category_name': p.category.name if p.category else None,
+            'unit_type': p.unit_type,
+            'current_stock': float(p.current_stock),
+            'minimum_stock': float(p.minimum_stock),
+            'barcode': p.barcode,
+            'notes': p.notes,
+            'status': p.stock_status,
+            'is_active': p.is_active,
+            'created_at': p.created_at.isoformat() if p.created_at else None,
+            'updated_at': p.updated_at.isoformat() if p.updated_at else None
+        })
+
+    return jsonify({
+        'success': True,
+        'count': len(result),
+        'data': result
+    })
+
+
+@api_bp.route('/v1/recipes', methods=['GET'])
+@login_required
+def api_recipes_list():
+    """Tüm reçete listesi - Dış uygulama entegrasyonu için"""
+    category_id = request.args.get('category_id', type=int)
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+
+    query = Recipe.query
+
+    if not include_inactive:
+        query = query.filter_by(is_active=True)
+
+    if category_id:
+        query = query.filter_by(category_id=category_id)
+
+    recipes = query.order_by(Recipe.name).all()
+
+    result = []
+    for r in recipes:
+        result.append({
+            'id': r.id,
+            'name': r.name,
+            'category_id': r.category_id,
+            'category_name': r.category.name if r.category else None,
+            'model_variant': r.model_variant,
+            'description': r.description,
+            'is_active': r.is_active,
+            'total_items': r.total_items,
+            'created_at': r.created_at.isoformat() if r.created_at else None,
+            'updated_at': r.updated_at.isoformat() if r.updated_at else None
+        })
+
+    return jsonify({
+        'success': True,
+        'count': len(result),
+        'data': result
+    })
+
+
+@api_bp.route('/v1/recipes/<int:recipe_id>', methods=['GET'])
+@login_required
+def api_recipe_detail(recipe_id):
+    """Reçete detayı ve malzeme listesi"""
+    recipe = Recipe.query.get_or_404(recipe_id)
+
+    items = []
+    for item in recipe.items:
+        items.append({
+            'id': item.id,
+            'product_id': item.product_id,
+            'product_code': item.product.code,
+            'product_name': item.product.name,
+            'quantity': float(item.quantity),
+            'unit_type': item.product.unit_type,
+            'current_stock': float(item.product.current_stock),
+            'note': item.note
+        })
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'id': recipe.id,
+            'name': recipe.name,
+            'category_id': recipe.category_id,
+            'category_name': recipe.category.name if recipe.category else None,
+            'model_variant': recipe.model_variant,
+            'description': recipe.description,
+            'is_active': recipe.is_active,
+            'items': items,
+            'created_at': recipe.created_at.isoformat() if recipe.created_at else None,
+            'updated_at': recipe.updated_at.isoformat() if recipe.updated_at else None
+        }
+    })
+
+
+@api_bp.route('/v1/product-tree', methods=['GET'])
+@login_required
+def api_product_tree():
+    """
+    Ürün ağacı - Tüm reçeteleri ve malzemeleri hiyerarşik yapıda döndürür
+    Dış uygulamalar için tam ürün ağacı verisi
+    """
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+
+    # Tüm reçeteleri al
+    query = Recipe.query
+    if not include_inactive:
+        query = query.filter_by(is_active=True)
+    recipes = query.all()
+
+    tree = []
+
+    for recipe in recipes:
+        # Reçete düğümü
+        recipe_node = {
+            'type': 'recipe',
+            'id': recipe.id,
+            'name': recipe.name,
+            'category_id': recipe.category_id,
+            'category_name': recipe.category.name if recipe.category else None,
+            'model_variant': recipe.model_variant,
+            'description': recipe.description,
+            'is_active': recipe.is_active,
+            'children': []
+        }
+
+        # Reçete malzemeleri (çocuk düğümler)
+        for item in recipe.items:
+            product_node = {
+                'type': 'product',
+                'id': item.product_id,
+                'code': item.product.code,
+                'name': item.product.name,
+                'quantity_required': float(item.quantity),
+                'unit_type': item.product.unit_type,
+                'current_stock': float(item.product.current_stock),
+                'minimum_stock': float(item.product.minimum_stock),
+                'status': item.product.stock_status,
+                'note': item.note,
+                'category_id': item.product.category_id,
+                'category_name': item.product.category.name if item.product.category else None
+            }
+
+            recipe_node['children'].append(product_node)
+
+        tree.append(recipe_node)
+
+    return jsonify({
+        'success': True,
+        'count': len(tree),
+        'data': tree
+    })
+
+
+@api_bp.route('/v1/product-tree/flat', methods=['GET'])
+@login_required
+def api_product_tree_flat():
+    """
+    Düz ürün ağacı - İlişkileri ID referanslarıyla döndürür
+    Graph/network görselleştirme için uygun format
+    """
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+
+    # Düğümler
+    nodes = []
+
+    # Tüm reçeteler - nodes
+    query = Recipe.query
+    if not include_inactive:
+        query = query.filter_by(is_active=True)
+    recipes = query.all()
+
+    for recipe in recipes:
+        nodes.append({
+            'id': f'recipe_{recipe.id}',
+            'type': 'recipe',
+            'data': {
+                'recipe_id': recipe.id,
+                'name': recipe.name,
+                'category': recipe.category.name if recipe.category else None,
+                'model_variant': recipe.model_variant
+            }
+        })
+
+    # Tüm ürünler - nodes
+    product_query = Product.query
+    if not include_inactive:
+        product_query = product_query.filter_by(is_active=True)
+    products = product_query.all()
+
+    for product in products:
+        nodes.append({
+            'id': f'product_{product.id}',
+            'type': 'product',
+            'data': {
+                'product_id': product.id,
+                'code': product.code,
+                'name': product.name,
+                'current_stock': float(product.current_stock),
+                'unit_type': product.unit_type,
+                'status': product.stock_status
+            }
+        })
+
+    # Kenarlar (ilişkiler)
+    edges = []
+
+    for recipe in recipes:
+        for item in recipe.items:
+            edges.append({
+                'source': f'recipe_{recipe.id}',
+                'target': f'product_{item.product_id}',
+                'quantity': float(item.quantity),
+                'label': f'{item.quantity} {item.product.unit_type}'
+            })
+
+    return jsonify({
+        'success': True,
+        'nodes': nodes,
+        'edges': edges,
+        'node_count': len(nodes),
+        'edge_count': len(edges)
+    })
+
+
+@api_bp.route('/v1/recipe/<int:recipe_id>/can-produce', methods=['GET'])
+@login_required
+def api_can_produce(recipe_id):
+    """Reçete için üretim yapılabilir mi kontrol et"""
+    recipe = Recipe.query.get_or_404(recipe_id)
+    quantity = request.args.get('quantity', 1, type=int)
+
+    can_produce, missing_product, available, required = recipe.can_produce(quantity)
+
+    if can_produce:
+        return jsonify({
+            'success': True,
+            'can_produce': True,
+            'quantity': quantity,
+            'message': f'{quantity} adet üretim için tüm malzemeler mevcut'
+        })
+    else:
+        return jsonify({
+            'success': True,
+            'can_produce': False,
+            'quantity': quantity,
+            'missing_material': {
+                'product_id': missing_product.id,
+                'product_code': missing_product.code,
+                'product_name': missing_product.name,
+                'required': float(required),
+                'available': float(available),
+                'shortage': float(required - available),
+                'unit_type': missing_product.unit_type
+            },
+            'message': f'Yetersiz stok: {missing_product.name}'
+        })
+
+
+@api_bp.route('/v1/recipe/<int:recipe_id>/missing-materials', methods=['GET'])
+@login_required
+def api_missing_materials(recipe_id):
+    """Reçete için eksik malzemeleri listele"""
+    recipe = Recipe.query.get_or_404(recipe_id)
+    quantity = request.args.get('quantity', 1, type=int)
+
+    missing_list = recipe.get_missing_materials(quantity)
+
+    result = []
+    for item in missing_list:
+        result.append({
+            'product_id': item['product'].id,
+            'product_code': item['product'].code,
+            'product_name': item['product'].name,
+            'required': float(item['required']),
+            'available': float(item['available']),
+            'shortage': float(item['shortage']),
+            'unit_type': item['product'].unit_type
+        })
+
+    return jsonify({
+        'success': True,
+        'recipe_id': recipe_id,
+        'recipe_name': recipe.name,
+        'quantity': quantity,
+        'missing_count': len(result),
+        'missing_materials': result
+    })
+
+
+@api_bp.route('/v1/health', methods=['GET'])
+def api_health():
+    """API sağlık kontrolü - authentication gerektirmez"""
+    return jsonify({
+        'status': 'healthy',
+        'version': '1.0',
+        'service': 'ÇELMAK Stok Takip API'
+    })
+
+
+# ================== SATIN ALMA BİRİMİ API'LERİ ==================
+
+@api_bp.route('/v1/purchasing/critical-stock', methods=['GET'])
+@login_required
+def api_critical_stock_for_purchasing():
+    """
+    Satın alma birimi için kritik stok listesi
+    Minimum stok seviyesinin altındaki veya biten ürünler
+    """
+    # Sadece kritik durumda olanları getir
+    critical_products = Product.query.filter(
+        Product.is_active == True,
+        Product.minimum_stock > 0,
+        Product.current_stock < Product.minimum_stock
+    ).order_by(Product.current_stock).all()
+
+    result = []
+    for p in critical_products:
+        # Eksik miktar hesapla
+        shortage = p.minimum_stock - p.current_stock
+
+        # Son hareketleri al (son çıkış hızını analiz için)
+        from datetime import datetime, timedelta
+        week_ago = datetime.utcnow() - timedelta(days=7)
+
+        weekly_consumption = db.session.query(func.sum(StockMovement.quantity)).filter(
+            StockMovement.product_id == p.id,
+            StockMovement.movement_type == 'cikis',
+            StockMovement.date >= week_ago
+        ).scalar() or 0
+
+        # Günlük ortalama tüketim
+        daily_avg = weekly_consumption / 7 if weekly_consumption > 0 else 0
+
+        # Kaç gün dayanır (stok bitişi tahmini)
+        days_remaining = (p.current_stock / daily_avg) if daily_avg > 0 else 999
+
+        result.append({
+            'product_id': p.id,
+            'code': p.code,
+            'name': p.name,
+            'category_id': p.category_id,
+            'category_name': p.category.name if p.category else None,
+            'current_stock': float(p.current_stock),
+            'minimum_stock': float(p.minimum_stock),
+            'shortage': float(shortage),
+            'unit_type': p.unit_type,
+            'barcode': p.barcode,
+            'urgency_level': 'critical' if p.current_stock <= 0 else 'low' if shortage < p.minimum_stock * 0.3 else 'medium',
+            'weekly_consumption': float(weekly_consumption),
+            'daily_avg_consumption': float(daily_avg),
+            'days_remaining': int(days_remaining) if days_remaining < 999 else None,
+            'notes': p.notes
+        })
+
+    return jsonify({
+        'success': True,
+        'count': len(result),
+        'data': result,
+        'generated_at': datetime.utcnow().isoformat()
+    })
+
+
+@api_bp.route('/v1/purchasing/reorder-suggestions', methods=['GET'])
+@login_required
+def api_reorder_suggestions():
+    """
+    Satın alma önerileri - Hangi üründen ne kadar sipariş verilmeli
+    Minimum stok + güvenlik stoğu hesaplaması
+    """
+    from datetime import datetime, timedelta
+
+    # Kritik ürünleri al
+    critical_products = Product.query.filter(
+        Product.is_active == True,
+        Product.minimum_stock > 0,
+        Product.current_stock < Product.minimum_stock
+    ).order_by(Product.current_stock).all()
+
+    month_ago = datetime.utcnow() - timedelta(days=30)
+
+    result = []
+    for p in critical_products:
+        # Aylık ortalama tüketim
+        monthly_consumption = db.session.query(func.sum(StockMovement.quantity)).filter(
+            StockMovement.product_id == p.id,
+            StockMovement.movement_type == 'cikis',
+            StockMovement.date >= month_ago
+        ).scalar() or 0
+
+        # Önerilen sipariş miktarı
+        # = (Minimum Stok - Mevcut Stok) + Güvenlik Stoğu (1 aylık tüketim)
+        suggested_order = (p.minimum_stock - p.current_stock) + monthly_consumption
+
+        # Ekonomik sipariş miktarı (en yakın paket/koli miktarına yuvarla)
+        # Örnek: 10'un katları şeklinde
+        if suggested_order > 0:
+            economic_order = ((suggested_order // 10) + 1) * 10
+        else:
+            economic_order = 0
+
+        result.append({
+            'product_id': p.id,
+            'code': p.code,
+            'name': p.name,
+            'category_name': p.category.name if p.category else None,
+            'current_stock': float(p.current_stock),
+            'minimum_stock': float(p.minimum_stock),
+            'shortage': float(p.minimum_stock - p.current_stock),
+            'monthly_consumption': float(monthly_consumption),
+            'suggested_order_quantity': float(suggested_order),
+            'economic_order_quantity': float(economic_order),
+            'unit_type': p.unit_type,
+            'priority': 'high' if p.current_stock <= 0 else 'medium' if p.current_stock < p.minimum_stock * 0.5 else 'low'
+        })
+
+    return jsonify({
+        'success': True,
+        'count': len(result),
+        'data': result,
+        'generated_at': datetime.utcnow().isoformat()
+    })
+
+
+@api_bp.route('/v1/purchasing/product/<int:product_id>/details', methods=['GET'])
+@login_required
+def api_product_purchasing_details(product_id):
+    """
+    Belirli bir ürün için satın alma detayları
+    Tüketim analizi, sipariş önerisi, tedarikçi bilgileri
+    """
+    from datetime import datetime, timedelta
+
+    product = Product.query.get_or_404(product_id)
+
+    # Son 30 günlük hareketler
+    month_ago = datetime.utcnow() - timedelta(days=30)
+    movements = StockMovement.query.filter(
+        StockMovement.product_id == product_id,
+        StockMovement.date >= month_ago
+    ).order_by(StockMovement.date.desc()).all()
+
+    # Giriş/Çıkış toplamları
+    total_in = sum(m.quantity for m in movements if m.movement_type == 'giris')
+    total_out = sum(m.quantity for m in movements if m.movement_type == 'cikis')
+
+    # Günlük ortalama tüketim
+    daily_consumption = total_out / 30 if total_out > 0 else 0
+
+    # Stok bitişi tahmini
+    if daily_consumption > 0 and product.current_stock > 0:
+        days_until_stockout = int(product.current_stock / daily_consumption)
+    else:
+        days_until_stockout = None
+
+    # Son alım bilgisi
+    last_purchase = StockMovement.query.filter(
+        StockMovement.product_id == product_id,
+        StockMovement.movement_type == 'giris'
+    ).order_by(StockMovement.date.desc()).first()
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'product': {
+                'id': product.id,
+                'code': product.code,
+                'name': product.name,
+                'category': product.category.name if product.category else None,
+                'current_stock': float(product.current_stock),
+                'minimum_stock': float(product.minimum_stock),
+                'unit_type': product.unit_type,
+                'barcode': product.barcode,
+                'status': product.stock_status
+            },
+            'consumption_analysis': {
+                'last_30_days_in': float(total_in),
+                'last_30_days_out': float(total_out),
+                'daily_avg_consumption': float(daily_consumption),
+                'days_until_stockout': days_until_stockout
+            },
+            'purchasing_info': {
+                'shortage': float(max(0, product.minimum_stock - product.current_stock)),
+                'suggested_order': float(max(0, product.minimum_stock - product.current_stock + (daily_consumption * 30))),
+                'last_purchase_date': last_purchase.date.isoformat() if last_purchase else None,
+                'last_purchase_quantity': float(last_purchase.quantity) if last_purchase else None,
+                'last_purchase_source': last_purchase.source if last_purchase else None
+            },
+            'recent_movements': [
+                {
+                    'date': m.date.isoformat(),
+                    'type': m.movement_type,
+                    'quantity': float(m.quantity),
+                    'source': m.source,
+                    'destination': m.destination
+                } for m in movements[:10]  # Son 10 hareket
+            ]
+        }
+    })
+
+
+@api_bp.route('/v1/purchasing/notify', methods=['POST'])
+@login_required
+def api_purchasing_notify():
+    """
+    Kritik stok bildirimi oluştur
+    Satın alma uygulamasına webhook/notification gönderebilir
+    """
+    data = request.get_json()
+
+    # Kritik ürünleri al
+    critical_count = Product.query.filter(
+        Product.is_active == True,
+        Product.minimum_stock > 0,
+        Product.current_stock < Product.minimum_stock
+    ).count()
+
+    # Burada webhook URL'e POST yapabilirsiniz
+    # webhook_url = data.get('webhook_url')
+    # if webhook_url:
+    #     requests.post(webhook_url, json={'critical_count': critical_count})
+
+    return jsonify({
+        'success': True,
+        'message': 'Bildirim gönderildi',
+        'critical_product_count': critical_count,
+        'timestamp': datetime.utcnow().isoformat()
     })

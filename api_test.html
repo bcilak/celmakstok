@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ÇELMAK API Test - Ürün Ağacı Görselleştirme</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #d32f2f;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .controls {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: inline-block;
+            margin-right: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input, select, button {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        button {
+            background: #d32f2f;
+            color: white;
+            border: none;
+            cursor: pointer;
+            padding: 10px 20px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #b71c1c;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        #graph {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            margin-top: 20px;
+        }
+
+        .node circle {
+            stroke: #fff;
+            stroke-width: 2px;
+        }
+
+        .node.recipe circle {
+            fill: #d32f2f;
+            r: 12;
+        }
+
+        .node.product circle {
+            fill: #1976d2;
+            r: 8;
+        }
+
+        .node text {
+            font-size: 11px;
+            pointer-events: none;
+        }
+
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+            stroke-width: 1.5px;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            max-width: 300px;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #c62828;
+            margin-bottom: 20px;
+        }
+
+        .success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #2e7d32;
+            margin-bottom: 20px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #d32f2f;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 ÇELMAK Stok Takip API</h1>
+        <p class="subtitle">Ürün Ağacı Görselleştirme - Network Graph</p>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="apiUrl">API URL:</label>
+                <input type="text" id="apiUrl" value="http://localhost:5000/api" style="width: 300px;">
+            </div>
+
+            <div class="control-group">
+                <label for="apiKey">API Key (opsiyonel):</label>
+                <input type="text" id="apiKey" placeholder="your-api-key" style="width: 250px;">
+            </div>
+
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadProductTree()">🔄 Ürün Ağacını Yükle</button>
+                <button onclick="testHealthCheck()">🏥 Health Check</button>
+            </div>
+        </div>
+
+        <div id="message"></div>
+
+        <div id="stats" class="stats" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-number" id="nodeCount">0</div>
+                <div class="stat-label">Düğüm (Node)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="edgeCount">0</div>
+                <div class="stat-label">Bağlantı (Edge)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="recipeCount">0</div>
+                <div class="stat-label">Reçete</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="productCount">0</div>
+                <div class="stat-label">Ürün</div>
+            </div>
+        </div>
+
+        <div id="graph"></div>
+        <div class="tooltip" id="tooltip"></div>
+    </div>
+
+    <script>
+        const width = 1340;
+        const height = 800;
+
+        let svg, simulation;
+
+        function showMessage(message, type = 'success') {
+            const messageDiv = document.getElementById('message');
+            messageDiv.className = type;
+            messageDiv.innerHTML = message;
+            messageDiv.style.display = 'block';
+
+            if (type === 'success') {
+                setTimeout(() => {
+                    messageDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('graph').innerHTML = '<div class="loading"><div class="spinner"></div>Yükleniyor...</div>';
+        }
+
+        async function testHealthCheck() {
+            const apiUrl = document.getElementById('apiUrl').value;
+
+            try {
+                const response = await fetch(`${apiUrl}/v1/health`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    showMessage(`✓ API Çalışıyor: ${data.service} (v${data.version})`, 'success');
+                } else {
+                    showMessage('✗ API yanıt vermiyor', 'error');
+                }
+            } catch (error) {
+                showMessage(`✗ Bağlantı hatası: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadProductTree() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+
+            showLoading();
+            document.getElementById('stats').style.display = 'none';
+
+            const headers = {};
+            if (apiKey) {
+                headers['X-API-Key'] = apiKey;
+            }
+
+            try {
+                const response = await fetch(`${apiUrl}/v1/product-tree/flat`, { headers });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error('API başarısız yanıt döndü');
+                }
+
+                // İstatistikleri güncelle
+                updateStats(data);
+
+                // Grafiği çiz
+                drawGraph(data);
+
+                showMessage(`✓ ${data.node_count} düğüm ve ${data.edge_count} bağlantı yüklendi`, 'success');
+
+            } catch (error) {
+                document.getElementById('graph').innerHTML = '';
+                showMessage(`✗ Hata: ${error.message}<br><small>Lütfen API URL ve authentication bilgilerini kontrol edin.</small>`, 'error');
+            }
+        }
+
+        function updateStats(data) {
+            const recipeCount = data.nodes.filter(n => n.type === 'recipe').length;
+            const productCount = data.nodes.filter(n => n.type === 'product').length;
+
+            document.getElementById('nodeCount').textContent = data.node_count;
+            document.getElementById('edgeCount').textContent = data.edge_count;
+            document.getElementById('recipeCount').textContent = recipeCount;
+            document.getElementById('productCount').textContent = productCount;
+
+            document.getElementById('stats').style.display = 'grid';
+        }
+
+        function drawGraph(data) {
+            // Önceki grafiği temizle
+            document.getElementById('graph').innerHTML = '';
+
+            // SVG oluştur
+            svg = d3.select('#graph')
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            // Zoom davranışı
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on('zoom', (event) => {
+                    container.attr('transform', event.transform);
+                });
+
+            svg.call(zoom);
+
+            const container = svg.append('g');
+
+            // Force simulation
+            simulation = d3.forceSimulation(data.nodes)
+                .force('link', d3.forceLink(data.edges)
+                    .id(d => d.id)
+                    .distance(150))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(30));
+
+            // Bağlantıları çiz
+            const link = container.append('g')
+                .selectAll('line')
+                .data(data.edges)
+                .enter()
+                .append('line')
+                .attr('class', 'link')
+                .attr('stroke-width', d => Math.min(d.quantity / 2, 3));
+
+            // Düğümleri çiz
+            const node = container.append('g')
+                .selectAll('.node')
+                .data(data.nodes)
+                .enter()
+                .append('g')
+                .attr('class', d => `node ${d.type}`)
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+
+            // Düğüm çemberleri
+            node.append('circle')
+                .attr('r', d => d.type === 'recipe' ? 12 : 8);
+
+            // Düğüm etiketleri
+            node.append('text')
+                .attr('dy', -15)
+                .attr('text-anchor', 'middle')
+                .text(d => {
+                    if (d.type === 'recipe') {
+                        return d.data.name.length > 20 ? d.data.name.substring(0, 17) + '...' : d.data.name;
+                    } else {
+                        return d.data.code;
+                    }
+                })
+                .style('font-size', d => d.type === 'recipe' ? '12px' : '10px')
+                .style('font-weight', d => d.type === 'recipe' ? 'bold' : 'normal');
+
+            // Tooltip
+            const tooltip = d3.select('#tooltip');
+
+            node.on('mouseover', (event, d) => {
+                let html = '';
+                if (d.type === 'recipe') {
+                    html = `<strong>📋 Reçete</strong><br>
+                            ${d.data.name}<br>
+                            <small>Kategori: ${d.data.category}</small>`;
+                } else {
+                    html = `<strong>📦 Ürün</strong><br>
+                            ${d.data.name}<br>
+                            <small>Kod: ${d.data.code}<br>
+                            Stok: ${d.data.current_stock} ${d.data.unit_type}<br>
+                            Durum: ${d.data.status === 'normal' ? '✓ Normal' :
+                                     d.data.status === 'critical' ? '⚠ Kritik' : '✗ Boş'}</small>`;
+                }
+
+                tooltip.html(html)
+                    .style('left', (event.pageX + 10) + 'px')
+                    .style('top', (event.pageY - 10) + 'px')
+                    .style('opacity', 1);
+            })
+            .on('mouseout', () => {
+                tooltip.style('opacity', 0);
+            });
+
+            // Simulation güncelleme
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+        }
+
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        // Sayfa yüklendiğinde otomatik health check
+        window.onload = () => {
+            testHealthCheck();
+        };
+    </script>
+</body>
+</html>

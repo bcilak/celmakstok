@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement
 from app import db
-from app.utils.qr_generator import generate_qr_code
+from app.utils.qr_generator import generate_qr_code, generate_celmak_label
 from app.utils.excel_utils import (
     create_product_template,
     parse_product_excel,
@@ -10,6 +10,7 @@ from app.utils.excel_utils import (
 )
 from datetime import datetime
 import io
+import zipfile
 
 products_bp = Blueprint('products', __name__)
 
@@ -60,10 +61,9 @@ def add():
         unit_type = request.form.get('unit_type', 'adet')
         minimum_stock = request.form.get('minimum_stock', 0, type=float)
         current_stock = request.form.get('current_stock', 0, type=float)
-        dimensions = request.form.get('dimensions', '')
         barcode = request.form.get('barcode', '')
         notes = request.form.get('notes', '')
-        
+
         if Product.query.filter_by(code=code).first():
             flash('Bu ürün kodu zaten kullanılıyor.', 'error')
         else:
@@ -74,29 +74,20 @@ def add():
                 unit_type=unit_type,
                 minimum_stock=minimum_stock,
                 current_stock=current_stock,
-                total_in=current_stock,
-                dimensions=dimensions,
                 barcode=barcode,
                 notes=notes
             )
             db.session.add(product)
             db.session.commit()
 
-            # QR kod referansı oluştur (veritabanında sadece ID saklıyoruz)
-            product.qr_code = f"CELMAK-{product.id}"
-            db.session.commit()
-            
             # Başlangıç stoğu için hareket kaydı
             if current_stock > 0:
                 movement = StockMovement(
                     product_id=product.id,
-                    movement_type='purchase',
-                    direction='in',
+                    movement_type='giris',
                     quantity=current_stock,
-                    stock_before=0,
-                    stock_after=current_stock,
-                    reference_no='AÇILIŞ',
-                    notes='Açılış stoğu',
+                    source='AÇILIŞ',
+                    note='Açılış stoğu',
                     user_id=current_user.id
                 )
                 db.session.add(movement)
@@ -128,7 +119,6 @@ def edit(id):
         product.category_id = request.form.get('category_id', type=int)
         product.unit_type = request.form.get('unit_type', 'adet')
         product.minimum_stock = request.form.get('minimum_stock', 0, type=float)
-        product.dimensions = request.form.get('dimensions', '')
         product.barcode = request.form.get('barcode', '')
         product.notes = request.form.get('notes', '')
         
@@ -157,16 +147,21 @@ def delete(id):
 def qr_code(id):
     product = Product.query.get_or_404(id)
 
-    # QR kod oluştur - tam URL ile
+    # ÇELMAK etiket formatında QR kod oluştur
     base_url = current_app.config.get('BASE_URL', 'http://localhost:5000')
     qr_data = f"{base_url}/products/{product.id}"
-    img_io = generate_qr_code(qr_data)
+
+    img_io = generate_celmak_label(
+        qr_data=qr_data,
+        part_no=product.code,
+        part_name=product.name
+    )
 
     return send_file(
         img_io,
         mimetype='image/png',
         as_attachment=False,
-        download_name=f'qr_{product.code}.png'
+        download_name=f'etiket_{product.code}.png'
     )
 
 @products_bp.route('/<int:id>/qr/download')
@@ -174,16 +169,136 @@ def qr_code(id):
 def download_qr(id):
     product = Product.query.get_or_404(id)
 
-    # QR kod oluştur - tam URL ile
+    # ÇELMAK etiket formatında QR kod oluştur
     base_url = current_app.config.get('BASE_URL', 'http://localhost:5000')
     qr_data = f"{base_url}/products/{product.id}"
-    img_io = generate_qr_code(qr_data)
+
+    img_io = generate_celmak_label(
+        qr_data=qr_data,
+        part_no=product.code,
+        part_name=product.name
+    )
 
     return send_file(
         img_io,
         mimetype='image/png',
         as_attachment=True,
-        download_name=f'qr_{product.code}.png'
+        download_name=f'etiket_{product.code}.png'
+    )
+
+@products_bp.route('/qr/bulk-download', methods=['POST'])
+@login_required
+def bulk_download_qr():
+    """Seçilen ürünlerin QR kodlarını ZIP olarak indir"""
+    product_ids = request.form.getlist('product_ids[]')
+
+    if not product_ids:
+        flash('Lütfen en az bir ürün seçin.', 'error')
+        return redirect(url_for('products.index'))
+
+    # ZIP dosyası oluştur
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        base_url = current_app.config.get('BASE_URL', 'http://localhost:5000')
+
+        for product_id in product_ids:
+            try:
+                product = Product.query.get(int(product_id))
+                if not product:
+                    continue
+
+                # QR etiket oluştur
+                qr_data = f"{base_url}/products/{product.id}"
+                img_io = generate_celmak_label(
+                    qr_data=qr_data,
+                    part_no=product.code,
+                    part_name=product.name
+                )
+
+                # ZIP'e ekle
+                filename = f'etiket_{product.code}.png'
+                zip_file.writestr(filename, img_io.getvalue())
+
+            except Exception as e:
+                print(f"Hata (Ürün {product_id}): {e}")
+                continue
+
+    zip_buffer.seek(0)
+
+    # ZIP dosyasını indir
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(
+        zip_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'qr_etiketleri_{timestamp}.zip'
+    )
+
+@products_bp.route('/qr/download-all')
+@login_required
+def download_all_qr():
+    """Tüm aktif ürünlerin QR kodlarını ZIP olarak indir"""
+    # Filtreleri al
+    category_id = request.args.get('category', type=int)
+    search = request.args.get('search', '')
+
+    query = Product.query.filter_by(is_active=True)
+
+    if category_id:
+        query = query.filter_by(category_id=category_id)
+
+    if search:
+        query = query.filter(
+            db.or_(
+                Product.name.ilike(f'%{search}%'),
+                Product.code.ilike(f'%{search}%')
+            )
+        )
+
+    products = query.order_by(Product.name).all()
+
+    if not products:
+        flash('İndirilecek ürün bulunamadı.', 'warning')
+        return redirect(url_for('products.index'))
+
+    # ZIP dosyası oluştur
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        base_url = current_app.config.get('BASE_URL', 'http://localhost:5000')
+
+        for product in products:
+            try:
+                # QR etiket oluştur
+                qr_data = f"{base_url}/products/{product.id}"
+                img_io = generate_celmak_label(
+                    qr_data=qr_data,
+                    part_no=product.code,
+                    part_name=product.name
+                )
+
+                # ZIP'e ekle
+                filename = f'etiket_{product.code}.png'
+                zip_file.writestr(filename, img_io.getvalue())
+
+            except Exception as e:
+                print(f"Hata (Ürün {product.code}): {e}")
+                continue
+
+    zip_buffer.seek(0)
+
+    # ZIP dosyasını indir
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'tum_qr_etiketleri_{timestamp}.zip'
+
+    flash(f'{len(products)} ürünün QR etiketi indirildi.', 'success')
+
+    return send_file(
+        zip_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=filename
     )
 
 @products_bp.route('/categories')
@@ -196,17 +311,16 @@ def categories():
 @login_required
 def add_category():
     name = request.form.get('name')
-    description = request.form.get('description', '')
-    is_production_line = request.form.get('is_production_line') == 'on'
-    
+    note = request.form.get('note', '')
+
     if Category.query.filter_by(name=name).first():
         flash('Bu kategori adı zaten kullanılıyor.', 'error')
     else:
-        category = Category(name=name, description=description, is_production_line=is_production_line)
+        category = Category(name=name, note=note)
         db.session.add(category)
         db.session.commit()
         flash('Kategori başarıyla eklendi.', 'success')
-    
+
     return redirect(url_for('products.categories'))
 
 @products_bp.route('/categories/<int:id>/delete')
