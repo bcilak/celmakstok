@@ -99,7 +99,7 @@ if __name__ == '__main__':
         if is_production:
             # Production modda Gunicorn veya başka bir WSGI server kullanılmalı
             # Ancak basit deployment için Flask'ın kendi sunucusu da kullanılabilir
-            print('⚠️  Production modda çalışıyor. Gunicorn kullanmanız önerilir.')
+            print('UYARI: Production modda calisiyor. Gunicorn kullanmaniz onerilir.')
             app.run(host='0.0.0.0', port=5000, debug=False)
         else:
             # Development modu

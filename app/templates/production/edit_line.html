@@ -24,9 +24,13 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label">Açıklama</label>
-                        <textarea name="description" class="form-control"
-                            rows="2">{{ line.description or '' }}</textarea>
+                        <label class="form-label">Birim</label>
+                        <input type="text" name="unit" class="form-control" value="{{ line.unit or 'adet' }}" placeholder="Örn: adet, kg, m">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Not</label>
+                        <textarea name="note" class="form-control" rows="2" placeholder="İsteğe bağlı notlar...">{{ line.note or '' }}</textarea>
                     </div>
 
                     <div class="mb-4">

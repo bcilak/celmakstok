@@ -8,9 +8,16 @@
         <h1 class="page-title"><i class="bi bi-gear-fill me-2"></i>Üretim Hatları</h1>
         <p class="page-subtitle">Kategorilere göre ürünleri görüntüle ve yönet</p>
     </div>
-    <a href="{{ url_for('production.recipes') }}" class="btn btn-outline-primary">
-        <i class="bi bi-journal-code me-1"></i>Reçeteler
-    </a>
+    <div class="d-flex gap-2">
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('production.add_line') }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Yeni Hat Ekle
+        </a>
+        {% endif %}
+        <a href="{{ url_for('production.recipes') }}" class="btn btn-outline-primary">
+            <i class="bi bi-journal-code me-1"></i>Reçeteler
+        </a>
+    </div>
 </div>
 
 <!-- Özet Kartları -->
@@ -173,9 +180,24 @@
                     </div>
                 </div>
 
-                <a href="{{ url_for('production.view_category', id=cat.id) }}" class="btn btn-primary w-100">
-                    <i class="bi bi-box-seam me-2"></i>Ürünleri Görüntüle
-                </a>
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('production.view_category', id=cat.id) }}" class="btn btn-primary">
+                        <i class="bi bi-box-seam me-2"></i>Ürünleri Görüntüle
+                    </a>
+                    {% if current_user.role == 'admin' %}
+                    <div class="btn-group btn-group-sm">
+                        <a href="{{ url_for('production.edit_line', id=cat.id) }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-pencil me-1"></i>Düzenle
+                        </a>
+                        <a href="{{ url_for('production.toggle_line', id=cat.id) }}"
+                           class="btn btn-outline-{{ 'success' if cat.is_active else 'danger' }}"
+                           onclick="return confirm('{{ cat.name }} üretim hattını {{ 'devre dışı' if cat.is_active else 'aktif' }} yapmak istediğinizden emin misiniz?')">
+                            <i class="bi bi-{{ 'check-circle' if cat.is_active else 'x-circle' }} me-1"></i>
+                            {{ 'Aktif' if cat.is_active else 'Pasif' }}
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>

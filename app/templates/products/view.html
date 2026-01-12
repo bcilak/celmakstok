@@ -21,6 +21,12 @@
         <a href="{{ url_for('stock.stock_out') }}?product={{ product.id }}" class="btn btn-danger">
             <i class="bi bi-dash-lg me-1"></i>Çıkış
         </a>
+        <a href="{{ url_for('products.qr_code', id=product.id) }}" class="btn btn-outline-secondary" target="_blank">
+            <i class="bi bi-qr-code me-1"></i>QR Göster
+        </a>
+        <a href="{{ url_for('products.download_qr', id=product.id) }}" class="btn btn-outline-info">
+            <i class="bi bi-download me-1"></i>QR İndir
+        </a>
         <a href="{{ url_for('products.edit', id=product.id) }}" class="btn btn-outline-primary">
             <i class="bi bi-pencil me-1"></i>Düzenle
         </a>
