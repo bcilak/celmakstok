@@ -10,6 +10,89 @@ from openpyxl.styles import Font, Alignment, PatternFill
 from datetime import datetime
 
 
+def create_product_template_simple():
+    """
+    Basitleştirilmiş ürün import şablonu (Kategori ID yok, web'de seçilecek)
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Ürünler"
+
+    # Başlıklar
+    headers = [
+        'Ürün Kodu*',
+        'Ürün Adı*',
+        'Birim Tipi',
+        'Mevcut Stok',
+        'Minimum Stok',
+        'Barkod',
+        'Notlar'
+    ]
+
+    # Başlık satırını yaz
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.value = header
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Örnek veri
+    example_data = [
+        ['HM-001', 'Çelik Levha 2mm', 'm2', '50', '10', '', 'Hammadde'],
+        ['HM-002', 'Paslanmaz Boru 25mm', 'metre', '120', '20', '5901234123457', ''],
+        ['BE-100', 'Somun M8', 'adet', '500', '100', '', 'Bağlantı'],
+    ]
+
+    for row_num, row_data in enumerate(example_data, 2):
+        for col_num, value in enumerate(row_data, 1):
+            ws.cell(row=row_num, column=col_num, value=value)
+
+    # Kolon genişliklerini ayarla
+    column_widths = [15, 30, 12, 12, 12, 15, 30]
+    for col_num, width in enumerate(column_widths, 1):
+        ws.column_dimensions[chr(64 + col_num)].width = width
+
+    # Açıklama sayfası ekle
+    ws_info = wb.create_sheet("Bilgi")
+    info_text = [
+        ["ÇELMAK STOK TAKİP SİSTEMİ - ÜRÜN İMPORT ŞABLONU (Basitleştirilmiş)", ""],
+        ["", ""],
+        ["Önemli:", ""],
+        ["Kategorileri Excel'de yazmanıza gerek yok!", ""],
+        ["Yükledikten sonra web arayüzünden her ürün için kategori seçeceksiniz.", ""],
+        ["", ""],
+        ["* ile işaretli alanlar zorunludur", ""],
+        ["", ""],
+        ["Alan Açıklamaları:", ""],
+        ["Ürün Kodu*", "Ürününüzün benzersiz kodu (örn: HM-001, BE-045, YM-100)"],
+        ["Ürün Adı*", "Ürünün tam adı"],
+        ["Birim Tipi", "adet, kg, metre, litre, m2, m3 vb. (varsayılan: adet)"],
+        ["Mevcut Stok", "Başlangıç stok miktarı (sayısal değer, varsayılan: 0)"],
+        ["Minimum Stok", "Kritik stok seviyesi (sayısal değer, varsayılan: 0)"],
+        ["Barkod", "Ürün barkodu (opsiyonel)"],
+        ["Notlar", "Ek bilgiler (opsiyonel)"],
+    ]
+
+    for row_num, row_data in enumerate(info_text, 1):
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws_info.cell(row=row_num, column=col_num, value=value)
+            if row_num == 1:
+                cell.font = Font(bold=True, size=14, color="FF0000")
+            elif ":" in str(value) or "!" in str(value):
+                cell.font = Font(bold=True)
+
+    ws_info.column_dimensions['A'].width = 25
+    ws_info.column_dimensions['B'].width = 60
+
+    # BytesIO'ya kaydet
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return output
+
+
 def create_product_template():
     """
     Ürün import için Excel şablonu oluştur
@@ -91,6 +174,65 @@ def create_product_template():
     return output
 
 
+def parse_product_excel_simple(file_stream):
+    """
+    Basitleştirilmiş ürün Excel'ini parse et (Kategori ID yok)
+
+    Returns:
+        tuple: (success_list, error_list)
+    """
+    try:
+        # Önce 'Ürünler' sheet'ini dene, yoksa ilk sheet'i al
+        try:
+            df = pd.read_excel(file_stream, sheet_name='Ürünler')
+        except ValueError:
+            # 'Ürünler' sheet'i yoksa, ilk sheet'i kullan
+            df = pd.read_excel(file_stream, sheet_name=0)
+
+        # Boş satırları temizle
+        df = df.dropna(how='all')
+
+        # Örnek satırları atla (HM-, BE- ile başlayanlar örnektir)
+        df = df[~df['Ürün Kodu*'].astype(str).str.match(r'^(HM-00|BE-10|ORN-)')]
+
+        success_list = []
+        error_list = []
+
+        for index, row in df.iterrows():
+            try:
+                # Zorunlu alanları kontrol et
+                if pd.isna(row['Ürün Kodu*']) or pd.isna(row['Ürün Adı*']):
+                    error_list.append({
+                        'row': index + 2,
+                        'error': 'Zorunlu alanlar boş olamaz (Ürün Kodu, Ürün Adı)'
+                    })
+                    continue
+
+                product_data = {
+                    'code': str(row['Ürün Kodu*']).strip(),
+                    'name': str(row['Ürün Adı*']).strip(),
+                    'unit_type': str(row.get('Birim Tipi', 'adet')).strip() if not pd.isna(row.get('Birim Tipi')) else 'adet',
+                    'current_stock': float(row.get('Mevcut Stok', 0)) if not pd.isna(row.get('Mevcut Stok')) else 0,
+                    'minimum_stock': float(row.get('Minimum Stok', 0)) if not pd.isna(row.get('Minimum Stok')) else 0,
+                    'barcode': str(row.get('Barkod', '')).strip() if not pd.isna(row.get('Barkod')) else None,
+                    'notes': str(row.get('Notlar', '')).strip() if not pd.isna(row.get('Notlar')) else None,
+                    'category_id': None  # Web'de seçilecek
+                }
+
+                success_list.append(product_data)
+
+            except Exception as e:
+                error_list.append({
+                    'row': index + 2,
+                    'error': f'Hata: {str(e)}'
+                })
+
+        return success_list, error_list
+
+    except Exception as e:
+        return [], [{'row': 0, 'error': f'Dosya okuma hatası: {str(e)}'}]
+
+
 def parse_product_excel(file_stream):
     """
     Ürün Excel dosyasını parse et
@@ -99,7 +241,12 @@ def parse_product_excel(file_stream):
         tuple: (success_list, error_list)
     """
     try:
-        df = pd.read_excel(file_stream, sheet_name='Ürün Şablonu')
+        # Önce 'Ürün Şablonu' sheet'ini dene, yoksa ilk sheet'i al
+        try:
+            df = pd.read_excel(file_stream, sheet_name='Ürün Şablonu')
+        except ValueError:
+            # 'Ürün Şablonu' sheet'i yoksa, ilk sheet'i kullan
+            df = pd.read_excel(file_stream, sheet_name=0)
 
         # Boş satırları temizle
         df = df.dropna(how='all')

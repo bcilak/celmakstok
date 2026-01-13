@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}Import Önizleme{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h2>🔍 Import Önizleme ve Kategori Seçimi</h2>
+            <p class="text-muted">Excel'den okunan ürünleri kontrol edin, kategorilerini seçin ve kaydedin.</p>
+        </div>
+    </div>
+
+    <!-- Özet Bilgi -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <h5 class="card-title">📋 Toplam Ürün</h5>
+                    <h2 class="mb-0">{{ products|length }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <h5 class="card-title">➕ Yeni Eklenecek</h5>
+                    <h2 class="mb-0">{{ new_count }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-warning text-dark">
+                <div class="card-body">
+                    <h5 class="card-title">🔄 Güncellenecek</h5>
+                    <h2 class="mb-0">{{ update_count }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hata Listesi (Varsa) -->
+    {% if errors %}
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <h5 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> Uyarılar</h5>
+        <p><strong>{{ errors|length }}</strong> satır atlandı:</p>
+        <ul class="mb-0">
+            {% for error in errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+
+    <!-- Ürün Listesi ve Kategori Seçimi -->
+    <form method="POST" action="{{ url_for('products.confirm_import') }}" id="confirmForm">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="bi bi-list-check"></i> Ürünler ve Kategori Seçimi
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th width="50">#</th>
+                                <th width="80">Durum</th>
+                                <th>Ürün Kodu</th>
+                                <th>Ürün Adı</th>
+                                <th width="250">Kategori Seçin *</th>
+                                <th>Birim</th>
+                                <th>Mevcut Stok</th>
+                                <th>Min. Stok</th>
+                                <th>Barkod</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for idx in range(products|length) %}
+                            {% set product = products[idx] %}
+                            {% set existing = existing_products.get(product.code) %}
+                            <tr class="{% if existing %}table-warning{% else %}table-success{% endif %}">
+                                <td>{{ idx + 1 }}</td>
+                                <td>
+                                    {% if existing %}
+                                        <span class="badge bg-warning text-dark" title="Bu ürün zaten var, güncellenecek">
+                                            <i class="bi bi-arrow-repeat"></i> Güncelleme
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-success" title="Yeni ürün eklenecek">
+                                            <i class="bi bi-plus-circle"></i> Yeni
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ product.code }}</strong></td>
+                                <td>{{ product.name }}</td>
+                                <td>
+                                    <select name="category_{{ idx }}" class="form-select form-select-sm category-select" required>
+                                        <option value="">Kategori Seçin...</option>
+                                        {% for category in categories %}
+                                        <option value="{{ category.id }}"
+                                                {% if existing and existing.category_id == category.id %}selected{% endif %}>
+                                            {{ category.name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if existing and existing.category %}
+                                        <small class="text-muted">Mevcut: {{ existing.category.name }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ product.unit_type }}</span>
+                                </td>
+                                <td>
+                                    {{ product.current_stock }}
+                                    {% if existing %}
+                                        <br><small class="text-muted">Mevcut: {{ existing.current_stock }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {{ product.minimum_stock }}
+                                    {% if existing %}
+                                        <br><small class="text-muted">Mevcut: {{ existing.minimum_stock }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if product.barcode %}
+                                        <small>{{ product.barcode }}</small>
+                                    {% else %}
+                                        <small class="text-muted">-</small>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="confirmCheck" required>
+                            <label class="form-check-label" for="confirmCheck">
+                                <strong>Yukarıdaki bilgileri kontrol ettim ve kategorileri seçtim. İşlemi onaylıyorum.</strong>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <a href="{{ url_for('products.simple_import_page') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Geri Dön
+                        </a>
+                        <button type="submit" class="btn btn-success btn-lg" id="confirmBtn">
+                            <i class="bi bi-check-circle"></i> Onayla ve Kaydet
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- Bilgilendirme -->
+    <div class="card mt-4">
+        <div class="card-body">
+            <h5 class="card-title">ℹ️ İşlem Hakkında</h5>
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Yeni Ürünler (Yeşil):</h6>
+                    <ul>
+                        <li>Sistemde bu ürün kodu mevcut değil</li>
+                        <li>Yeni kayıt olarak eklenecek</li>
+                        <li>Kategori seçimi <strong>zorunlu</strong></li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h6>Güncellenecek Ürünler (Sarı):</h6>
+                    <ul>
+                        <li>Bu ürün kodu sistemde zaten mevcut</li>
+                        <li>Excel'deki bilgilerle güncellenecek</li>
+                        <li>Mevcut kategoriyi görebilir, değiştirebilirsiniz</li>
+                        <li>Stok hareketleri korunur</li>
+                    </ul>
+                </div>
+            </div>
+            <hr>
+            <div class="alert alert-info mb-0">
+                <i class="bi bi-info-circle"></i>
+                <strong>Not:</strong> "Onayla ve Kaydet" butonuna bastığınızda tüm ürünler seçtiğiniz kategorilerle birlikte veritabanına kaydedilecek.
+                Bu işlem geri alınamaz.
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Form validation
+document.getElementById('confirmForm').addEventListener('submit', function(e) {
+    const confirmCheck = document.getElementById('confirmCheck');
+    if (!confirmCheck.checked) {
+        e.preventDefault();
+        alert('Lütfen onay kutusunu işaretleyin.');
+        return false;
+    }
+
+    // Check all categories are selected
+    const categorySelects = document.querySelectorAll('.category-select');
+    let allSelected = true;
+    let emptyCount = 0;
+
+    categorySelects.forEach(select => {
+        if (!select.value || select.value === '') {
+            allSelected = false;
+            emptyCount++;
+            select.classList.add('is-invalid');
+        } else {
+            select.classList.remove('is-invalid');
+        }
+    });
+
+    if (!allSelected) {
+        e.preventDefault();
+        alert(`${emptyCount} ürün için kategori seçilmedi. Lütfen tüm ürünler için kategori seçin.`);
+        // Scroll to first empty select
+        const firstEmpty = document.querySelector('.category-select.is-invalid');
+        if (firstEmpty) {
+            firstEmpty.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            firstEmpty.focus();
+        }
+        return false;
+    }
+
+    // Show loading
+    const confirmBtn = document.getElementById('confirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Kaydediliyor...';
+});
+
+// Remove invalid class when user selects a category
+document.querySelectorAll('.category-select').forEach(select => {
+    select.addEventListener('change', function() {
+        if (this.value && this.value !== '') {
+            this.classList.remove('is-invalid');
+        }
+    });
+});
+
+// Add invalid feedback styling
+const style = document.createElement('style');
+style.textContent = `
+    .category-select.is-invalid {
+        border-color: #dc3545 !important;
+        background-color: #fff5f5 !important;
+    }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}

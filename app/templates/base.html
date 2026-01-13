@@ -738,8 +738,8 @@
                 <span>Toplu QR Yazdır</span>
             </a>
             {% if current_user.role in ['admin', 'yonetici'] %}
-            <a href="{{ url_for('products.import_page') }}"
-                class="nav-link {% if request.endpoint == 'products.import_page' %}active{% endif %}">
+            <a href="{{ url_for('products.simple_import_page') }}"
+                class="nav-link {% if request.endpoint in ['products.simple_import_page', 'products.import_preview'] %}active{% endif %}">
                 <i class="bi bi-file-earmark-excel"></i>
                 <span>Excel'den Aktar</span>
             </a>

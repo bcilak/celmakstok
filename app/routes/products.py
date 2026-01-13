@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement
 from app import db
 from app.utils.qr_generator import generate_qr_code, generate_celmak_label, generate_celmak_label_with_size
+from app.utils.excel_utils import create_product_template_simple, parse_product_excel_simple
 from app.utils.excel_utils import (
     create_product_template,
     parse_product_excel,
@@ -617,3 +618,211 @@ def preview_qr(product_id):
         as_attachment=False,
         download_name=f'{product.code}_preview.png'
     )
+
+
+# ==================== YENİ BASIT EXCEL İMPORT ====================
+
+@products_bp.route('/import/simple')
+@login_required
+def simple_import_page():
+    """Basit Excel import sayfası (Kategori web'de seçilir)"""
+    if current_user.role not in ['admin', 'yonetici']:
+        flash('Bu işlem için yetkiniz yok.', 'error')
+        return redirect(url_for('products.index'))
+
+    categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
+    return render_template('products/simple_import.html', categories=categories)
+
+
+@products_bp.route('/import/simple/template')
+@login_required
+def download_simple_template():
+    """Basit Excel şablonunu indir (Kategori ID yok)"""
+    template = create_product_template_simple()
+
+    return send_file(
+        template,
+        as_attachment=True,
+        download_name=f'urunler_import_{datetime.now().strftime("%Y%m%d")}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@products_bp.route('/import/simple/upload', methods=['POST'])
+@login_required
+def simple_upload_import():
+    """Basit Excel'i yükle ve önizleme sayfasına gönder"""
+    if current_user.role not in ['admin', 'yonetici']:
+        flash('Bu işlem için yetkiniz yok.', 'error')
+        return redirect(url_for('products.index'))
+
+    if 'file' not in request.files:
+        flash('Dosya seçilmedi.', 'error')
+        return redirect(url_for('products.simple_import_page'))
+
+    file = request.files['file']
+
+    if file.filename == '':
+        flash('Dosya seçilmedi.', 'error')
+        return redirect(url_for('products.simple_import_page'))
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Sadece Excel dosyaları yükleyebilirsiniz (.xlsx, .xls)', 'error')
+        return redirect(url_for('products.simple_import_page'))
+
+    try:
+        # Excel dosyasını parse et
+        success_list, error_list = parse_product_excel_simple(file)
+
+        if not success_list:
+            if error_list:
+                flash(f'Dosya okunamadı: {error_list[0]["error"]}', 'error')
+            else:
+                flash('Excel dosyasında geçerli ürün bulunamadı.', 'warning')
+            return redirect(url_for('products.simple_import_page'))
+
+        # Session'da sakla (önizleme için)
+        from flask import session
+        session['import_products'] = success_list
+        session['import_errors'] = error_list
+
+        flash(f'{len(success_list)} ürün başarıyla okundu. Kategorileri seçin ve kaydedin.', 'success')
+        if error_list:
+            flash(f'{len(error_list)} satırda hata oluştu.', 'warning')
+
+        return redirect(url_for('products.import_preview'))
+
+    except Exception as e:
+        flash(f'Dosya yüklenirken hata oluştu: {str(e)}', 'error')
+        return redirect(url_for('products.simple_import_page'))
+
+
+@products_bp.route('/import/preview')
+@login_required
+def import_preview():
+    """Import önizleme ve kategori seçimi"""
+    if current_user.role not in ['admin', 'yonetici']:
+        flash('Bu işlem için yetkiniz yok.', 'error')
+        return redirect(url_for('products.index'))
+
+    from flask import session
+
+    products = session.get('import_products', [])
+    errors = session.get('import_errors', [])
+
+    if not products:
+        flash('Önizlenecek ürün bulunamadı. Lütfen önce Excel dosyasını yükleyin.', 'warning')
+        return redirect(url_for('products.simple_import_page'))
+
+    categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
+
+    # Mevcut ürün kodlarını kontrol et (güncellenecek mi, eklenecek mi)
+    existing_codes = {p.code: p for p in Product.query.filter(
+        Product.code.in_([prod['code'] for prod in products])
+    ).all()}
+
+    return render_template('products/import_preview.html',
+        products=products,
+        errors=errors,
+        categories=categories,
+        existing_codes=existing_codes
+    )
+
+
+@products_bp.route('/import/confirm', methods=['POST'])
+@login_required
+def confirm_import():
+    """Önizlenen ürünleri kategorileriyle birlikte kaydet"""
+    if current_user.role not in ['admin', 'yonetici']:
+        flash('Bu işlem için yetkiniz yok.', 'error')
+        return redirect(url_for('products.index'))
+
+    from flask import session
+
+    products_data = session.get('import_products', [])
+
+    if not products_data:
+        flash('Kaydedilecek ürün bulunamadı.', 'warning')
+        return redirect(url_for('products.simple_import_page'))
+
+    try:
+        added_count = 0
+        updated_count = 0
+        skipped_count = 0
+
+        for idx, product_data in enumerate(products_data):
+            # Form'dan kategori ID'yi al
+            category_id = request.form.get(f'category_{idx}', type=int)
+
+            if not category_id:
+                skipped_count += 1
+                continue
+
+            # Kategori kontrolü
+            category = Category.query.get(category_id)
+            if not category:
+                skipped_count += 1
+                continue
+
+            product_data['category_id'] = category_id
+
+            # Mevcut ürün kontrolü
+            existing_product = Product.query.filter_by(code=product_data['code']).first()
+
+            if existing_product:
+                # Güncelle
+                existing_product.name = product_data['name']
+                existing_product.category_id = product_data['category_id']
+                existing_product.unit_type = product_data['unit_type']
+                existing_product.minimum_stock = product_data['minimum_stock']
+                if product_data.get('barcode'):
+                    existing_product.barcode = product_data['barcode']
+                if product_data.get('notes'):
+                    existing_product.notes = product_data['notes']
+
+                updated_count += 1
+            else:
+                # Yeni ekle
+                new_product = Product(
+                    code=product_data['code'],
+                    name=product_data['name'],
+                    category_id=product_data['category_id'],
+                    unit_type=product_data['unit_type'],
+                    current_stock=product_data['current_stock'],
+                    minimum_stock=product_data['minimum_stock'],
+                    barcode=product_data.get('barcode'),
+                    notes=product_data.get('notes')
+                )
+                db.session.add(new_product)
+
+                # Açılış stoğu hareketi
+                if product_data['current_stock'] > 0:
+                    from app.models import StockMovement
+                    opening_movement = StockMovement(
+                        product_id=new_product.id,
+                        movement_type='giris',
+                        quantity=product_data['current_stock'],
+                        source='AÇILIŞ',
+                        note='Excel import - Açılış stoğu',
+                        user_id=current_user.id
+                    )
+                    db.session.add(opening_movement)
+
+                added_count += 1
+
+        db.session.commit()
+
+        # Session'ı temizle
+        session.pop('import_products', None)
+        session.pop('import_errors', None)
+
+        flash(f'✓ {added_count} ürün eklendi, {updated_count} ürün güncellendi.', 'success')
+        if skipped_count > 0:
+            flash(f'⚠ {skipped_count} ürün atlandı (kategori seçilmemiş).', 'warning')
+
+        return redirect(url_for('products.index'))
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Ürünler kaydedilirken hata oluştu: {str(e)}', 'error')
+        return redirect(url_for('products.import_preview'))

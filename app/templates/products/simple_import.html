@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Excel'den Toplu Ürün Aktarma{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h2>📊 Excel'den Toplu Ürün Aktarma</h2>
+            <p class="text-muted">Excel dosyasından ürünleri yükleyin, kategorilerini web üzerinden seçin ve kaydedin.</p>
+        </div>
+    </div>
+
+    <!-- Adımlar -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">📋 Nasıl Kullanılır?</h5>
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-primary rounded-circle me-2" style="width: 30px; height: 30px; line-height: 30px;">1</span>
+                        <strong>Şablonu İndirin</strong>
+                    </div>
+                    <p class="text-muted ms-4">Excel şablonunu indirip doldurun</p>
+                </div>
+                <div class="col-md-4">
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-primary rounded-circle me-2" style="width: 30px; height: 30px; line-height: 30px;">2</span>
+                        <strong>Dosyayı Yükleyin</strong>
+                    </div>
+                    <p class="text-muted ms-4">Doldurduğunuz Excel'i yükleyin</p>
+                </div>
+                <div class="col-md-4">
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-primary rounded-circle me-2" style="width: 30px; height: 30px; line-height: 30px;">3</span>
+                        <strong>Kategorileri Seçin</strong>
+                    </div>
+                    <p class="text-muted ms-4">Web'de kategori seçip kaydedin</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Şablon İndirme -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">1️⃣ Excel Şablonunu İndirin</h5>
+            <p class="mb-3">Basitleştirilmiş şablon - Kategori ID'ye gerek yok, sonraki adımda web üzerinden seçeceksiniz.</p>
+            <a href="{{ url_for('products.download_simple_template') }}" class="btn btn-success">
+                <i class="bi bi-download"></i> Şablon İndir
+            </a>
+            <div class="alert alert-info mt-3 mb-0">
+                <i class="bi bi-info-circle"></i>
+                <strong>Şablon İçeriği:</strong> Ürün Kodu, Ürün Adı, Birim Tipi, Stok Bilgileri, Barkod, Notlar
+                <br>
+                <small class="text-muted">Kategori bilgisi şablonda YOK - bir sonraki adımda web üzerinden seçeceksiniz!</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dosya Yükleme -->
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">2️⃣ Excel Dosyasını Yükleyin</h5>
+            <form method="POST" action="{{ url_for('products.simple_upload_import') }}" enctype="multipart/form-data" id="uploadForm">
+                <div class="mb-3">
+                    <label for="file" class="form-label">Excel Dosyası (.xlsx veya .xls)</label>
+                    <input type="file" class="form-control" id="file" name="file" accept=".xlsx,.xls" required>
+                    <div class="form-text">
+                        Maksimum dosya boyutu: 10MB
+                    </div>
+                </div>
+
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Dikkat:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Ürün Kodu ve Ürün Adı <strong>zorunludur</strong></li>
+                        <li>Kategorileri bir sonraki adımda web üzerinden seçeceksiniz</li>
+                        <li>Mevcut ürün kodları güncellenir, yenileri eklenir</li>
+                        <li>Şablon formatına uygun dosya yükleyin</li>
+                    </ul>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="uploadBtn">
+                    <i class="bi bi-upload"></i> Yükle ve Önizle
+                </button>
+                <a href="{{ url_for('products.index') }}" class="btn btn-secondary">
+                    <i class="bi bi-x-circle"></i> İptal
+                </a>
+            </form>
+        </div>
+    </div>
+
+    <!-- Yardım Kartı -->
+    <div class="card mt-4">
+        <div class="card-body">
+            <h5 class="card-title">💡 İpuçları</h5>
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Excel'i Doldururken:</h6>
+                    <ul>
+                        <li>Her ürün için <strong>Ürün Kodu</strong> ve <strong>Ürün Adı</strong> mutlaka doldurun</li>
+                        <li>Birim Tipi: adet, kg, metre, litre, m2, m3</li>
+                        <li>Stok değerleri sayı olmalı (0 da olabilir)</li>
+                        <li>Barkod varsa metin olarak girin (başına ' koyun)</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h6>Sonraki Adımda:</h6>
+                    <ul>
+                        <li>Tüm ürünlerinizi önizleyeceksiniz</li>
+                        <li>Her ürün için <strong>kategori dropdown'dan seçilecek</strong></li>
+                        <li>Güncellenen ve yeni eklenen ürünler işaretlenecek</li>
+                        <li>Onayladıktan sonra veritabanına kaydedilecek</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('uploadForm').addEventListener('submit', function(e) {
+    const fileInput = document.getElementById('file');
+    const uploadBtn = document.getElementById('uploadBtn');
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        e.preventDefault();
+        alert('Lütfen bir Excel dosyası seçin.');
+        return false;
+    }
+
+    const file = fileInput.files[0];
+    const fileSize = file.size / 1024 / 1024; // MB
+
+    if (fileSize > 10) {
+        e.preventDefault();
+        alert('Dosya boyutu 10MB\'dan büyük olamaz.');
+        return false;
+    }
+
+    const fileName = file.name.toLowerCase();
+    if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+        e.preventDefault();
+        alert('Sadece Excel dosyaları (.xlsx veya .xls) yükleyebilirsiniz.');
+        return false;
+    }
+
+    // Show loading
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Yükleniyor...';
+});
+</script>
+{% endblock %}
