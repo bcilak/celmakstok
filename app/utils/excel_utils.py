@@ -192,8 +192,9 @@ def parse_product_excel_simple(file_stream):
         # Boş satırları temizle
         df = df.dropna(how='all')
 
-        # Örnek satırları atla (HM-, BE- ile başlayanlar örnektir)
-        df = df[~df['Ürün Kodu*'].astype(str).str.match(r'^(HM-00|BE-10|ORN-)')]
+        # Örnek satırları atla - SADECE tam eşleşenler
+        example_codes = ['HM-001', 'HM-002', 'BE-100']
+        df = df[~df['Ürün Kodu*'].astype(str).isin(example_codes)]
 
         success_list = []
         error_list = []
