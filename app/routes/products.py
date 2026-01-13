@@ -717,15 +717,21 @@ def import_preview():
     categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
 
     # Mevcut ürün kodlarını kontrol et (güncellenecek mi, eklenecek mi)
-    existing_codes = {p.code: p for p in Product.query.filter(
+    existing_products = {p.code: p for p in Product.query.filter(
         Product.code.in_([prod['code'] for prod in products])
     ).all()}
+
+    # Yeni ve güncelleme sayısını hesapla
+    new_count = sum(1 for p in products if p['code'] not in existing_products)
+    update_count = len(existing_products)
 
     return render_template('products/import_preview.html',
         products=products,
         errors=errors,
         categories=categories,
-        existing_codes=existing_codes
+        existing_products=existing_products,
+        new_count=new_count,
+        update_count=update_count
     )
 
 
