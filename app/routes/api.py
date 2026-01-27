@@ -4,6 +4,7 @@ from app.models import Product, Category, StockMovement, CountSession, CountItem
 from app import db
 from sqlalchemy import func
 from functools import wraps
+from datetime import datetime, timedelta
 
 api_bp = Blueprint('api', __name__)
 
@@ -191,7 +192,6 @@ def get_production_lines():
 @login_required
 def dashboard_stats():
     """Dashboard istatistikleri API"""
-    from datetime import datetime, timedelta
     
     total_products = Product.query.filter_by(is_active=True).count()
     
@@ -229,7 +229,6 @@ def dashboard_stats():
 @login_required
 def api_count_item(session_id, item_id):
     """Sayım kalemi güncelleme API"""
-    from datetime import datetime
 
     data = request.get_json()
     counted_quantity = data.get('counted_quantity', 0)
@@ -602,7 +601,6 @@ def api_critical_stock_for_purchasing():
         shortage = p.minimum_stock - p.current_stock
 
         # Son hareketleri al (son çıkış hızını analiz için)
-        from datetime import datetime, timedelta
         week_ago = datetime.utcnow() - timedelta(days=7)
 
         weekly_consumption = db.session.query(func.sum(StockMovement.quantity)).filter(
@@ -663,7 +661,6 @@ def api_critical_products():
         shortage = p.minimum_stock - p.current_stock
         
         # Son 30 gün tüketim
-        from datetime import datetime, timedelta
         month_ago = datetime.utcnow() - timedelta(days=30)
         
         monthly_consumption = db.session.query(func.sum(StockMovement.quantity)).filter(
@@ -703,7 +700,6 @@ def api_reorder_suggestions():
     Satın alma önerileri - Hangi üründen ne kadar sipariş verilmeli
     Minimum stok + güvenlik stoğu hesaplaması
     """
-    from datetime import datetime, timedelta
 
     # Kritik ürünleri al
     critical_products = Product.query.filter(
@@ -764,7 +760,6 @@ def api_product_purchasing_details(product_id):
     Belirli bir ürün için satın alma detayları
     Tüketim analizi, sipariş önerisi, tedarikçi bilgileri
     """
-    from datetime import datetime, timedelta
 
     product = Product.query.get_or_404(product_id)
 
@@ -869,7 +864,6 @@ def api_product_by_code(product_code):
     """
     Ürün koduna göre detaylı bilgi (satın alma için)
     """
-    from datetime import datetime, timedelta
     
     product = Product.query.filter_by(code=product_code, is_active=True).first_or_404()
     
