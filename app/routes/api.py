@@ -583,7 +583,7 @@ def api_health():
 # ================== SATIN ALMA BİRİMİ API'LERİ ==================
 
 @api_bp.route('/v1/purchasing/critical-stock', methods=['GET'])
-@login_required
+@require_api_key
 def api_critical_stock_for_purchasing():
     """
     Satın alma birimi için kritik stok listesi
@@ -643,8 +643,61 @@ def api_critical_stock_for_purchasing():
     })
 
 
+@api_bp.route('/v1/purchasing/critical-products', methods=['GET'])
+@require_api_key
+def api_critical_products():
+    """
+    Satın alma birimi için kritik stok listesi (alias endpoint)
+    /v1/purchasing/critical-stock ile aynı veriyi döndürür
+    """
+    # Kritik ürünleri al
+    critical_products = Product.query.filter(
+        Product.is_active == True,
+        Product.minimum_stock > 0,
+        Product.current_stock < Product.minimum_stock
+    ).order_by(Product.current_stock).all()
+
+    result = []
+    for p in critical_products:
+        # Eksik miktar
+        shortage = p.minimum_stock - p.current_stock
+        
+        # Son 30 gün tüketim
+        from datetime import datetime, timedelta
+        month_ago = datetime.utcnow() - timedelta(days=30)
+        
+        monthly_consumption = db.session.query(func.sum(StockMovement.quantity)).filter(
+            StockMovement.product_id == p.id,
+            StockMovement.movement_type == 'cikis',
+            StockMovement.date >= month_ago
+        ).scalar() or 0
+        
+        # Önerilen sipariş = Eksik + 1 aylık tüketim
+        suggested_order = shortage + monthly_consumption
+        
+        result.append({
+            'id': p.id,
+            'code': p.code,
+            'name': p.name,
+            'category': p.category.name if p.category else None,
+            'current_stock': float(p.current_stock),
+            'minimum_stock': float(p.minimum_stock),
+            'shortage': float(shortage),
+            'unit_type': p.unit_type,
+            'suggested_order': float(suggested_order),
+            'monthly_consumption': float(monthly_consumption)
+        })
+
+    return jsonify({
+        'success': True,
+        'count': len(result),
+        'products': result,
+        'timestamp': datetime.utcnow().isoformat()
+    })
+
+
 @api_bp.route('/v1/purchasing/reorder-suggestions', methods=['GET'])
-@login_required
+@require_api_key
 def api_reorder_suggestions():
     """
     Satın alma önerileri - Hangi üründen ne kadar sipariş verilmeli
@@ -705,7 +758,7 @@ def api_reorder_suggestions():
 
 
 @api_bp.route('/v1/purchasing/product/<int:product_id>/details', methods=['GET'])
-@login_required
+@require_api_key
 def api_product_purchasing_details(product_id):
     """
     Belirli bir ürün için satın alma detayları
@@ -807,4 +860,59 @@ def api_purchasing_notify():
         'message': 'Bildirim gönderildi',
         'critical_product_count': critical_count,
         'timestamp': datetime.utcnow().isoformat()
+    })
+
+
+@api_bp.route('/v1/purchasing/product/<product_code>', methods=['GET'])
+@require_api_key
+def api_product_by_code(product_code):
+    """
+    Ürün koduna göre detaylı bilgi (satın alma için)
+    """
+    from datetime import datetime, timedelta
+    
+    product = Product.query.filter_by(code=product_code, is_active=True).first_or_404()
+    
+    # Son 30 günlük hareketler
+    month_ago = datetime.utcnow() - timedelta(days=30)
+    movements = StockMovement.query.filter(
+        StockMovement.product_id == product.id,
+        StockMovement.date >= month_ago
+    ).order_by(StockMovement.date.desc()).all()
+    
+    # Giriş/Çıkış analizi
+    total_in = sum(m.quantity for m in movements if m.movement_type == 'giris')
+    total_out = sum(m.quantity for m in movements if m.movement_type == 'cikis')
+    daily_consumption = total_out / 30 if total_out > 0 else 0
+    
+    # Son satın alma
+    last_purchase = StockMovement.query.filter(
+        StockMovement.product_id == product.id,
+        StockMovement.movement_type == 'giris'
+    ).order_by(StockMovement.date.desc()).first()
+    
+    return jsonify({
+        'success': True,
+        'product': {
+            'id': product.id,
+            'code': product.code,
+            'name': product.name,
+            'category': product.category.name if product.category else None,
+            'current_stock': float(product.current_stock),
+            'minimum_stock': float(product.minimum_stock),
+            'unit_type': product.unit_type,
+            'barcode': product.barcode,
+            'status': product.stock_status
+        },
+        'consumption_analysis': {
+            'last_30_days_in': float(total_in),
+            'last_30_days_out': float(total_out),
+            'daily_avg_consumption': float(daily_consumption)
+        },
+        'purchasing_info': {
+            'shortage': float(max(0, product.minimum_stock - product.current_stock)),
+            'suggested_order': float(max(0, product.minimum_stock - product.current_stock + (daily_consumption * 30))),
+            'last_purchase_date': last_purchase.date.isoformat() if last_purchase else None,
+            'last_purchase_quantity': float(last_purchase.quantity) if last_purchase else None
+        }
     })
