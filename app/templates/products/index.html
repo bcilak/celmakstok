@@ -10,7 +10,7 @@
     </div>
     <div class="d-flex gap-2">
         <a href="{{ url_for('products.download_all_qr', category=selected_category or '', search=search) }}"
-           class="btn btn-outline-primary">
+            class="btn btn-outline-primary">
             <i class="bi bi-qr-code me-2"></i>Tüm QR Kodları İndir
         </a>
         <a href="{{ url_for('products.add') }}" class="btn btn-primary">
@@ -144,7 +144,21 @@
         <table class="table table-hover align-middle mb-0">
             <thead>
                 <tr>
-                    <th class="ps-4">Ürün Bilgisi</th>
+                    <th class="ps-4">
+                        <a href="?page=1&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}&sort_by=code&sort_order={% if sort_by == 'code' and sort_order == 'asc' %}desc{% else %}asc{% endif %}"
+                            class="text-decoration-none text-dark d-flex align-items-center" style="cursor: pointer;">
+                            Ürün Bilgisi
+                            {% if sort_by == 'code' %}
+                            {% if sort_order == 'asc' %}
+                            <i class="bi bi-arrow-up ms-2"></i>
+                            {% else %}
+                            <i class="bi bi-arrow-down ms-2"></i>
+                            {% endif %}
+                            {% else %}
+                            <i class="bi bi-arrow-down-up ms-2 text-muted opacity-50"></i>
+                            {% endif %}
+                        </a>
+                    </th>
                     <th>Kategori</th>
                     <th class="text-end">Mevcut Stok</th>
                     <th class="text-end">Min. Stok</th>
@@ -256,7 +270,7 @@
                 {% if products.has_prev %}
                 <li class="page-item">
                     <a class="page-link"
-                        href="?page={{ products.prev_num }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}">
+                        href="?page={{ products.prev_num }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}">
                         <i class="bi bi-chevron-left"></i> Önceki
                     </a>
                 </li>
@@ -266,7 +280,7 @@
                 {% if page %}
                 <li class="page-item {% if page == products.page %}active{% endif %}">
                     <a class="page-link"
-                        href="?page={{ page }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}">
+                        href="?page={{ page }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}">
                         {{ page }}
                     </a>
                 </li>
@@ -278,7 +292,7 @@
                 {% if products.has_next %}
                 <li class="page-item">
                     <a class="page-link"
-                        href="?page={{ products.next_num }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}">
+                        href="?page={{ products.next_num }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}">
                         Sonraki <i class="bi bi-chevron-right"></i>
                     </a>
                 </li>

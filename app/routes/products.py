@@ -12,8 +12,16 @@ from app.utils.excel_utils import (
 from datetime import datetime
 import io
 import zipfile
+import re
 
 products_bp = Blueprint('products', __name__)
+
+def natural_sort_key(code):
+    """HAM-234 gibi kodları sayısal sıralamaya göre çevirir (HAM-1, HAM-2, HAM-10)"""
+    if not code:
+        return []
+    parts = re.split(r'(\d+)', code)
+    return [int(p) if p.isdigit() else p.lower() for p in parts]
 
 @products_bp.route('/')
 @login_required
@@ -22,6 +30,9 @@ def index():
     category_id = request.args.get('category', type=int)
     search = request.args.get('search', '')
     status = request.args.get('status', '')
+    sort_by = request.args.get('sort_by', 'name')
+    sort_order = request.args.get('sort_order', 'asc')
+    per_page = 25
     
     query = Product.query.filter_by(is_active=True)
     
@@ -41,7 +52,46 @@ def index():
     elif status == 'empty':
         query = query.filter(Product.current_stock <= 0)
     
-    products = query.order_by(Product.name).paginate(page=page, per_page=25)
+    # Kod sıralaması için özel işlem
+    if sort_by == 'code':
+        all_products = query.all()
+        all_products.sort(key=lambda p: natural_sort_key(p.code), reverse=(sort_order == 'desc'))
+        
+        # Manuel sayfalama
+        total = len(all_products)
+        start = (page - 1) * per_page
+        end = start + per_page
+        items = all_products[start:end]
+        
+        # Pagination objesi oluştur
+        from flask import Markup
+        class CustomPagination:
+            def __init__(self, items, page, per_page, total):
+                self.items = items
+                self.page = page
+                self.per_page = per_page
+                self.total = total
+                self.pages = (total + per_page - 1) // per_page
+                self.has_prev = page > 1
+                self.has_next = page < self.pages
+                self.prev_num = page - 1 if self.has_prev else None
+                self.next_num = page + 1 if self.has_next else None
+            
+            def iter_pages(self, left_edge=2, left_current=2, right_current=3, right_edge=2):
+                last = 0
+                for num in range(1, self.pages + 1):
+                    if num <= left_edge or \
+                       (num > self.page - left_current - 1 and num < self.page + right_current) or \
+                       num > self.pages - right_edge:
+                        if last + 1 != num:
+                            yield None
+                        yield num
+                        last = num
+        
+        products = CustomPagination(items, page, per_page, total)
+    else:
+        # Normal sıralama (isme göre)
+        products = query.order_by(Product.name).paginate(page=page, per_page=per_page)
     categories = Category.query.all()
     
     return render_template('products/index.html', 
@@ -49,7 +99,9 @@ def index():
         categories=categories,
         selected_category=category_id,
         search=search,
-        status=status
+        status=status,
+        sort_by=sort_by,
+        sort_order=sort_order
     )
 
 @products_bp.route('/add', methods=['GET', 'POST'])
