@@ -3,13 +3,13 @@
 {% block title %}Stok Raporu - ÇELMAK Stok Takip{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <div>
-            <h1 class="page-title"><i class="bi bi-boxes me-2"></i>Stok Raporu</h1>
-            <p class="page-subtitle">Güncel stok durumu ve analizi</p>
+<div class="container-fluid px-4 py-3">
+    <div class="row mb-3">
+        <div class="col-12 col-lg-8">
+            <h1 class="h3 mb-1"><i class="bi bi-boxes me-2"></i>Stok Raporu</h1>
+            <div class="text-muted mb-2">Güncel stok durumu ve analizi</div>
         </div>
-        <div class="d-flex gap-2">
+        <div class="col-12 col-lg-4 d-flex justify-content-end align-items-start gap-2">
             <a href="{{ url_for('reports.export_stock') }}" class="btn btn-success">
                 <i class="bi bi-download me-1"></i>CSV İndir
             </a>
@@ -18,60 +18,180 @@
             </a>
         </div>
     </div>
-</div>
 
-<!-- Özet Kartları -->
-<div class="row g-3 mb-4">
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="flex-shrink-0">
-                        <div class="rounded-circle p-3" style="background: rgba(37, 99, 235, 0.1);">
-                            <i class="bi bi-box-seam fs-4 text-primary"></i>
+    <!-- Özet Kartları -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            <div class="rounded-circle p-3" style="background: rgba(37, 99, 235, 0.1);">
+                                <i class="bi bi-box-seam fs-4 text-primary"></i>
+                            </div>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <h3 class="mb-0 fw-bold text-primary">{{ total_items }}</h3>
+                            <small class="text-muted">Toplam Ürün</small>
                         </div>
                     </div>
-                    <div class="flex-grow-1 ms-3">
-                        <h3 class="mb-0 fw-bold text-primary">{{ total_items }}</h3>
-                        <small class="text-muted">Toplam Ürün</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            <div class="rounded-circle p-3" style="background: rgba(245, 158, 11, 0.1);">
+                                <i class="bi bi-exclamation-triangle fs-4 text-warning"></i>
+                            </div>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <h3 class="mb-0 fw-bold text-warning">{{ critical_items }}</h3>
+                            <small class="text-muted">Kritik Stok</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            <div class="rounded-circle p-3" style="background: rgba(239, 68, 68, 0.1);">
+                                <i class="bi bi-x-circle fs-4 text-danger"></i>
+                            </div>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <h3 class="mb-0 fw-bold text-danger">{{ empty_items }}</h3>
+                            <small class="text-muted">Tükenen Ürün</small>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="flex-shrink-0">
-                        <div class="rounded-circle p-3" style="background: rgba(245, 158, 11, 0.1);">
-                            <i class="bi bi-exclamation-triangle fs-4 text-warning"></i>
-                        </div>
-                    </div>
-                    <div class="flex-grow-1 ms-3">
-                        <h3 class="mb-0 fw-bold text-warning">{{ critical_items }}</h3>
-                        <small class="text-muted">Kritik Stok</small>
-                    </div>
-                </div>
+
+    <!-- AI Analiz Kutusu -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <strong>AI Analiz:</strong> {{ ai_summary or "AI özet üretilemedi veya devre dışı." }}
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="flex-shrink-0">
-                        <div class="rounded-circle p-3" style="background: rgba(239, 68, 68, 0.1);">
-                            <i class="bi bi-x-circle fs-4 text-danger"></i>
-                        </div>
-                    </div>
-                    <div class="flex-grow-1 ms-3">
-                        <h3 class="mb-0 fw-bold text-danger">{{ empty_items }}</h3>
-                        <small class="text-muted">Tükenen Ürün</small>
-                    </div>
+
+    <!-- Filtreler -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3 align-items-end">
+                <div class="col-md-8">
+                    <label class="form-label fw-semibold"><i class="bi bi-funnel me-1"></i>Kategori</label>
+                    <select name="category" class="form-select">
+                        <option value="">Tüm Kategoriler</option>
+                        {% for category in categories %}
+                        <option value="{{ category.id }}" {% if selected_category==category.id %}selected{% endif %}>
+                            {{ category.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
                 </div>
-            </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search me-1"></i>Filtrele
+                    </button>
+                </div>
+            </form>
         </div>
+    </div>
+
+    <!-- Stok Tablosu -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
+            <h5 class="mb-0"><i class="bi bi-table me-2"></i>Stok Listesi</h5>
+            <span class="badge bg-primary rounded-pill">{{ products|length }} ürün</span>
+        </div>
+
+        {% if products %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Ürün</th>
+                        <th>Kategori</th>
+                        <th class="text-end">Mevcut Stok</th>
+                        <th class="text-end">Min. Stok</th>
+                        <th class="text-center">Durum</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for product in products[:200] %}
+                    <tr>
+                        <td class="ps-4">
+                            <div class="d-flex align-items-center">
+                                <div class="bg-light rounded p-2 me-3">
+                                    <i class="bi bi-box text-secondary"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-semibold">{{ product.name }}</div>
+                                    <small class="text-muted"><code>{{ product.code }}</code></small>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if product.category %}
+                            <span class="badge bg-secondary bg-opacity-10 text-secondary px-2 py-1">
+                                {{ product.category.name }}
+                            </span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <span
+                                class="fw-bold {% if product.current_stock <= 0 %}text-danger{% elif product.current_stock < product.minimum_stock %}text-warning{% else %}text-success{% endif %}">
+                                {{ product.current_stock|round(1) }}
+                            </span>
+                            <small class="text-muted ms-1">{{ product.unit_type }}</small>
+                        </td>
+                        <td class="text-end text-muted">
+                            {{ product.minimum_stock|round(1) }} {{ product.unit_type }}
+                        </td>
+                        <td class="text-center">
+                            {% if product.current_stock <= 0 %} <span
+                                class="badge bg-danger bg-opacity-10 text-danger px-3 py-2">
+                                <i class="bi bi-x-circle me-1"></i>Tükendi
+                                </span>
+                                {% elif product.current_stock < product.minimum_stock %} <span
+                                    class="badge bg-warning bg-opacity-10 text-warning px-3 py-2">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>Kritik
+                                    </span>
+                                    {% else %}
+                                    <span class="badge bg-success bg-opacity-10 text-success px-3 py-2">
+                                        <i class="bi bi-check-circle me-1"></i>Normal
+                                    </span>
+                                    {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if products|length > 200 %}
+        <div class="card-footer bg-light text-center">
+            <small class="text-muted">İlk 200 ürün gösteriliyor. Toplam {{ products|length }} ürün var.</small>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="card-body text-center py-5">
+            <i class="bi bi-inbox display-1 text-muted"></i>
+            <h4 class="mt-3 text-muted">Ürün bulunamadı</h4>
+        </div>
+        {% endif %}
     </div>
 </div>
 
