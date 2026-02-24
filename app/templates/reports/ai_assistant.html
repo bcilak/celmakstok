@@ -2,34 +2,49 @@
 
 {% block title %}AI Rapor Asistanı - ÇELMAK Stok Takip{% endblock %}
 
+
 {% block content %}
-<div class="page-header">
-    <h1 class="page-title"><i class="bi bi-robot me-2"></i>AI Rapor Asistanı</h1>
-    <p class="page-subtitle">Veritabanına doğal dilde sorular sorun</p>
-</div>
-
-<div class="card border-0 shadow-sm">
-    <div class="card-body">
-        <form method="POST" action="{{ url_for('reports.ai_assistant') }}">
-            <div class="mb-3">
-                <label for="query" class="form-label">Sorunuz</label>
-                <textarea class="form-control" id="query" name="query" rows="3" placeholder="Örnek: stoğu 10'dan az olan ürünleri göster">{{ query }}</textarea>
+<div class="container-fluid px-4 py-4">
+    <div class="row justify-content-center mb-4">
+        <div class="col-12 col-md-8 col-lg-6">
+            <div class="text-center mb-3">
+                <span class="d-inline-block rounded-circle bg-primary bg-opacity-10 p-4 mb-2">
+                    <i class="bi bi-robot fs-2 text-primary"></i>
+                </span>
+                <h2 class="fw-bold mb-1">AI Rapor Asistanı</h2>
+                <div class="text-muted">Veritabanına doğal dilde sorular sorun</div>
             </div>
-            <button type="submit" class="btn btn-primary">
-                <i class="bi bi-send me-1"></i> Gönder
-            </button>
-        </form>
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('reports.ai_assistant') }}">
+                        <div class="mb-3">
+                            <label for="query" class="form-label fw-semibold">Sorunuz</label>
+                            <textarea class="form-control rounded-3 border border-primary border-opacity-25" id="query"
+                                name="query" rows="4"
+                                placeholder="Örnek: stoğu 10'dan az olan ürünleri göster">{{ query }}</textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-lg w-100">
+                            <i class="bi bi-send me-1"></i> Gönder
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% if answer %}
+            <div class="card border-0 shadow-sm mb-4 animate__animated animate__fadeIn">
+                <div class="card-header bg-white border-bottom d-flex align-items-center">
+                    <span class="rounded-circle bg-primary bg-opacity-10 p-2 me-2">
+                        <i class="bi bi-robot text-primary"></i>
+                    </span>
+                    <h6 class="mb-0 fw-bold">Asistanın Cevabı</h6>
+                </div>
+                <div class="card-body">
+                    <div class="bg-light rounded-3 p-3 mb-2">
+                        <pre class="mb-0 text-dark" style="font-size:1.1em; white-space:pre-wrap;">{{ answer }}</pre>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
     </div>
 </div>
-
-{% if answer %}
-<div class="card border-0 shadow-sm mt-4">
-    <div class="card-header bg-light">
-        <h6 class="mb-0">Asistanın Cevabı</h6>
-    </div>
-    <div class="card-body">
-        <pre>{{ answer }}</pre>
-    </div>
-</div>
-{% endif %}
 {% endblock %}
