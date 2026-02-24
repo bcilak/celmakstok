@@ -109,13 +109,34 @@ def stock_report():
     critical_items = sum(1 for p in products if p.current_stock < p.minimum_stock)
     empty_items = sum(1 for p in products if p.current_stock <= 0)
     
+    # AI ile özet/yorum üret
+    ai_summary = None
+    try:
+        api_key = current_app.config.get('GEMINI_API_KEY')
+        if api_key:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-pro')
+            # Sadece temel sayısal özetleri gönder
+            summary_prompt = f"""
+            Aşağıda bir stok raporunun özet verileri var:
+            - Toplam ürün: {total_items}
+            - Kritik stok: {critical_items}
+            - Tükenen ürün: {empty_items}
+            Kısa ve anlaşılır bir şekilde, stok durumu hakkında yöneticilere öneri ve analiz sunan bir özet yaz. (Türkçe)
+            """
+            response = model.generate_content(summary_prompt)
+            ai_summary = response.text.strip()
+    except Exception as e:
+        ai_summary = f"AI özet üretilemedi: {e}"
+
     return render_template('reports/stock.html',
         products=products,
         categories=categories,
         selected_category=category_id,
         total_items=total_items,
         critical_items=critical_items,
-        empty_items=empty_items
+        empty_items=empty_items,
+        ai_summary=ai_summary
     )
 
 @reports_bp.route('/stock/export')
