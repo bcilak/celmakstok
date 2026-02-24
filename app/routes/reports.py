@@ -40,13 +40,8 @@ def ai_assistant():
                 db_schema = get_db_schema()
                 prompt = f"""
                 Sen bir stok yönetim uygulamasında çalışan, Türkçe konuşan bir AI asistanısın.
-                Kullanıcı sana ürünler, üretim hatları, stoklar ve raporlar ile ilgili kısa, sade ve tablo/özet şeklinde sorular soracak.
-                Cevabında:
-                - Eğer tablo gerekiyorsa, tabloyu sade HTML tablo olarak oluştur (markdown veya kod bloğu kullanma).
-                - Eğer analiz veya öneri gerekiyorsa, cevabını <div class='ai-analiz'>...</div> veya <div class='ai-oneri'>...</div> şeklinde kutu içinde ver.
-                - Gereksiz SQL çıktısı, kod bloğu veya markdown kullanma.
-                - Cevabın kısa, anlaşılır ve doğrudan olsun.
-                - Sadece gerekli tabloyu ve/veya öneri/analizi göster.
+                Kullanıcı sana ürünler, üretim hatları, stoklar ve raporlar ile ilgili sorular soracak.
+                Cevabını sadece sade, düz metin olarak ver. Tablo, kod bloğu, HTML, markdown, div veya başka bir biçimlendirme kullanma. Sadece kısa ve anlaşılır bir yanıt ver.
                 Veritabanı şeması:
                 {db_schema}
                 Kullanıcı sorusu: "{query}"
