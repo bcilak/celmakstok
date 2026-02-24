@@ -30,7 +30,11 @@ def ai_assistant():
         
         if query:
             try:
-                genai.configure(api_key=current_app.config['GEMINI_API_KEY'])
+                api_key = current_app.config.get('GEMINI_API_KEY')
+                if not api_key:
+                    raise ValueError("GEMINI_API_KEY is not set in the configuration.")
+
+                genai.configure(api_key=api_key)
                 model = genai.GenerativeModel('gemini-pro')
                 
                 db_schema = get_db_schema()
