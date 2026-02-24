@@ -20,8 +20,8 @@
                         <div class="mb-3">
                             <label for="query" class="form-label fw-semibold">Sorunuz</label>
                             <textarea class="form-control rounded-3 border border-primary border-opacity-25" id="query"
-                                name="query" rows="4"
-                                placeholder="Örnek: stoğu 10'dan az olan ürünleri göster">{{ query }}</textarea>
+                                name="query" rows="3"
+                                placeholder="Örnek: stoğu 10'dan az olan ürünleri göster"></textarea>
                         </div>
                         <button type="submit" class="btn btn-primary btn-lg w-100">
                             <i class="bi bi-send me-1"></i> Gönder
@@ -29,21 +29,28 @@
                     </form>
                 </div>
             </div>
-            {% if answer %}
-            <div class="card border-0 shadow-sm mb-4 animate__animated animate__fadeIn">
-                <div class="card-header bg-white border-bottom d-flex align-items-center">
-                    <span class="rounded-circle bg-primary bg-opacity-10 p-2 me-2">
-                        <i class="bi bi-robot text-primary"></i>
-                    </span>
-                    <h6 class="mb-0 fw-bold">Asistanın Cevabı</h6>
-                </div>
-                <div class="card-body">
-                    <div class="bg-light rounded-3 p-3 mb-2">
-                        <pre class="mb-0 text-dark" style="font-size:1.1em; white-space:pre-wrap;">{{ answer }}</pre>
+            <div class="chat-box mb-4">
+                {% if chat_history %}
+                {% for msg in chat_history %}
+                {% if msg.role == 'user' %}
+                <div class="d-flex justify-content-end mb-2">
+                    <div class="chat-bubble bg-primary text-white rounded-3 px-3 py-2 shadow-sm">
+                        <span class="fw-semibold">Siz:</span><br>{{ msg.content }}
                     </div>
                 </div>
+                {% else %}
+                <div class="d-flex justify-content-start mb-2">
+                    <div class="chat-bubble bg-light text-dark rounded-3 px-3 py-2 shadow-sm">
+                        <span class="fw-semibold"><i class="bi bi-robot text-primary"></i> Asistan:</span><br>{{
+                        msg.content }}
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+                {% else %}
+                <div class="text-muted text-center">Henüz bir sohbet yok. Soru sorarak başlayabilirsiniz.</div>
+                {% endif %}
             </div>
-            {% endif %}
         </div>
     </div>
 </div>
