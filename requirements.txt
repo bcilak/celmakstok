@@ -11,3 +11,4 @@ python-dotenv
 openpyxl
 pandas
 google-generativeai
+psycopg2-binary
