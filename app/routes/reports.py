@@ -3,6 +3,7 @@ from flask_login import login_required
 from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord, Recipe
 from app import db
 from sqlalchemy import func, text
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timedelta
 import csv
 import io
@@ -78,13 +79,13 @@ def ai_assistant():
                 """
                 
                 response = model.generate_content(sql_prompt)
-                sql_query = clean_sql_query(response.text)
+                sql_query = response.text.strip()
                 
                 # Güvenlik Kontrolü
                 if not sql_query.lower().startswith('select'):
                     raise Exception("Güvenlik ihlali: Sadece veri okuma (SELECT) işlemleri yapılabilir.")
 
-                logger.info(f"AI Generated SQL (Postgres): {sql_query}")
+                # AI tarafından üretilen SQL (Postgres): {sql_query}
 
                 # --- ADIM 2: SORGİYİ ÇALIŞTIRMA ---
                 try:
@@ -145,7 +146,7 @@ def ai_assistant():
                 chat_history.append({'role': 'ai', 'content': error_html})
                 session['chat_history'] = chat_history
                 session.modified = True
-                logger.error(f"AI Assistant Error: {e}")
+                # Hata logu: {e}
 
         # Post-Redirect-Get pattern (Sayfa yenilemede form tekrarını önler)
         return redirect(url_for('reports.ai_assistant'))
