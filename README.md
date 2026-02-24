@@ -21,8 +21,6 @@ Bu sistem, ÇELMAK firması için geliştirilmiş bir stok takip uygulamasıdır
 - Üretim tüketimi
 
 ### Üretim Hatları
-- Hat bazlı ürün tanımlama
-- Tüketim takibi
 - Kapasite yönetimi
 
 ### Depo Yönetimi
@@ -63,6 +61,50 @@ cd stok-takip
 ```bash
 python -m venv venv
 
+## AI Entegrasyonu Kurulumu ve Kullanımı
+
+## 1. Gerekli Paketler
+
+Google Gemini API için:
+```
+pip install google-generativeai
+```
+veya requirements.txt dosyanıza ekleyin:
+```
+google-generativeai
+```
+
+## 2. Ortam Değişkeni
+
+Flask uygulamanızın çalıştığı sunucuda aşağıdaki ortam değişkenini tanımlayın:
+```
+export GEMINI_API_KEY=your_google_gemini_api_key
+```
+veya .env dosyasına ekleyin:
+```
+GEMINI_API_KEY=your_google_gemini_api_key
+```
+
+## 3. Flask Config
+
+config.py içinde zaten şu satır olmalı:
+```
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+```
+
+## 4. Kullanım
+
+Raporlar > AI Asistanı menüsünden doğal dilde sorgu sorabilirsiniz.
+
+## 5. Hata Ayıklama
+
+- 503/500 hatası alırsanız:
+    - Ortam değişkeninin tanımlı olduğundan emin olun.
+    - Sunucuyu yeniden başlatın.
+    - Apache veya Gunicorn error.log dosyasını kontrol edin.
+    - API anahtarınızın doğru ve aktif olduğundan emin olun.
+
+Herhangi bir hata veya öneri için geliştiriciye ulaşabilirsiniz.
 # Windows:
 venv\Scripts\activate
 
