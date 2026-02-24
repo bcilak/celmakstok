@@ -4,6 +4,88 @@
 
 
 {% block content %}
+<style>
+    body {
+        background: #f5f7fa !important;
+    }
+
+    .ai-chat-avatar {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #2563eb22 0%, #38bdf822 100%);
+        margin-right: 10px;
+    }
+
+    .user-chat-avatar {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+        margin-left: 10px;
+    }
+
+    .chat-bubble {
+        max-width: 75%;
+        font-size: 1.08em;
+        line-height: 1.5;
+        border-radius: 1.2em;
+        box-shadow: 0 2px 12px #0001;
+        padding: 1em 1.2em;
+        margin-bottom: 2px;
+        word-break: break-word;
+    }
+
+    .chat-bubble-user {
+        background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+        color: #fff;
+        border-bottom-right-radius: 0.4em !important;
+    }
+
+    .chat-bubble-ai {
+        background: #fff;
+        color: #222;
+        border-bottom-left-radius: 0.4em !important;
+        border: 1.5px solid #e0e7ef;
+    }
+
+    .chat-meta {
+        font-size: 0.92em;
+        font-weight: 600;
+        margin-bottom: 2px;
+        opacity: 0.7;
+    }
+
+    .example-questions {
+        background: #e0e7ef;
+        border-radius: 1em;
+        padding: 0.7em 1.2em;
+        margin-bottom: 1.2em;
+        font-size: 1em;
+    }
+
+    .example-questions span {
+        background: #fff;
+        border-radius: 0.7em;
+        padding: 0.3em 0.9em;
+        margin-right: 0.5em;
+        margin-bottom: 0.3em;
+        display: inline-block;
+        cursor: pointer;
+        border: 1px solid #d1d5db;
+        transition: background 0.2s;
+    }
+
+    .example-questions span:hover {
+        background: #f1f5f9;
+    }
+</style>
 <div class="container-fluid px-4 py-4">
     <div class="row justify-content-center mb-4">
         <div class="col-12 col-md-8 col-lg-6">
@@ -14,35 +96,55 @@
                 <h2 class="fw-bold mb-1">AI Rapor Asistanı</h2>
                 <div class="text-muted">Veritabanına doğal dilde sorular sorun</div>
             </div>
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-body">
+            <div class="card border-0 shadow-lg mb-4" style="border-radius:1.5em;">
+                <div class="card-body p-4">
                     <form method="POST" action="{{ url_for('reports.ai_assistant') }}">
                         <div class="mb-3">
                             <label for="query" class="form-label fw-semibold">Sorunuz</label>
-                            <textarea class="form-control rounded-3 border border-primary border-opacity-25" id="query"
+                            <textarea class="form-control rounded-4 border border-primary border-opacity-25" id="query"
                                 name="query" rows="3"
                                 placeholder="Örnek: stoğu 10'dan az olan ürünleri göster"></textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary btn-lg w-100">
+                        <button type="submit" class="btn btn-primary btn-lg w-100 rounded-4">
                             <i class="bi bi-send me-1"></i> Gönder
                         </button>
                     </form>
+                    <div class="example-questions mt-3">
+                        <span
+                            onclick="document.getElementById('query').value='Stokta hiç olmayan ürünleri listele'">Stokta
+                            hiç olmayan ürünleri listele</span>
+                        <span
+                            onclick="document.getElementById('query').value='Üretim hattında hangi ürünler var?'">Üretim
+                            hattında hangi ürünler var?</span>
+                        <span
+                            onclick="document.getElementById('query').value='Kritik stokta olan ürünler hangileri?'">Kritik
+                            stokta olan ürünler hangileri?</span>
+                        <span onclick="document.getElementById('query').value='Stok yönetimi için önerin var mı?'">Stok
+                            yönetimi için önerin var mı?</span>
+                    </div>
                 </div>
             </div>
             <div class="chat-box mb-4">
                 {% if chat_history %}
                 {% for msg in chat_history %}
                 {% if msg.role == 'user' %}
-                <div class="d-flex justify-content-end mb-2">
-                    <div class="chat-bubble bg-primary text-white rounded-3 px-3 py-2 shadow-sm">
-                        <span class="fw-semibold">Siz:</span><br>{{ msg.content }}
+                <div class="d-flex justify-content-end align-items-end mb-2">
+                    <div class="chat-bubble chat-bubble-user">
+                        <div class="chat-meta text-end">Siz</div>
+                        {{ msg.content }}
+                    </div>
+                    <div class="user-chat-avatar ms-2">
+                        <i class="bi bi-person-fill text-white fs-4"></i>
                     </div>
                 </div>
                 {% else %}
-                <div class="d-flex justify-content-start mb-2">
-                    <div class="chat-bubble bg-light text-dark rounded-3 px-3 py-2 shadow-sm">
-                        <span class="fw-semibold"><i class="bi bi-robot text-primary"></i> Asistan:</span><br>{{
-                        msg.content }}
+                <div class="d-flex justify-content-start align-items-end mb-2">
+                    <div class="ai-chat-avatar me-2">
+                        <i class="bi bi-robot fs-4 text-primary"></i>
+                    </div>
+                    <div class="chat-bubble chat-bubble-ai">
+                        <div class="chat-meta">Asistan</div>
+                        {{ msg.content }}
                     </div>
                 </div>
                 {% endif %}
