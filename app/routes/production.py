@@ -11,7 +11,10 @@ production_bp = Blueprint('production', __name__)
 @login_required
 def index():
     """Kategorileri üretim hatları olarak listele"""
-    categories = Category.query.order_by(Category.name).all()
+    if current_user.role == 'admin':
+        categories = Category.query.order_by(Category.name).all()
+    else:
+        categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
     
     # Her kategori için istatistikler
     category_stats = {}
@@ -242,7 +245,10 @@ def delete_line(id):
 @login_required
 def recipes():
     """Tüm reçeteleri listele"""
-    recipes = Recipe.query.order_by(Recipe.name).all()
+    if current_user.role == 'admin':
+        recipes = Recipe.query.order_by(Recipe.name).all()
+    else:
+        recipes = Recipe.query.filter_by(is_active=True).order_by(Recipe.name).all()
     return render_template('production/recipes.html', recipes=recipes)
 
 
