@@ -193,7 +193,18 @@
                                 class="btn btn-outline-warning action-btn" title="Düzenle">
                                 <i class="bi bi-pencil"></i>
                             </a>
+                            {% if current_user.role == 'admin' %}
+                            <button type="button" class="btn btn-outline-danger action-btn" title="Sil"
+                                onclick="if(confirm('{{ recipe.name }} reçetesini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) { document.getElementById('delete-recipe-{{ recipe.id }}').submit(); }">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            {% endif %}
                         </div>
+                        {% if current_user.role == 'admin' %}
+                        <form id="delete-recipe-{{ recipe.id }}"
+                            action="{{ url_for('production.delete_recipe', id=recipe.id) }}" method="POST"
+                            style="display:none;"></form>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}

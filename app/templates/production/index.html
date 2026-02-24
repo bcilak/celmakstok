@@ -190,12 +190,19 @@
                             <i class="bi bi-pencil me-1"></i>Düzenle
                         </a>
                         <a href="{{ url_for('production.toggle_line', id=cat.id) }}"
-                           class="btn btn-outline-{{ 'success' if cat.is_active else 'danger' }}"
-                           onclick="return confirm('{{ cat.name }} üretim hattını {{ 'devre dışı' if cat.is_active else 'aktif' }} yapmak istediğinizden emin misiniz?')">
+                            class="btn btn-outline-{{ 'success' if cat.is_active else 'danger' }}"
+                            onclick="return confirm('{{ cat.name }} üretim hattını {{ 'devre dışı' if cat.is_active else 'aktif' }} yapmak istediğinizden emin misiniz?')">
                             <i class="bi bi-{{ 'check-circle' if cat.is_active else 'x-circle' }} me-1"></i>
                             {{ 'Aktif' if cat.is_active else 'Pasif' }}
                         </a>
+                        <button type="button" class="btn btn-outline-danger"
+                            onclick="if(confirm('{{ cat.name }} üretim hattını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) { document.getElementById('delete-line-{{ cat.id }}').submit(); }">
+                            <i class="bi bi-trash me-1"></i>Sil
+                        </button>
                     </div>
+                    <form id="delete-line-{{ cat.id }}" action="{{ url_for('production.delete_line', id=cat.id) }}"
+                        method="POST" style="display:none;">
+                    </form>
                     {% endif %}
                 </div>
             </div>

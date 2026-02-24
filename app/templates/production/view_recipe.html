@@ -13,6 +13,14 @@
             <a href="{{ url_for('production.edit_recipe', id=recipe.id) }}" class="btn btn-warning">
                 <i class="bi bi-pencil"></i> Düzenle
             </a>
+            {% if current_user.role == 'admin' %}
+            <button type="button" class="btn btn-danger"
+                onclick="if(confirm('{{ recipe.name }} reçetesini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) { document.getElementById('delete-recipe-form').submit(); }">
+                <i class="bi bi-trash"></i> Sil
+            </button>
+            <form id="delete-recipe-form" action="{{ url_for('production.delete_recipe', id=recipe.id) }}" method="POST"
+                style="display:none;"></form>
+            {% endif %}
             <a href="{{ url_for('production.recipes') }}" class="btn btn-secondary">
                 <i class="bi bi-arrow-left"></i> Geri
             </a>

@@ -207,6 +207,35 @@ def toggle_line(id):
     return redirect(url_for('production.index'))
 
 
+@production_bp.route('/lines/<int:id>/delete', methods=['POST'])
+@login_required
+def delete_line(id):
+    """Üretim hattı/kategori sil"""
+    if current_user.role != 'admin':
+        flash('Bu işlem için yetkiniz yok.', 'error')
+        return redirect(url_for('production.index'))
+    
+    category = Category.query.get_or_404(id)
+    
+    # Kategoriye bağlı aktif ürün var mı kontrol et
+    product_count = Product.query.filter_by(category_id=id, is_active=True).count()
+    if product_count > 0:
+        flash(f'{category.name} hattında {product_count} aktif ürün bulunuyor. Önce ürünleri başka bir kategoriye taşıyın veya silin.', 'error')
+        return redirect(url_for('production.index'))
+    
+    # Kategoriye bağlı reçete var mı kontrol et
+    recipe_count = Recipe.query.filter_by(category_id=id).count()
+    if recipe_count > 0:
+        flash(f'{category.name} hattında {recipe_count} reçete bulunuyor. Önce reçeteleri silin veya başka bir hatta taşıyın.', 'error')
+        return redirect(url_for('production.index'))
+    
+    name = category.name
+    db.session.delete(category)
+    db.session.commit()
+    flash(f'{name} üretim hattı başarıyla silindi.', 'success')
+    return redirect(url_for('production.index'))
+
+
 # ===== REÇETE YÖNETİMİ =====
 
 @production_bp.route('/recipes')
