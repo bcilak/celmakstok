@@ -23,48 +23,141 @@ def get_db_schema():
 @reports_bp.route('/ai-assistant', methods=['GET', 'POST'])
 @login_required
 def ai_assistant():
+    # Session başlat
     if 'chat_history' not in session:
         session['chat_history'] = []
+    
     chat_history = session['chat_history']
-    query = None
-    answer = None
+    
     if request.method == 'POST':
-        query = request.form.get('query')
-        if query:
+        user_query = request.form.get('query')
+        
+        if user_query:
+            # Kullanıcı mesajını ekle
+            chat_history.append({'role': 'user', 'content': user_query})
+            session.modified = True 
+            
             try:
+                # 1. API Key Kontrolü
                 api_key = current_app.config.get('GEMINI_API_KEY')
                 if not api_key:
-                    raise ValueError("GEMINI_API_KEY is not set in the configuration.")
+                    raise ValueError("Gemini API Key bulunamadı (GEMINI_API_KEY).")
+
                 genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-2.5-pro')
+                model = genai.GenerativeModel('gemini-2.5-pro') # Veya 'gemini-1.5-pro'
+
+                # 2. Şema ve Context Hazırlığı
                 db_schema = get_db_schema()
-                prompt = f"""
-                Sen bir stok yönetim uygulamasında çalışan, Türkçe konuşan bir AI asistanısın.
-                Kullanıcı sana ürünler, üretim hatları, stoklar ve raporlar ile ilgili sorular soracak.
-                Cevabını sadece sade, düz metin olarak ver. Tablo, kod bloğu, HTML, markdown, div veya başka bir biçimlendirme kullanma. Sadece kısa ve anlaşılır bir yanıt ver.
-                Veritabanı şeması:
+                
+                # Hafıza: Son 3 mesajı al (Token tasarrufu ve bağlam için)
+                context_msgs = chat_history[-4:-1] if len(chat_history) > 1 else []
+                context_str = "\n".join([f"{m['role']}: {m['content']}" for m in context_msgs])
+
+                # --- ADIM 1: PostgreSQL SORGUSU OLUŞTURMA ---
+                sql_prompt = f"""
+                Sen uzman bir PostgreSQL Veritabanı Yöneticisisin.
+                Aşağıdaki şemaya göre, kullanıcının sorusunu cevaplayacak doğru ve güvenli bir SQL sorgusu yaz.
+
+                Veritabanı Şeması:
                 {db_schema}
-                Kullanıcı sorusu: "{query}"
+
+                Önceki Konuşma Bağlamı:
+                {context_str}
+
+                Kullanıcı Sorusu: "{user_query}"
+
+                Kurallar:
+                1. Sadece çalıştırılabilir SQL kodunu döndür. Açıklama, markdown veya tırnak işareti ekleme.
+                2. SADECE 'SELECT' sorgusu yazabilirsin. (INSERT, UPDATE, DELETE, TRUNCATE YASAK).
+                3. PostgreSQL söz dizimini kullan.
+                4. Metin aramalarında büyük/küçük harf duyarsız olması için 'ILIKE' operatörünü kullan. (Örn: name ILIKE '%civata%').
+                5. Tablo ve sütun isimlerini şemadan olduğu gibi kullan. Eğer gerekirse çift tırnak (") kullan.
+                6. Sonuçları mantıklı bir şekilde sınırla (Örn: LIMIT 50).
+                
+                SQL Sorgusu:
                 """
-                response = model.generate_content(prompt)
-                answer = response.text.strip()
-                # Mesajları geçmişe ekle
-                chat_history.append({'role': 'user', 'content': query})
-                chat_history.append({'role': 'ai', 'content': answer})
+                
+                response = model.generate_content(sql_prompt)
+                sql_query = clean_sql_query(response.text)
+                
+                # Güvenlik Kontrolü
+                if not sql_query.lower().startswith('select'):
+                    raise Exception("Güvenlik ihlali: Sadece veri okuma (SELECT) işlemleri yapılabilir.")
+
+                logger.info(f"AI Generated SQL (Postgres): {sql_query}")
+
+                # --- ADIM 2: SORGİYİ ÇALIŞTIRMA ---
+                try:
+                    # SQLAlchemy text() ile raw SQL çalıştır
+                    result_proxy = db.session.execute(text(sql_query))
+                    # Sütun isimlerini al
+                    columns = result_proxy.keys()
+                    # Veriyi list of dict formatına çevir
+                    results = [dict(zip(columns, row)) for row in result_proxy.fetchall()]
+                except SQLAlchemyError as e:
+                    # Hata mesajını temizle (Kullanıcıya teknik detay boğmadan)
+                    error_clean = str(e).split('\n')[0]
+                    raise Exception(f"Veritabanı sorgusu başarısız oldu. Hata: {error_clean}")
+
+                # --- ADIM 3: SONUCU YORUMLAMA (Data-to-Text) ---
+                
+                # Veri önizlemesi (Token limitine takılmamak için kısaltma)
+                data_str = str(results[:30])
+                if len(results) > 30:
+                    data_str += f"... (ve {len(results)-30} satır daha)"
+
+                interpret_prompt = f"""
+                Sen yardımsever bir iş asistanısın.
+                
+                Kullanıcı Sorusu: "{user_query}"
+                Çalışan SQL: "{sql_query}"
+                Gelen Veri: {data_str}
+                
+                Görevin:
+                1. Bu veriyi kullanıcıya Türkçe olarak açıkla ve özetle.
+                2. Eğer veri bir liste içeriyorsa, HTML tablosu oluştur.
+                   Tablo için şu class'ı kullan: <table class="table table-hover table-bordered table-sm mt-3 shadow-sm" style="background:white; border-radius:10px; overflow:hidden;">
+                   Tablo başlıklarını (th) Türkçeleştir (name -> Ürün Adı, stock -> Stok vb).
+                3. Eğer veri boşsa "Kriterlere uygun kayıt bulunamadı." de.
+                4. Sadece HTML içeriğini (div, table, p vb.) döndür. <html> etiketi koyma.
+                """
+                
+                final_response = model.generate_content(interpret_prompt)
+                ai_answer = final_response.text.strip()
+                
+                # Mesajı geçmişe ekle
+                chat_history.append({'role': 'ai', 'content': ai_answer})
                 session['chat_history'] = chat_history
+                session.modified = True
+
             except Exception as e:
-                answer = f"Bir hata oluştu: {e}"
-                chat_history.append({'role': 'user', 'content': query})
-                chat_history.append({'role': 'ai', 'content': answer})
+                # Hata durumunda şık bir alert göster
+                error_html = f"""
+                <div class="alert alert-danger border-0 shadow-sm" role="alert">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-exclamation-octagon-fill fs-4 me-2"></i>
+                        <div>
+                            <strong>Bir sorun oluştu:</strong> {str(e)}
+                        </div>
+                    </div>
+                </div>
+                """
+                chat_history.append({'role': 'ai', 'content': error_html})
                 session['chat_history'] = chat_history
-        return render_template('reports/ai_assistant.html', chat_history=chat_history)
+                session.modified = True
+                logger.error(f"AI Assistant Error: {e}")
+
+        # Post-Redirect-Get pattern (Sayfa yenilemede form tekrarını önler)
+        return redirect(url_for('reports.ai_assistant'))
+
     return render_template('reports/ai_assistant.html', chat_history=chat_history)
 
-
-@reports_bp.route('/')
+@reports_bp.route('/ai-assistant/clear')
 @login_required
-def index():
-    return render_template('reports/index.html')
+def clear_history():
+    """Sohbet geçmişini sıfırlar"""
+    session.pop('chat_history', None)
+    return redirect(url_for('reports.ai_assistant'))
 
 
 # ================== STOK RAPORLARI ==================
