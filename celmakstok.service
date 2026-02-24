@@ -1,0 +1,22 @@
+[Unit]
+Description=ÇELMAK Stok Takip Sistemi - Gunicorn
+After=network.target
+
+[Service]
+User=altikodtech
+Group=www-data
+WorkingDirectory=/home/altikodtech/domains/celmak.altikodtech.com.tr/public_html/celmakstok
+Environment="PATH=/home/altikodtech/domains/celmak.altikodtech.com.tr/public_html/celmakstok/.venv/bin"
+EnvironmentFile=/home/altikodtech/domains/celmak.altikodtech.com.tr/public_html/celmakstok/.env
+ExecStart=/home/altikodtech/domains/celmak.altikodtech.com.tr/public_html/celmakstok/.venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:5000 \
+    --timeout 120 \
+    --access-logfile /var/log/celmakstok_access.log \
+    --error-logfile /var/log/celmakstok_error.log \
+    run:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
