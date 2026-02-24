@@ -6,7 +6,7 @@ from sqlalchemy import func, text
 from datetime import datetime, timedelta
 import csv
 import io
-import google.generativeai as genai
+import google.genai as genai
 
 reports_bp = Blueprint('reports', __name__)
 
@@ -35,7 +35,7 @@ def ai_assistant():
                     raise ValueError("GEMINI_API_KEY is not set in the configuration.")
 
                 genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-2.5-pro')
+                model = genai.GenerativeModel(model_name='gemini-2.5-pro')
                 
                 db_schema = get_db_schema()
                 prompt = f"""
@@ -115,7 +115,7 @@ def stock_report():
         api_key = current_app.config.get('GEMINI_API_KEY')
         if api_key:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.5-pro')
+            model = genai.GenerativeModel(model_name='gemini-2.5-pro')
             # Sadece temel sayısal özetleri gönder
             summary_prompt = f"""
             Aşağıda bir stok raporunun özet verileri var:
