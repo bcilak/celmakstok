@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, Response, current_app, jsonify
+from flask import Blueprint, render_template, request, Response, current_app, jsonify, session, redirect, url_for
 from flask_login import login_required
 from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord, Recipe
 from app import db
@@ -23,63 +23,45 @@ def get_db_schema():
 @reports_bp.route('/ai-assistant', methods=['GET', 'POST'])
 @login_required
 def ai_assistant():
-    answer = None
+    if 'chat_history' not in session:
+        session['chat_history'] = []
+    chat_history = session['chat_history']
     query = None
+    answer = None
     if request.method == 'POST':
         query = request.form.get('query')
-        
         if query:
             try:
                 api_key = current_app.config.get('GEMINI_API_KEY')
                 if not api_key:
                     raise ValueError("GEMINI_API_KEY is not set in the configuration.")
-
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel('gemini-2.5-pro')
-                
                 db_schema = get_db_schema()
                 prompt = f"""
-                You are a helpful AI assistant for a stock management application.
-                Your goal is to answer user questions based on the data in the database.
-                You can do this by generating a SQL query based on the user's question and the database schema.
-                
-                Here is the database schema:
+                Sen bir stok yönetim uygulamasında çalışan yardımcı bir AI asistanısın.
+                Kullanıcı sana ürünler, üretim hatları, stoklar ve raporlar ile ilgili sorular sorabilir.
+                Ayrıca yöneticilere kısa analiz ve öneriler de sunabilirsin.
+                Veritabanı şeması:
                 {db_schema}
-
-                The user's question is: "{query}"
-
-                Based on this, generate a syntactically correct SQLite SQL query to answer the question.
-                Only return the SQL query, nothing else.
-                For example: SELECT * FROM Product WHERE current_stock < 10;
-                If you cannot generate a query, return "I can't answer that question."
+                Kullanıcı sorusu: "{query}"
+                Eğer veri sorgulama gerekiyorsa, uygun SQL sorgusu üret ve sonucu göster.
+                Eğer öneri veya analiz isteniyorsa, kısa ve anlaşılır bir öneri/analiz sun.
+                Cevabını Türkçe ve kullanıcı dostu şekilde ver.
                 """
-
                 response = model.generate_content(prompt)
-                sql_query = response.text.strip()
-
-                if "can't answer" in sql_query:
-                    answer = "Bu soruya cevap veremiyorum."
-                else:
-                    # SQL sorgusunu çalıştır
-                    result = db.session.execute(text(sql_query))
-                    
-                    # Sonuçları işle
-                    columns = result.keys()
-                    rows = result.fetchall()
-                    
-                    # Sonucu bir metin olarak formatla
-                    if rows:
-                        answer = "Sorgu Sonuçları:\n"
-                        answer += ", ".join(columns) + "\n"
-                        for row in rows:
-                            answer += ", ".join(map(str, row)) + "\n"
-                    else:
-                        answer = "Sorgu sonuç döndürmedi."
-
+                answer = response.text.strip()
+                # Mesajları geçmişe ekle
+                chat_history.append({'role': 'user', 'content': query})
+                chat_history.append({'role': 'ai', 'content': answer})
+                session['chat_history'] = chat_history
             except Exception as e:
                 answer = f"Bir hata oluştu: {e}"
-
-    return render_template('reports/ai_assistant.html', query=query, answer=answer)
+                chat_history.append({'role': 'user', 'content': query})
+                chat_history.append({'role': 'ai', 'content': answer})
+                session['chat_history'] = chat_history
+        return render_template('reports/ai_assistant.html', chat_history=chat_history)
+    return render_template('reports/ai_assistant.html', chat_history=chat_history)
 
 
 @reports_bp.route('/')
