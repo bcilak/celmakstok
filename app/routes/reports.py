@@ -1,18 +1,88 @@
-from flask import Blueprint, render_template, request, Response
+from flask import Blueprint, render_template, request, Response, current_app, jsonify
 from flask_login import login_required
 from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord, Recipe
 from app import db
-from sqlalchemy import func
+from sqlalchemy import func, text
 from datetime import datetime, timedelta
 import csv
 import io
+import google.generativeai as genai
 
 reports_bp = Blueprint('reports', __name__)
+
+def get_db_schema():
+    """Veritabanı şemasını ve tablolar hakkında bilgi döndürür."""
+    table_info = ""
+    for table in db.metadata.sorted_tables:
+        table_info += f"Table '{table.name}':\n"
+        for column in table.columns:
+            table_info += f"  - {column.name} ({column.type})\n"
+        table_info += "\n"
+    return table_info
+
+@reports_bp.route('/ai-assistant', methods=['GET', 'POST'])
+@login_required
+def ai_assistant():
+    answer = None
+    query = None
+    if request.method == 'POST':
+        query = request.form.get('query')
+        
+        if query:
+            try:
+                genai.configure(api_key=current_app.config['GEMINI_API_KEY'])
+                model = genai.GenerativeModel('gemini-pro')
+                
+                db_schema = get_db_schema()
+                prompt = f"""
+                You are a helpful AI assistant for a stock management application.
+                Your goal is to answer user questions based on the data in the database.
+                You can do this by generating a SQL query based on the user's question and the database schema.
+                
+                Here is the database schema:
+                {db_schema}
+
+                The user's question is: "{query}"
+
+                Based on this, generate a syntactically correct SQLite SQL query to answer the question.
+                Only return the SQL query, nothing else.
+                For example: SELECT * FROM Product WHERE current_stock < 10;
+                If you cannot generate a query, return "I can't answer that question."
+                """
+
+                response = model.generate_content(prompt)
+                sql_query = response.text.strip()
+
+                if "can't answer" in sql_query:
+                    answer = "Bu soruya cevap veremiyorum."
+                else:
+                    # SQL sorgusunu çalıştır
+                    result = db.session.execute(text(sql_query))
+                    
+                    # Sonuçları işle
+                    columns = result.keys()
+                    rows = result.fetchall()
+                    
+                    # Sonucu bir metin olarak formatla
+                    if rows:
+                        answer = "Sorgu Sonuçları:\n"
+                        answer += ", ".join(columns) + "\n"
+                        for row in rows:
+                            answer += ", ".join(map(str, row)) + "\n"
+                    else:
+                        answer = "Sorgu sonuç döndürmedi."
+
+            except Exception as e:
+                answer = f"Bir hata oluştu: {e}"
+
+    return render_template('reports/ai_assistant.html', query=query, answer=answer)
+
 
 @reports_bp.route('/')
 @login_required
 def index():
     return render_template('reports/index.html')
+
 
 # ================== STOK RAPORLARI ==================
 

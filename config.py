@@ -40,3 +40,6 @@ class Config:
     SESSION_COOKIE_SAMESITE = 'Lax'
     REMEMBER_COOKIE_SECURE = False
     REMEMBER_COOKIE_HTTPONLY = True
+
+    # Gemini AI API Key
+    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')

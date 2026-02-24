@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}AI Rapor Asistanı - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><i class="bi bi-robot me-2"></i>AI Rapor Asistanı</h1>
+    <p class="page-subtitle">Veritabanına doğal dilde sorular sorun</p>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('reports.ai_assistant') }}">
+            <div class="mb-3">
+                <label for="query" class="form-label">Sorunuz</label>
+                <textarea class="form-control" id="query" name="query" rows="3" placeholder="Örnek: stoğu 10'dan az olan ürünleri göster">{{ query }}</textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-send me-1"></i> Gönder
+            </button>
+        </form>
+    </div>
+</div>
+
+{% if answer %}
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-light">
+        <h6 class="mb-0">Asistanın Cevabı</h6>
+    </div>
+    <div class="card-body">
+        <pre>{{ answer }}</pre>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
