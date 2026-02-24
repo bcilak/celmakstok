@@ -1,147 +1,424 @@
+{% extends "base.html" %}
+
+{% block content %}
 <style>
-    body {
-        background: #f5f7fa !important;
+    /* --- Modern Değişkenler --- */
+    :root {
+        --chat-bg: #ffffff;
+        --chat-accent: #4f46e5;
+        /* İndigo */
+        --chat-accent-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        --user-msg-bg: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        --ai-msg-bg: #f8fafc;
+        --shadow-soft: 0 10px 40px -10px rgba(0, 0, 0, 0.1);
+        --shadow-glow: 0 0 20px rgba(79, 70, 229, 0.3);
     }
 
-    .ai-chat-avatar,
-    .user-chat-avatar {
-        width: 40px;
-        height: 40px;
+    /* --- Sayfa Arka Planı (Daha canlı) --- */
+    body {
+        background: radial-gradient(circle at 10% 20%, rgb(239, 246, 255) 0%, rgb(219, 228, 255) 90%) !important;
+        min-height: 100vh;
+    }
+
+    /* --- Ana Chat Kartı (Glassmorphism) --- */
+    .chat-container {
+        height: 85vh;
+        max-width: 900px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.85);
+        /* Yarım şeffaf */
+        backdrop-filter: blur(12px);
+        /* Buzlu cam efekti */
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        box-shadow: var(--shadow-soft);
+        overflow: hidden;
+        position: relative;
+    }
+
+    /* --- Header --- */
+    .chat-header {
+        padding: 1.2rem 1.5rem;
+        background: rgba(255, 255, 255, 0.9);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 10;
+    }
+
+    .bot-status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .bot-icon-box {
+        width: 48px;
+        height: 48px;
+        background: var(--chat-accent-grad);
+        border-radius: 14px;
         display: flex;
         align-items: center;
         justify-content: center;
+        color: white;
+        font-size: 1.5rem;
+        box-shadow: var(--shadow-glow);
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        background: #22c55e;
         border-radius: 50%;
-        background: linear-gradient(135deg, #2563eb22 0%, #38bdf822 100%);
-        margin: 0 10px;
-    }
-
-    .user-chat-avatar {
-        background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-    }
-
-    .chat-bubble {
-        max-width: 75%;
-        font-size: 1.08em;
-        line-height: 1.5;
-        border-radius: 1.2em;
-        box-shadow: 0 2px 12px #0001;
-        padding: 1em 1.2em;
-        margin-bottom: 2px;
-        word-break: break-word;
-    }
-
-    .chat-bubble-user {
-        background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
-        color: #fff;
-        border-bottom-right-radius: 0.4em !important;
-    }
-
-    .chat-bubble-ai {
-        background: #fff;
-        color: #222;
-        border-bottom-left-radius: 0.4em !important;
-        border: 1.5px solid #e0e7ef;
-    }
-
-    .chat-meta {
-        font-size: 0.92em;
-        font-weight: 600;
-        margin-bottom: 2px;
-        opacity: 0.7;
-    }
-
-    .example-questions {
-        background: #e0e7ef;
-        border-radius: 1em;
-        padding: 0.7em 1.2em;
-        margin-bottom: 1.2em;
-        font-size: 1em;
-    }
-
-    .example-questions span {
-        background: #fff;
-        border-radius: 0.7em;
-        padding: 0.3em 0.9em;
-        margin-right: 0.5em;
-        margin-bottom: 0.3em;
         display: inline-block;
-        cursor: pointer;
-        border: 1px solid #d1d5db;
-        transition: background 0.2s;
+        margin-right: 5px;
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+        animation: pulse 2s infinite;
     }
 
-    .example-questions span:hover {
-        background: #f1f5f9;
+    @keyframes pulse {
+        0% {
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+        }
+
+        70% {
+            box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+        }
+
+        100% {
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+        }
     }
 
-    .chat-card-scroll {
-        max-height: 420px;
-        min-height: 220px;
+    /* --- Mesaj Alanı --- */
+    .chat-body {
+        flex: 1;
         overflow-y: auto;
-        padding: 1.2em 1em 0.5em 1em;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        background: rgba(255, 255, 255, 0.4);
+    }
+
+    /* Scrollbar Gizleme/Güzelleştirme */
+    .chat-body::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .chat-body::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .chat-body::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+    }
+
+    /* --- Mesaj Baloncukları --- */
+    .message-wrapper {
+        display: flex;
+        align-items: flex-end;
+        gap: 12px;
+        opacity: 0;
+        animation: slideUp 0.4s ease forwards;
+    }
+
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(15px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .message-wrapper.user {
+        flex-direction: row-reverse;
+    }
+
+    .avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9rem;
+        flex-shrink: 0;
+    }
+
+    .avatar.ai {
+        background: #e0e7ff;
+        color: var(--chat-accent);
+    }
+
+    .avatar.user {
+        background: #e2e8f0;
+        color: #475569;
+    }
+
+    .bubble {
+        max-width: 75%;
+        padding: 1rem 1.2rem;
+        border-radius: 18px;
+        font-size: 0.98rem;
+        line-height: 1.6;
+        position: relative;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
+    }
+
+    .message-wrapper.ai .bubble {
+        background: #fff;
+        color: #1e293b;
+        border-bottom-left-radius: 4px;
+        border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+
+    .message-wrapper.user .bubble {
+        background: var(--user-msg-bg);
+        color: #fff;
+        border-bottom-right-radius: 4px;
+        box-shadow: 0 4px 15px rgba(79, 70, 229, 0.25);
+    }
+
+    .msg-time {
+        font-size: 0.7rem;
+        margin-top: 4px;
+        opacity: 0.6;
+        text-align: right;
+        display: block;
+    }
+
+    /* --- Footer & Input --- */
+    .chat-footer {
+        padding: 1.5rem;
+        background: rgba(255, 255, 255, 0.95);
+        border-top: 1px solid rgba(0, 0, 0, 0.05);
+        position: relative;
+    }
+
+    /* Öneri Etiketleri (Chips) */
+    .chips-area {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+        overflow-x: auto;
+        padding-bottom: 5px;
+    }
+
+    .chips-area::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chip-btn {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        color: #64748b;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .chip-btn:hover {
+        background: #f1f5f9;
+        color: var(--chat-accent);
+        border-color: var(--chat-accent);
+        transform: translateY(-2px);
+    }
+
+    /* Modern Input Kutusu */
+    .input-wrapper {
         background: #f8fafc;
-        border-radius: 1.2em;
-        box-shadow: 0 2px 12px #0001;
-        margin-bottom: 1.2em;
+        border: 2px solid transparent;
+        border-radius: 20px;
+        /* Hap şeklinde */
+        padding: 6px;
+        display: flex;
+        align-items: center;
+        transition: all 0.3s;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.03);
     }
 
-    border: 1px solid #d1d5db;
-    <div class="container-fluid px-4 py-4"><div class="row justify-content-center mb-4"><div class="col-12 col-md-8 col-lg-6"><div class="text-center mb-3"><span class="d-inline-block rounded-circle bg-primary bg-opacity-10 p-4 mb-2"><i class="bi bi-robot fs-2 text-primary"></i></span><h2 class="fw-bold mb-1">AI Rapor Asistanı</h2><div class="text-muted">Veritabanına doğal dilde sorular sorun</div></div><div class="card border-0 shadow-lg mb-4" style="border-radius:1.5em;"><div class="card-body p-4"><form method="POST" action="{{ url_for('reports.ai_assistant') }}"><div class="mb-3"><label for="query" class="form-label fw-semibold">Sorunuz</label><textarea class="form-control rounded-4 border border-primary border-opacity-25" id="query"
-    name="query" rows="3"
-
-    placeholder="Örnek: stoğu 10'dan az olan ürünleri göster"></textarea></div><button type="submit" class="btn btn-primary btn-lg w-100 rounded-4"><i class="bi bi-send me-1"></i>Gönder </button></form><div class="example-questions mt-3"><span onclick="document.getElementById('query').value='Stokta hiç olmayan ürünleri listele'">Stokta hiç olmayan ürünleri listele</span><span onclick="document.getElementById('query').value='Üretim hattında hangi ürünler var?'">Üretim hattında hangi ürünler var?</span><span onclick="document.getElementById('query').value='Kritik stokta olan ürünler hangileri?'">Kritik stokta olan ürünler hangileri?</span><span onclick="document.getElementById('query').value='Stok yönetimi için önerin var mı?'">Stok yönetimi için önerin var mı?</span></div></div></div><div class="card chat-card-scroll mb-4"><div id="chat-messages"> {
-        % if chat_history %
+    .input-wrapper:focus-within {
+        background: #fff;
+        border-color: var(--chat-accent);
+        box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
     }
 
-        {
-        % for msg in chat_history %
+    .chat-input {
+        border: none;
+        background: transparent;
+        padding: 10px 15px;
+        flex: 1;
+        outline: none;
+        max-height: 120px;
+        resize: none;
+        color: #334155;
     }
 
-        {
-        % if msg.role=='user' %
+    .send-btn-modern {
+        width: 42px;
+        height: 42px;
+        background: var(--chat-accent-grad);
+        border: none;
+        border-radius: 50%;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: transform 0.2s;
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
 
-    <div class="d-flex justify-content-end align-items-end mb-2"><div class="chat-bubble chat-bubble-user"><div class="chat-meta text-end">Siz</div> {
-            {
-            msg.content
+    .send-btn-modern:hover {
+        transform: scale(1.1) rotate(-10deg);
+    }
+</style>
+
+<div class="container-fluid d-flex align-items-center justify-content-center py-4">
+
+    <div class="chat-container col-12 col-xl-9">
+
+        <!-- Header -->
+        <div class="chat-header">
+            <div class="bot-status">
+                <div class="bot-icon-box">
+                    <i class="bi bi-robot"></i>
+                </div>
+                <div>
+                    <h5 class="fw-bold mb-0 text-dark">Rapor Asistanı</h5>
+                    <small class="text-muted" style="font-size: 0.8rem;">
+                        <span class="status-dot"></span>Online • Yapay Zeka
+                    </small>
+                </div>
+            </div>
+            <div>
+                <a href="{{ url_for('reports.ai_assistant') }}" class="btn btn-light btn-sm rounded-circle border"
+                    data-bs-toggle="tooltip" title="Temizle">
+                    <i class="bi bi-trash3 text-muted"></i>
+                </a>
+            </div>
+        </div>
+
+        <!-- Mesaj Geçmişi -->
+        <div class="chat-body" id="chat-scroll-area">
+            {% if chat_history %}
+            {% for msg in chat_history %}
+            {% if msg.role == 'user' %}
+            <!-- Kullanıcı -->
+            <div class="message-wrapper user">
+                <div class="bubble">
+                    {{ msg.content }}
+                    <!-- Opsiyonel: Tarih eklemek isterseniz backend'den gelmeli -->
+                    <!-- <span class="msg-time">Şimdi</span> -->
+                </div>
+                <div class="avatar user">
+                    <i class="bi bi-person-fill"></i>
+                </div>
+            </div>
+            {% else %}
+            <!-- AI -->
+            <div class="message-wrapper ai">
+                <div class="avatar ai">
+                    <i class="bi bi-stars"></i>
+                </div>
+                <div class="bubble">
+                    {{ msg.content|safe }}
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+            {% else %}
+            <!-- Boş Ekran Karşılama -->
+            <div class="text-center my-auto p-4">
+                <div class="mb-3">
+                    <i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i>
+                </div>
+                <h4 class="fw-bold text-dark">Merhaba! 👋</h4>
+                <p class="text-muted">Veritabanı ile ilgili raporları saniyeler içinde hazırlayabilirim.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Footer -->
+        <div class="chat-footer">
+
+            <!-- Hızlı Öneriler -->
+            <div class="chips-area">
+                <div class="chip-btn" onclick="setQuery('Stokta biten ürünler neler?')">
+                    <i class="bi bi-lightning-fill text-warning"></i> Stoksuz Ürünler
+                </div>
+                <div class="chip-btn" onclick="setQuery('Bu ay en çok ne sattık?')">
+                    <i class="bi bi-graph-up text-success"></i> Çok Satanlar
+                </div>
+                <div class="chip-btn" onclick="setQuery('Kritik seviyedeki malzemeler')">
+                    <i class="bi bi-exclamation-circle text-danger"></i> Kritik Stok
+                </div>
+                <div class="chip-btn" onclick="setQuery('Üretim durumu nedir?')">
+                    <i class="bi bi-gear-wide-connected text-primary"></i> Üretim Hattı
+                </div>
+            </div>
+
+            <!-- Input Form -->
+            <form method="POST" action="{{ url_for('reports.ai_assistant') }}" id="aiForm">
+                <div class="input-wrapper">
+                    <textarea class="chat-input" id="queryInput" name="query" rows="1"
+                        placeholder="Merak ettiğiniz raporu sorun..." required></textarea>
+
+                    <button type="submit" class="send-btn-modern">
+                        <i class="bi bi-send-fill fs-6"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // 1. Otomatik Scroll (En alta)
+    const chatBox = document.getElementById('chat-scroll-area');
+
+    function scrollToBottom() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    // Sayfa yüklendiğinde çalıştır
+    window.addEventListener('load', scrollToBottom);
+
+    // 2. Textarea Enter Tuşu Kontrolü
+    const input = document.getElementById('queryInput');
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault(); // Yeni satıra geçmeyi engelle
+            if (this.value.trim() !== "") {
+                document.getElementById('aiForm').submit();
+            }
         }
+    });
+
+    // 3. Chip Tıklama Fonksiyonu
+    function setQuery(text) {
+        input.value = text;
+        input.focus();
+        // İsterseniz direkt gönderebilirsiniz:
+        // document.getElementById('aiForm').submit();
     }
+</script>
 
-    </div><div class="user-chat-avatar ms-2"><i class="bi bi-person-fill text-white fs-4"></i></div></div> {
-        % else %
-    }
-
-    <div class="d-flex justify-content-start align-items-end mb-2"><div class="ai-chat-avatar me-2"><i class="bi bi-robot fs-4 text-primary"></i></div><div class="chat-bubble chat-bubble-ai"><div class="chat-meta">Asistan</div> {
-            {
-            msg.content
-        }
-    }
-
-    </div></div> {
-        % endif %
-    }
-
-        {
-        % endfor %
-    }
-
-        {
-        % else %
-    }
-
-    <div class="text-muted text-center">Henüz bir sohbet yok. Soru sorarak başlayabilirsiniz.</div> {
-        % endif %
-    }
-
-    </div></div><script> // Chat kutusu otomatik scroll
-
-    window.onload=function () {
-        var chatBox=document.getElementById('chat-messages');
-        if (chatBox) chatBox.scrollTop=chatBox.scrollHeight;
-    }
-
-    ;
-
-    </script></div></div></div> {
-        % endblock %
-    }
+{% endblock %}
