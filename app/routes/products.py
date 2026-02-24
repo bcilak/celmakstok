@@ -156,10 +156,13 @@ def add():
 @login_required
 def view(id):
     product = Product.query.get_or_404(id)
+    # Sadece admin pasif ürünü görebilir
+    if not product.is_active and (not current_user.is_authenticated or current_user.role != 'admin'):
+        flash('Bu ürün pasif durumdadır.', 'error')
+        return redirect(url_for('products.index'))
     movements = StockMovement.query.filter_by(product_id=id).order_by(
         StockMovement.date.desc()
     ).limit(20).all()
-    
     return render_template('products/view.html', product=product, movements=movements)
 
 @products_bp.route('/<int:id>/edit', methods=['GET', 'POST'])
