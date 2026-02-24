@@ -20,7 +20,7 @@
     </div>
 </div>
 
-<!-- Özet Kartları ve AI Yorum -->
+<!-- Özet Kartları -->
 <div class="row g-3 mb-4">
     <div class="col-md-4">
         <div class="card border-0 shadow-sm h-100">
@@ -73,11 +73,17 @@
             </div>
         </div>
     </div>
+
 </div>
 
+<!-- AI Analiz Kutusu -->
 {% if ai_summary %}
-<div class="alert alert-info mt-3" role="alert">
-    <i class="bi bi-robot me-2"></i><strong>AI Analiz:</strong> {{ ai_summary }}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-info" role="alert">
+            <i class="bi bi-robot me-2"></i><strong>AI Analiz:</strong> {{ ai_summary }}
+        </div>
+    </div>
 </div>
 {% endif %}
 </div>
