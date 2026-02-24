@@ -77,15 +77,14 @@
 </div>
 
 <!-- AI Analiz Kutusu -->
-{% if ai_summary %}
 <div class="row mb-4">
     <div class="col-12">
         <div class="alert alert-info" role="alert">
-            <i class="bi bi-robot me-2"></i><strong>AI Analiz:</strong> {{ ai_summary }}
+            <i class="bi bi-robot me-2"></i><strong>AI Analiz:</strong>
+            {{ ai_summary if ai_summary else 'AI özeti burada görünecek. (Test: API anahtarı yoksa bu yazı çıkar)' }}
         </div>
     </div>
 </div>
-{% endif %}
 </div>
 
 <!-- Filtreler -->
