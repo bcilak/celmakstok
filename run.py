@@ -1,9 +1,16 @@
+
 """
 ÇELMAK Stok Takip Sistemi
 Ana uygulama başlatma dosyası
 """
 
+# .env yüklemesi (her ortamda çalışsın diye)
 import os
+from dotenv import load_dotenv
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path)
+
 import sys
 from app import create_app, db
 from app.models import User, Category
