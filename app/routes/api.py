@@ -722,17 +722,25 @@ def api_critical_stock_for_purchasing():
     Satın alma birimi için kritik stok listesi
     Minimum stok seviyesinin altındaki veya biten ürünler
     """
-    # Sadece kritik durumda olanları getir
-    critical_products = Product.query.filter(
-        Product.is_active == True,
-        Product.minimum_stock > 0,
-        Product.current_stock < Product.minimum_stock
-    ).order_by(Product.current_stock).all()
+    # Tüm aktif ürünleri getir (Artık sadece kritik değil, hepsi isteniyor)
+    all_products = Product.query.filter(
+        Product.is_active == True
+    ).order_by(Product.name).all()
 
     result = []
-    for p in critical_products:
-        # Eksik miktar hesapla
-        shortage = p.minimum_stock - p.current_stock
+    for p in all_products:
+        # Eksik miktar hesapla (0'ın altına düşürme)
+        shortage = max(0, p.minimum_stock - p.current_stock)
+        
+        # Lokasyon bilgisi
+        locations = []
+        for ls in p.location_stocks:
+            if ls.quantity > 0 and getattr(ls, 'location', None):
+                locations.append({
+                    'location_id': ls.location.id,
+                    'location_name': ls.location.name,
+                    'quantity': float(ls.quantity)
+                })
 
         # Son hareketleri al (son çıkış hızını analiz için)
         week_ago = datetime.utcnow() - timedelta(days=7)
@@ -764,7 +772,8 @@ def api_critical_stock_for_purchasing():
             'weekly_consumption': float(weekly_consumption),
             'daily_avg_consumption': float(daily_avg),
             'days_remaining': int(days_remaining) if days_remaining < 999 else None,
-            'notes': p.notes
+            'notes': p.notes,
+            'locations': locations
         })
 
     return jsonify({
@@ -782,17 +791,25 @@ def api_critical_products():
     Satın alma birimi için kritik stok listesi (alias endpoint)
     /v1/purchasing/critical-stock ile aynı veriyi döndürür
     """
-    # Kritik ürünleri al
-    critical_products = Product.query.filter(
-        Product.is_active == True,
-        Product.minimum_stock > 0,
-        Product.current_stock < Product.minimum_stock
-    ).order_by(Product.current_stock).all()
+    # Tüm aktif ürünleri al
+    all_products = Product.query.filter(
+        Product.is_active == True
+    ).order_by(Product.name).all()
 
     result = []
-    for p in critical_products:
+    for p in all_products:
         # Eksik miktar
-        shortage = p.minimum_stock - p.current_stock
+        shortage = max(0, p.minimum_stock - p.current_stock)
+        
+        # Lokasyon bilgisi
+        locations = []
+        for ls in p.location_stocks:
+            if ls.quantity > 0 and getattr(ls, 'location', None):
+                locations.append({
+                    'location_id': ls.location.id,
+                    'location_name': ls.location.name,
+                    'quantity': float(ls.quantity)
+                })
         
         # Son 30 gün tüketim
         month_ago = datetime.utcnow() - timedelta(days=30)
@@ -816,7 +833,8 @@ def api_critical_products():
             'shortage': float(shortage),
             'unit_type': p.unit_type,
             'suggested_order': float(suggested_order),
-            'monthly_consumption': float(monthly_consumption)
+            'monthly_consumption': float(monthly_consumption),
+            'locations': locations
         })
 
     return jsonify({
