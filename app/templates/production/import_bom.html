@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}BOM İçe Aktar - ÇELMAK Stok Takip Sistmi{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h2><i class="fas fa-file-excel text-success me-2"></i>BOM (Ürün Ağacı) İçe Aktar</h2>
+        <p class="text-muted">Mühendislik departmanından alınan çok seviyeli ürün ağacı (BOM) Excel dosyasını yükleyerek
+            tüm yapıyı otomatik oluşturabilirsiniz.</p>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{{ url_for('production.recipes') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left me-1"></i> Geri Dön
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form action="{{ url_for('production.import_bom') }}" method="POST" enctype="multipart/form-data">
+
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <label for="main_product_name" class="form-label">Üretilecek Ana Mamül Adı *</label>
+                            <input type="text" class="form-control" id="main_product_name" name="main_product_name"
+                                placeholder="Örn: 3,5 Ton Tek Dingilli Römork, Geriye Devirmeli" required>
+                            <small class="text-muted">Excel'in en üst seviyesindeki (kök) ürünün adını tam olarak
+                                girin.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="category_id" class="form-label">Üretim Hattı / Kategori *</label>
+                            <select class="form-select" id="category_id" name="category_id" required>
+                                <option value="">-- Seçiniz --</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat.id }}">{{ cat.name }} ({{ cat.code }})</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Bu ağaçtaki parçalar ve reçeteler hangi üretim hattına
+                                atanacak?</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="file" class="form-label">BOM Excel Dosyası (.xlsx, .xls) *</label>
+                        <input class="form-control" type="file" id="file" name="file" accept=".xlsx, .xls" required>
+                    </div>
+
+                    <div class="alert alert-info border-info">
+                        <h5><i class="fas fa-info-circle me-2"></i>Nasıl Çalışır?</h5>
+                        <ul class="mb-0">
+                            <li>Sistem Excel'i satır satır okur. Boşlukları hiyerarşi olarak (Ana grup -> Alt grup)
+                                kabul eder.</li>
+                            <li>Listede bulunan ancak sistemde henüz kayıtlı olmayan tüm parça, yarımamül ve hammaddeler
+                                <strong>otomatik olarak oluşturulur</strong> (Stok=0 olarak).</li>
+                            <li>Parça grupları (yarımamüller) için otomatik olarak iç içe reçeteler yaratılır ve
+                                bileşenler bu reçetelere adetleriyle birlikte eklenir.</li>
+                            <li>İşlem bittiğinde tek bir "Ana Mamül Reçetesi" üzerinden üretim verdiğinizde tüm ana/alt
+                                malzemeler stoktan otomatik düşülür.</li>
+                        </ul>
+                    </div>
+
+                    <div class="d-grid mt-4">
+                        <button type="submit" class="btn btn-success btn-lg">
+                            <i class="fas fa-upload me-2"></i> İçe Aktarma İşlemini Başlat
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,585 @@
+{% extends "base.html" %}
+
+{% block title %}Kullanıcı Detayı - {{ user.full_name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --profile-bg: #f8fafc;
+        --card-bg: #ffffff;
+        --text-main: #1e293b;
+        --text-muted: #64748b;
+        --accent: #4f46e5;
+        --accent-light: #e0e7ff;
+        --success: #10b981;
+        --success-light: #d1fae5;
+        --warning: #f59e0b;
+        --danger: #ef4444;
+        --danger-light: #fee2e2;
+        --border-color: #e2e8f0;
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        --radius-lg: 16px;
+        --radius-xl: 24px;
+    }
+
+    body {
+        background-color: var(--profile-bg);
+    }
+
+    /* Page Header */
+    .profile-header {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        color: white;
+        padding: 3rem 2rem;
+        border-radius: var(--radius-xl);
+        margin-bottom: 2rem;
+        box-shadow: var(--shadow-lg);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .profile-header::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 50%;
+        background: radial-gradient(circle at top right, rgba(79, 70, 229, 0.4), transparent);
+        pointer-events: none;
+    }
+
+    .profile-header .title-area h1 {
+        font-size: 2.2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .avatar-circle {
+        width: 60px;
+        height: 60px;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: white;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .profile-header .subtitle-area {
+        color: #94a3b8;
+        font-size: 1rem;
+        margin-left: 75px;
+    }
+
+    /* Modern Cards */
+    .dashboard-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        transition: all 0.3s ease;
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+
+    .dashboard-card:hover {
+        box-shadow: var(--shadow-md);
+        transform: translateY(-2px);
+    }
+
+    .dashboard-card-header {
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #f8fafc;
+    }
+
+    .dashboard-card-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-main);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .dashboard-card-icon {
+        color: var(--accent);
+        background: var(--accent-light);
+        padding: 8px;
+        border-radius: 8px;
+        font-size: 1rem;
+    }
+
+    .dashboard-card-body {
+        padding: 1.5rem;
+    }
+
+    /* Info List Styling */
+    .info-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .info-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 0;
+        border-bottom: 1px dashed var(--border-color);
+    }
+
+    .info-item:last-child {
+        border-bottom: none;
+    }
+
+    .info-label {
+        color: var(--text-muted);
+        font-weight: 500;
+        font-size: 0.9rem;
+    }
+
+    .info-value {
+        color: var(--text-main);
+        font-weight: 600;
+        text-align: right;
+    }
+
+    /* Badges */
+    .status-badge {
+        padding: 6px 16px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .status-active {
+        background: var(--success-light);
+        color: #047857;
+        border: 1px solid #a7f3d0;
+    }
+
+    .status-inactive {
+        background: var(--danger-light);
+        color: #b91c1c;
+        border: 1px solid #fecaca;
+    }
+
+    .role-badge {
+        background: #f1f5f9;
+        color: #334155;
+        border: 1px solid #cbd5e1;
+        padding: 4px 12px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    /* Tables */
+    .modern-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0 8px;
+    }
+
+    .modern-table th {
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 0 1rem 0.5rem 1rem;
+        border: none;
+    }
+
+    .modern-table tbody tr {
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+        transition: transform 0.2s;
+    }
+
+    .modern-table tbody tr:hover {
+        transform: scale(1.01);
+        z-index: 10;
+        position: relative;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .modern-table td {
+        padding: 1rem;
+        vertical-align: middle;
+        border-top: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-main);
+        font-size: 0.9rem;
+    }
+
+    .modern-table td:first-child {
+        border-left: 1px solid var(--border-color);
+        border-top-left-radius: 8px;
+        border-bottom-left-radius: 8px;
+        font-weight: 500;
+        color: var(--text-muted);
+    }
+
+    .modern-table td:last-child {
+        border-right: 1px solid var(--border-color);
+        border-top-right-radius: 8px;
+        border-bottom-right-radius: 8px;
+    }
+
+    /* Type indicators */
+    .type-giris {
+        color: var(--success);
+        font-weight: bold;
+    }
+
+    .type-cikis {
+        color: var(--danger);
+        font-weight: bold;
+    }
+
+    /* Custom Scrollbar for tables */
+    .table-container {
+        max-height: 400px;
+        overflow-y: auto;
+        padding-right: 5px;
+    }
+
+    .table-container::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .table-container::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 4px;
+    }
+
+    .table-container::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+    }
+
+    .table-container::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+
+    /* Activity Timeline (Sayım Oturumları için) */
+    .timeline {
+        position: relative;
+        padding-left: 30px;
+        margin: 0;
+        list-style: none;
+    }
+
+    .timeline::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 11px;
+        width: 2px;
+        background: #e2e8f0;
+    }
+
+    .timeline-item {
+        position: relative;
+        margin-bottom: 1.5rem;
+    }
+
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: -24px;
+        top: 4px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--accent);
+        border: 2px solid white;
+        box-shadow: 0 0 0 2px var(--accent-light);
+    }
+
+    .timeline-title {
+        font-weight: 600;
+        color: var(--text-main);
+        margin-bottom: 0.2rem;
+    }
+
+    .timeline-date {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    /* Empty states */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: var(--text-muted);
+    }
+
+    .empty-icon {
+        font-size: 2.5rem;
+        color: #cbd5e1;
+        margin-bottom: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="profile-header">
+    <div class="title-area">
+        <h1>
+            <div class="avatar-circle">
+                {{ user.full_name[0] | upper }}
+            </div>
+            {{ user.full_name }}
+        </h1>
+        <div class="subtitle-area">
+            Kullanıcı performans raporu ve aktivite geçmişi
+        </div>
+    </div>
+    <div class="action-area" style="z-index: 1;">
+        <a href="{{ url_for('auth.users') }}" class="btn btn-light rounded-pill px-4 shadow-sm fw-bold">
+            <i class="bi bi-arrow-left me-2"></i>Kullanıcılara Dön
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Sol Kolon: Profil Bilgileri & Sayımlar -->
+    <div class="col-lg-4 mb-4">
+        <!-- Kullanıcı Profili Kartı -->
+        <div class="dashboard-card position-relative border-0 shadow-sm">
+            <!-- Decorative Header part inside card -->
+            <div
+                style="height: 60px; background: var(--accent-light); width: 100%; position: absolute; top:0; left:0; border-top-left-radius: 16px; border-top-right-radius: 16px;">
+            </div>
+
+            <div class="dashboard-card-body pt-4 mt-3 position-relative z-index-1">
+                <div class="text-center mb-4 mt-2">
+                    <h4 class="fw-bold text-dark mb-1">{{ user.full_name }}</h4>
+                    <p class="text-muted mb-2">@{{ user.username }}</p>
+                    <span class="status-badge {% if user.is_active %}status-active{% else %}status-inactive{% endif %}">
+                        {% if user.is_active %}<i class="bi bi-check-circle-fill me-1"></i> Aktif{% else %}<i
+                            class="bi bi-x-circle-fill me-1"></i> Devre Dışı{% endif %}
+                    </span>
+                </div>
+
+                <hr class="text-muted opacity-25">
+
+                <ul class="info-list">
+                    <li class="info-item">
+                        <span class="info-label"><i class="bi bi-shield-lock me-2"></i>Yetki / Rol</span>
+                        <span class="info-value"><span class="role-badge">{{ user.role }}</span></span>
+                    </li>
+                    <li class="info-item">
+                        <span class="info-label"><i class="bi bi-calendar-event me-2"></i>Kayıt Tarihi</span>
+                        <span class="info-value">{{ user.created_at.strftime('%d.%m.%Y') }}</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Sayım Oturumları -->
+        <div class="dashboard-card">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <i class="bi bi-clipboard2-check dashboard-card-icon"></i>
+                    Sayım Aktiviteleri
+                </h3>
+            </div>
+            <div class="dashboard-card-body">
+                {% if sessions %}
+                <ul class="timeline">
+                    {% for s in sessions[:5] %} <!-- Only show last 5 counts for layout brevity -->
+                    <li class="timeline-item">
+                        <div class="timeline-title">{{ s.name }}</div>
+                        <div class="timeline-date"><i class="bi bi-clock me-1"></i> {{ s.created_at.strftime('%d.%m.%Y
+                            %H:%M') }}</div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="empty-state">
+                    <i class="bi bi-inbox empty-icon"></i>
+                    <p>Kullanıcıya ait sayım oturumu bulunamadı.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sağ Kolon: Hareketler & Üretim -->
+    <div class="col-lg-8">
+
+        <!-- Nav Pilleriyle Tablolar Geçişi -->
+        <ul class="nav nav-pills mb-4" id="pills-tab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active rounded-pill px-4 fw-bold shadow-sm me-2" id="pills-movements-tab"
+                    data-bs-toggle="pill" data-bs-target="#pills-movements" type="button" role="tab"
+                    aria-controls="pills-movements" aria-selected="true">
+                    <i class="bi bi-arrow-left-right me-2"></i>Son Stok Hareketleri
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link rounded-pill px-4 fw-bold shadow-sm" id="pills-production-tab"
+                    data-bs-toggle="pill" data-bs-target="#pills-production" type="button" role="tab"
+                    aria-controls="pills-production" aria-selected="false">
+                    <i class="bi bi-tools me-2"></i>Üretim Kayıtları
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="pills-tabContent">
+            <!-- Stok Hareketleri Tabu -->
+            <div class="tab-pane fade show active" id="pills-movements" role="tabpanel"
+                aria-labelledby="pills-movements-tab">
+                <div class="dashboard-card">
+                    <div class="dashboard-card-header">
+                        <h3 class="dashboard-card-title">
+                            Stok Hareketi Geçmişi
+                        </h3>
+                        <span class="badge bg-secondary rounded-pill">{{ movements|length if movements else 0 }}
+                            Kayıt</span>
+                    </div>
+                    <div class="dashboard-card-body p-0 p-lg-3">
+                        {% if movements %}
+                        <div class="table-container pe-2">
+                            <table class="modern-table">
+                                <thead>
+                                    <tr>
+                                        <th>Tarih</th>
+                                        <th>Ürün</th>
+                                        <th>Tip</th>
+                                        <th>Miktar</th>
+                                        <th>Kaynak / Hedef</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for m in movements %}
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <i class="bi bi-calendar3 text-muted me-2"></i>
+                                                <div>
+                                                    <div class="fw-bold text-dark">{{ m.date.strftime('%d.%m.%Y') }}
+                                                    </div>
+                                                    <div class="small text-muted">{{ m.date.strftime('%H:%M') }}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="fw-bold text-dark">{{ m.product.code if m.product else '—' }}
+                                            </div>
+                                            <div class="small text-muted">{{ m.product.name if m.product else 'Silinmiş
+                                                Ürün' }}</div>
+                                        </td>
+                                        <td>
+                                            <span class="type-{{ m.movement_type }}">
+                                                {% if m.movement_type == 'giris' %}<i
+                                                    class="bi bi-arrow-down-right-circle"></i> Giriş
+                                                {% elif m.movement_type == 'cikis' %}<i
+                                                    class="bi bi-arrow-up-right-circle"></i> Çıkış
+                                                {% else %}{{ m.movement_type|capitalize }}{% endif %}
+                                            </span>
+                                        </td>
+                                        <td class="fw-bold fs-5">
+                                            {{ ('%g'|format(m.quantity)) }}
+                                        </td>
+                                        <td>
+                                            <div class="d-flex flex-column small">
+                                                <span><span class="text-muted">K:</span> {{ m.source }}</span>
+                                                <span><span class="text-muted">H:</span> {{ m.destination }}</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="empty-state">
+                            <i class="bi bi-arrow-left-right empty-icon"></i>
+                            <h5 class="fw-bold">Hareket Yok</h5>
+                            <p>Kullanıcı henüz hiçbir stok işlemi gerçekleştirmemiş.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Üretim Kayıtları Tabu -->
+            <div class="tab-pane fade" id="pills-production" role="tabpanel" aria-labelledby="pills-production-tab">
+                <div class="dashboard-card">
+                    <div class="dashboard-card-header">
+                        <h3 class="dashboard-card-title">
+                            <i class="bi bi-tools dashboard-card-icon"></i>
+                            Üretim Geçmişi
+                        </h3>
+                    </div>
+                    <div class="dashboard-card-body p-0 p-lg-3">
+                        {% if productions %}
+                        <div class="table-container pe-2">
+                            <table class="modern-table">
+                                <thead>
+                                    <tr>
+                                        <th>Tarih</th>
+                                        <th>Reçete / Makine</th>
+                                        <th>Üretim Miktarı</th>
+                                        <th>Notlar</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for p in productions %}
+                                    <tr>
+                                        <td>
+                                            <span class="fw-bold text-dark">{{ p.date.strftime('%d.%m.%Y') }}</span>
+                                            <span class="ms-1 small text-muted">{{ p.date.strftime('%H:%M') }}</span>
+                                        </td>
+                                        <td class="fw-bold text-primary">{{ p.recipe.name if p.recipe else '—' }}</td>
+                                        <td>
+                                            <span class="badge bg-success rounded-pill px-3 py-2 fs-6">
+                                                {{ ('%g'|format(p.quantity)) }} Adet
+                                            </span>
+                                        </td>
+                                        <td class="text-muted small">{{ p.note or '-' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="empty-state">
+                            <i class="bi bi-gear-wide-connected empty-icon"></i>
+                            <h5 class="fw-bold">Üretim Yok</h5>
+                            <p>Kullanıcı henüz sistemi kullanarak üretim kaydı oluşturmamış.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{% endblock %}

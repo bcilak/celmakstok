@@ -58,6 +58,16 @@
                         </div>
 
                         <div class="col-md-6">
+                            <label class="form-label">Giriş Lokasyonu / Depo *</label>
+                            <select name="location_id" class="form-select" required>
+                                <option value="">Lokasyon Seçin</option>
+                                {% for loc in locations %}
+                                <option value="{{ loc.id }}">{{ loc.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
                             <label class="form-label">Referans No</label>
                             <input type="text" name="reference_no" class="form-control"
                                 placeholder="Fatura/İrsaliye no">

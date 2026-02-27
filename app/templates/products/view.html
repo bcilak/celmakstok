@@ -125,6 +125,42 @@
                 </div>
             </div>
         </div>
+
+        <!-- Lokasyon Stokları -->
+        <div class="card mt-4">
+            <div class="card-header bg-light">
+                <i class="bi bi-geo-alt me-2"></i>Lokasyon Bazlı Stok
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light text-muted small">
+                        <tr>
+                            <th class="ps-3">Lokasyon / Hat</th>
+                            <th class="text-end pe-3">Miktar</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set ns = namespace(found=false) %}
+                        {% for loc_stock in product.location_stocks.all() %}
+                        {% if loc_stock.quantity > 0 %}
+                        <tr>
+                            <td class="ps-3">{{ loc_stock.location.name }}</td>
+                            <td class="text-end pe-3 fw-medium">{{ "%.2f"|format(loc_stock.quantity) }}</td>
+                        </tr>
+                        {% set ns.found = true %}
+                        {% endif %}
+                        {% endfor %}
+
+                        {% if not ns.found %}
+                        <tr>
+                            <td colspan="2" class="text-center text-muted py-3 small">Lokasyonlara dağıtılmış stok yok
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <!-- QR Kod -->

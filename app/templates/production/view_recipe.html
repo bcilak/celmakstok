@@ -95,56 +95,223 @@
 
         <div class="col-md-8">
             <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-list-check"></i> Malzeme Listesi (1 Üretim İçin)</h5>
+                <div class="card-header bg-white pb-0 border-bottom-0">
+                    <ul class="nav nav-tabs" id="recipeViewTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-semibold" id="flat-list-tab" data-bs-toggle="tab"
+                                data-bs-target="#flat-list" type="button" role="tab" aria-controls="flat-list"
+                                aria-selected="true">
+                                <i class="bi bi-list-ul me-2"></i>Düz Liste
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="bom-tree-tab" data-bs-toggle="tab"
+                                data-bs-target="#bom-tree" type="button" role="tab" aria-controls="bom-tree"
+                                aria-selected="false">
+                                <i class="bi bi-diagram-3 me-2"></i>Ürün Ağacı (BOM)
+                            </button>
+                        </li>
+                    </ul>
                 </div>
                 <div class="card-body">
-                    {% if recipe.items.count() > 0 %}
+                    <div class="tab-content" id="recipeViewTabsContent">
+                        <!-- FLat List Tab -->
+                        <div class="tab-pane fade show active" id="flat-list" role="tabpanel"
+                            aria-labelledby="flat-list-tab">
+                            {% if recipe.items.count() > 0 %}
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Malzeme</th>
+                                            <th>Kod</th>
+                                            <th class="text-center">Gerekli Miktar</th>
+                                            <th class="text-center">Mevcut Stok</th>
+                                            <th class="text-center">Durum</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in recipe.items %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td>
+                                                <div class="d-flex align-items-center">
+                                                    {% if item.product.type == 'yarimamul' and
+                                                    item.product.recipes_as_target %}
+                                                    <i class="bi bi-diagram-2 text-primary me-2" title="Yarımamül"></i>
+                                                    <a href="{{ url_for('production.view_recipe', id=item.product.recipes_as_target[0].id) }}"
+                                                        class="text-decoration-none">
+                                                        {{ item.product.name }}
+                                                    </a>
+                                                    {% else %}
+                                                    <i class="bi bi-box me-2 text-secondary"></i>
+                                                    {{ item.product.name }}
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                            <td><code>{{ item.product.code }}</code></td>
+                                            <td class="text-center">
+                                                <strong>{{ item.quantity }}</strong> {{ item.product.unit_type }}
+                                            </td>
+                                            <td class="text-center">{{ item.product.current_stock|round(1) }}</td>
+                                            <td class="text-center">
+                                                {% if item.product.current_stock >= item.quantity %}
+                                                <span class="badge bg-success bg-opacity-10 text-success"><i
+                                                        class="bi bi-check-lg"></i> Yeterli</span>
+                                                {% else %}
+                                                <span class="badge bg-danger bg-opacity-10 text-danger"><i
+                                                        class="bi bi-x-lg"></i> Yetersiz</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% else %}
+                            <div class="text-center py-4">
+                                <i class="bi bi-inbox display-4 text-muted"></i>
+                                <p class="text-muted mt-2">Bu reçetede henüz malzeme yok.</p>
+                                <a href="{{ url_for('production.edit_recipe', id=recipe.id) }}" class="btn btn-primary">
+                                    <i class="bi bi-plus-lg"></i> Malzeme Ekle
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- BOM Ağacı Tab -->
+                        <div class="tab-pane fade" id="bom-tree" role="tabpanel" aria-labelledby="bom-tree-tab">
+                            <div class="p-3 bg-light rounded border">
+                                {% macro render_tree(items, level=0) %}
+                                <div class="w-100">
+                                    {% for item in items %}
+                                    {% set bg_class = 'bg-white' if level % 2 == 0 else 'bg-light' %}
+                                    <div class="border rounded mb-2 overflow-hidden shadow-sm {{ bg_class }}">
+                                        <div
+                                            class="d-flex align-items-center p-2 {% if item.product.type == 'yarimamul' and item.product.recipes_as_target %}border-bottom{% endif %}">
+
+                                            <!-- Girinti Çizgileri / Hierarchy Indent -->
+                                            <div class="d-flex" style="width: {{ level * 1.5 }}rem;">
+                                                {% for i in range(level) %}
+                                                <div class="border-end border-2 opacity-25"
+                                                    style="width: 1.5rem; height: 100%;"></div>
+                                                {% endfor %}
+                                            </div>
+
+                                            {% if item.product.type == 'yarimamul' and item.product.recipes_as_target %}
+                                            <div class="me-3 p-2 bg-primary bg-opacity-10 text-primary rounded">
+                                                <i class="bi bi-diagram-2 fs-5"></i>
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <div class="d-flex align-items-center">
+                                                    <a href="{{ url_for('production.view_recipe', id=item.product.recipes_as_target[0].id) }}"
+                                                        class="text-decoration-none fw-bold text-dark fs-6">
+                                                        {{ item.product.name }}
+                                                    </a>
+                                                    <span class="badge bg-secondary ms-auto px-3 py-2 fs-6 shadow-sm">
+                                                        {{ item.quantity }} {{ item.product.unit_type }}
+                                                    </span>
+                                                </div>
+                                                <div class="text-muted small mt-1">
+                                                    <i class="bi bi-calculator"></i> Alt Bileşenler ({{
+                                                    item.product.recipes_as_target[0].items.count() }})
+                                                </div>
+                                            </div>
+                                            {% else %}
+                                            <div class="me-3 p-2 bg-secondary bg-opacity-10 text-secondary rounded">
+                                                <i class="bi bi-box fs-6"></i>
+                                            </div>
+                                            <div class="flex-grow-1 d-flex align-items-center">
+                                                <span class="fw-medium text-dark">{{ item.product.name }}</span>
+                                                <span class="badge bg-light text-dark border ms-auto px-3 py-2">
+                                                    {{ item.quantity }} {{ item.product.unit_type }}
+                                                </span>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+
+                                        {% if item.product.type == 'yarimamul' and item.product.recipes_as_target %}
+                                        <!-- Recursive Call Area with Distinct Background/Border -->
+                                        <div class="p-2 ms-2 ps-3 border-start border-primary border-3"
+                                            style="background-color: rgba(13, 110, 253, 0.02)">
+                                            {{ render_tree(item.product.recipes_as_target[0].items, level + 1) }}
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% endmacro %}
+
+                                <div class="fw-bold mb-3 pb-2 border-bottom d-flex align-items-center">
+                                    <i class="bi bi-journal-check text-success fs-4 me-2"></i>
+                                    {{ recipe.name }} (1 Adet)
+                                </div>
+                                {% if recipe.items.count() > 0 %}
+                                {{ render_tree(recipe.items) }}
+                                {% else %}
+                                <div class="text-muted fst-italic">Ağaç yapısı bulunamadı.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Yarımamül Reçeteleri Listesi -->
+            {% set sub_recipes = [] %}
+            {% for item in recipe.items %}
+            {% if item.product.type == 'yarimamul' and item.product.recipes_as_target %}
+            {% set _ = sub_recipes.append(item.product.recipes_as_target[0]) %}
+            {% endif %}
+            {% endfor %}
+
+            {% if sub_recipes %}
+            <div class="card mt-4">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0"><i class="bi bi-diagram-3 me-2 text-primary"></i>Bu Reçeteye Bağlı Yarımamül
+                        Reçeteleri</h5>
+                </div>
+                <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table">
-                            <thead>
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="bg-light">
                                 <tr>
-                                    <th>#</th>
-                                    <th>Malzeme</th>
-                                    <th>Kod</th>
-                                    <th class="text-center">Gerekli Miktar</th>
-                                    <th class="text-center">Mevcut Stok</th>
-                                    <th class="text-center">Durum</th>
+                                    <th class="ps-4">Alt Reçete Adı</th>
+                                    <th class="text-center">Bileşen Sayısı</th>
+                                    <th class="text-center pe-4">İşlem</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for item in recipe.items %}
+                                {% for sub_recipe in sub_recipes %}
                                 <tr>
-                                    <td>{{ loop.index }}</td>
-                                    <td>{{ item.product.name }}</td>
-                                    <td><code>{{ item.product.code }}</code></td>
-                                    <td class="text-center">
-                                        <strong>{{ item.quantity }}</strong> {{ item.product.unit_type }}
+                                    <td class="ps-4 py-3">
+                                        <i class="bi bi-diagram-2 text-primary me-2"></i>
+                                        <a href="{{ url_for('production.view_recipe', id=sub_recipe.id) }}"
+                                            class="fw-semibold text-decoration-none text-dark">
+                                            {{ sub_recipe.name }}
+                                        </a>
                                     </td>
-                                    <td class="text-center">{{ item.product.current_stock|round(1) }}</td>
                                     <td class="text-center">
-                                        {% if item.product.current_stock >= item.quantity %}
-                                        <span class="badge bg-success"><i class="bi bi-check-lg"></i> Yeterli</span>
-                                        {% else %}
-                                        <span class="badge bg-danger"><i class="bi bi-x-lg"></i> Yetersiz</span>
-                                        {% endif %}
+                                        <span class="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2">
+                                            {{ sub_recipe.total_items }} malzeme
+                                        </span>
+                                    </td>
+                                    <td class="text-center pe-4">
+                                        <a href="{{ url_for('production.view_recipe', id=sub_recipe.id) }}"
+                                            class="btn btn-sm btn-outline-primary shadow-sm">
+                                            <i class="bi bi-arrow-right-circle me-1"></i> Görüntüle / Düzenle
+                                        </a>
                                     </td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
-                    {% else %}
-                    <div class="text-center py-4">
-                        <i class="bi bi-inbox display-4 text-muted"></i>
-                        <p class="text-muted mt-2">Bu reçetede henüz malzeme yok.</p>
-                        <a href="{{ url_for('production.edit_recipe', id=recipe.id) }}" class="btn btn-primary">
-                            <i class="bi bi-plus-lg"></i> Malzeme Ekle
-                        </a>
-                    </div>
-                    {% endif %}
                 </div>
             </div>
+            {% endif %}
+
         </div>
     </div>
 </div>

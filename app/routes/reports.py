@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, Response, current_app, jsonify, session, redirect, url_for
-from flask_login import login_required
+from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord, Recipe
 from app import db
 from sqlalchemy import func, text
@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import csv
 import io
 import google.generativeai as genai
+from app.utils.decorators import roles_required
 
 reports_bp = Blueprint('reports', __name__)
 
@@ -20,14 +21,93 @@ def get_db_schema():
         table_info += "\n"
     return table_info
 
+def get_critical_stock() -> dict:
+    """Stok seviyesi kritik olan veya tamamen biten ürünlerin listesini getirir."""
+    products = Product.query.filter(
+        Product.is_active == True,
+        Product.current_stock < Product.minimum_stock
+    ).limit(50).all()
+    
+    if not products:
+        return {"result": "Şu an kritik stokta veya bitmiş ürün yok."}
+        
+    result = []
+    for p in products:
+        status = "Boş" if p.current_stock <= 0 else "Kritik"
+        cat_name = p.category.name if p.category else '-'
+        cost_info = f"{p.unit_cost} {p.currency}" if p.unit_cost > 0 else "Bilinmiyor"
+        
+        loc_info = []
+        for ls in p.location_stocks:
+            if ls.quantity > 0:
+                loc_info.append(f"{ls.location.name}: {ls.quantity}")
+        loc_str = ", ".join(loc_info) if loc_info else "Depo/Belirsiz"
+        
+        result.append(f"Kod: {p.code}, Ad: {p.name} (Tip: {p.type}), Kategori: {cat_name}, Toplam Stok: {p.current_stock} {p.unit_type}, Min Stok: {p.minimum_stock}, Durum: {status}, Lokasyon Dağılımı: [{loc_str}], Birim Maliyet: {cost_info}")
+    
+    return {"result": result}
+
+def search_product(keyword: str) -> dict:
+    """Verilen anahtar kelimeye (keyword) göre veritabanında ürün arar ve son stoklarını getirir."""
+    products = Product.query.filter(
+        Product.is_active == True,
+        (Product.name.ilike(f'%{keyword}%') | Product.code.ilike(f'%{keyword}%'))
+    ).limit(20).all()
+    
+    if not products:
+        return {"result": f"'{keyword}' aramasına uygun ürün bulunamadı."}
+        
+    result = []
+    for p in products:
+        cat_name = p.category.name if p.category else '-'
+        cost_info = f"{p.unit_cost} {p.currency}" if p.unit_cost > 0 else "Bilinmiyor"
+        
+        loc_info = []
+        for ls in p.location_stocks:
+            if ls.quantity > 0:
+                loc_info.append(f"{ls.location.name}: {ls.quantity}")
+        loc_str = ", ".join(loc_info) if loc_info else "Depo/Belirsiz"
+        
+        result.append(f"Kod: {p.code}, Ad: {p.name} (Tip: {p.type}), Kategori: {cat_name}, Toplam Stok: {p.current_stock} {p.unit_type}, Min Stok: {p.minimum_stock}, Lokasyon Dağılımı: [{loc_str}], Birim Maliyet: {cost_info}")
+    
+    return {"result": result}
+
+def get_recent_movements(limit: int = 20) -> dict:
+    """Sisteme girilen en son stok hareketlerini (giriş, çıkış, referans belgeleri vs) getirir."""
+    movements = StockMovement.query.order_by(StockMovement.date.desc()).limit(limit).all()
+    if not movements:
+        return {"result": "Son hareket bulunamadı."}
+        
+    result = []
+    for m in movements:
+        date_str = m.date.strftime('%Y-%m-%d %H:%M') if m.date else ""
+        prod_name = m.product.name if m.product else '-'
+        result.append(f"Tarih: {date_str}, Ürün: {prod_name}, Yön/Tip: {m.movement_type}, Miktar: {m.quantity}, Kaynak: {m.source or '-'}, Hedef: {m.destination or '-'}, Açıklama: {m.note or '-'}")
+    return {"result": result}
+
+def get_production_info() -> dict:
+    """Veritabanındaki üretim hatları (kategoriler) ve bu hatlarda üretilebilecek makine reçeteleri hakkında özet bilgi getirir."""
+    categories = Category.query.filter_by(is_active=True).all()
+    if not categories:
+        return {"result": "Aktif bir üretim hattı bulunamadı."}
+        
+    result = []
+    for cat in categories:
+        recipes = Recipe.query.filter_by(category_id=cat.id, is_active=True).all()
+        recipe_names = [r.name for r in recipes] if recipes else ["Bu hatta kayıtlı reçete yok"]
+        result.append(f"Üretim Hattı: {cat.name} (Kod: {cat.code}) -> Üretebildiği Makineler/Reçeteler: {', '.join(recipe_names)}")
+        
+    return {"result": result}
+
 @reports_bp.route('/ai-assistant', methods=['GET', 'POST'])
 @login_required
+@roles_required('Genel')
 def ai_assistant():
-    if 'chat_history' not in session:
-        session['chat_history'] = []
-    chat_history = session['chat_history']
-    query = None
-    answer = None
+    history_key = f'chat_history_{current_user.id}'
+    if history_key not in session:
+        session[history_key] = []
+    chat_history = session[history_key]
+    
     if request.method == 'POST':
         query = request.form.get('query')
         if query:
@@ -35,34 +115,80 @@ def ai_assistant():
                 api_key = current_app.config.get('GEMINI_API_KEY')
                 if not api_key:
                     raise ValueError("GEMINI_API_KEY is not set in the configuration.")
+                    
                 genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-2.5-pro')
-                db_schema = get_db_schema()
-                prompt = f"""
-                Sen bir stok yönetim uygulamasında çalışan, Türkçe konuşan bir AI asistanısın.
-                Kullanıcı sana ürünler, üretim hatları, stoklar ve raporlar ile ilgili sorular soracak.
-                Cevabını sadece sade, düz metin olarak ver. Tablo, kod bloğu, HTML, markdown, div veya başka bir biçimlendirme kullanma. Sadece kısa ve anlaşılır bir yanıt ver.
-                Veritabanı şeması:
-                {db_schema}
-                Kullanıcı sorusu: "{query}"
+                
+                # Sistem Talimatı (System Instruction)
+                system_instruction = """
+                Sen ÇELMAK firmasının Stok ve Üretim Takip sisteminde (MRP) çalışan, Türkçe konuşan akıllı bir Raporlama Asistanısın.
+                Sana veri tabanındaki güncel durumları sormaları halinde sana verdiğimiz fonksiyonları (tools) kullanarak gerçek verileri çekmelisin.
+                Sana verilen fonksiyonları sadece gerektiğinde kullan. Gelen verilere dayanarak kullanıcılara şık, net ve analitik raporlar sun. 
+                Sistemimizde ürünlerin 3 farklı Ürün Tipi vardır: Hakedişte dışarıdan alınan "hammadde", atölyede işlediğimiz "yarimamul" (ör: Kesim/Büküm yapılmış parça), ve bitmiş nihai "mamul" (satılabilir ürün).
+                Ayrıca sistemimizde stoklar Fabrika içindeki "Lokasyonlara" bölünmüş durumdadır. Çektiğin verilerde ("Lokasyon Dağılımı") parantez içinden ürünün hangi üretim hattında veya depoda ne kadar olduğunu görebilir, kullanıcıya detay verebilirsin.
+                Gelen ürün detaylarındaki "Birim Maliyet" bilgisi, diğer bir dış Satın Alma uygulamasından anlık senkronize edilmektedir. Maliyet hesaplamalarını yaparken bu "Birim Maliyet" alanını kullanabilirsin.
+                Cevaplarını her zaman şık bir Markdown formatında ver. Özellikle stok veya listeleme verilerini tablo halinde sun! Vurgulanması gereken yerleri kalın yap. Asla ham json veya dizi gösterme, okunabilir hale getir.
                 """
-                response = model.generate_content(prompt)
-                answer = response.text.strip()
-                # Mesajları geçmişe ekle
+                
+                # Fonksiyonları (Tools) tanımla
+                tools = [get_critical_stock, search_product, get_recent_movements, get_production_info]
+                
+                # Modeli başlat
+                model = genai.GenerativeModel('gemini-2.5-flash', tools=tools, system_instruction=system_instruction)
+                
+                # Geçmişi Gemini formatına çevirmek (otomatik tool calling'i bozduğu için)
+                # Sadece son 5 mesajı metin olarak kullanıcı sorgusuna ekle
+                context = ""
+                if len(chat_history) > 0:
+                    context = "Geçmiş Sohbet:\n"
+                    for msg in chat_history[-6:]:
+                        role_name = "Kullanıcı" if msg['role'] == "user" else "Araç/Asistan"
+                        context += f"{role_name}: {msg['content']}\n"
+                    context += f"\nKullanıcının Yeni Sorusu: {query}"
+                else:
+                    context = query
+                
+                # Sohbeti başlat (Taze bir chat, çünkü geçmiş hatalıysa çalışmıyor)
+                chat = model.start_chat(enable_automatic_function_calling=True)
+                response = chat.send_message(context)
+                
+                try:
+                    answer = response.text.strip()
+                    if not answer:
+                        answer = "Veriler analiz edildi ancak sistem metin üretemedi."
+                except ValueError:
+                    # Gemini returned finish_reason=1 but no text parts
+                    answer = "Veriler analiz edildi ancak gösterilebilir bir rapor oluşturulamadı (Boş Yanıt). En olası sebep stok listesinin çok uzun olması veya API kesintisidir."
+                
+                # Mesajları session geçmişine ekle
                 chat_history.append({'role': 'user', 'content': query})
                 chat_history.append({'role': 'ai', 'content': answer})
-                session['chat_history'] = chat_history
+                
+                # Eğer geçmiş çok uzarsa performansı etkilememesi için son 10 mesajı tut
+                if len(chat_history) > 20: 
+                    chat_history = chat_history[-20:]
+                    
+                session[history_key] = chat_history
+                session.modified = True
+                
             except Exception as e:
-                answer = f"Bir hata oluştu: {e}"
+                import traceback
+                error_details = traceback.format_exc()
+                print(error_details)  # Log details conceptually
+                answer = f"Bir hata oluştu: {str(e)}"
                 chat_history.append({'role': 'user', 'content': query})
                 chat_history.append({'role': 'ai', 'content': answer})
-                session['chat_history'] = chat_history
-        return render_template('reports/ai_assistant.html', chat_history=chat_history)
+                session[history_key] = chat_history
+                session.modified = True
+                
+        # Post sonrası (refresh önlemek için) redirect ile GET'e çevirebiliriz ama şu anki yapı direkt render döndürüyor.
+        return redirect(url_for('reports.ai_assistant'))
+        
     return render_template('reports/ai_assistant.html', chat_history=chat_history)
 
 
 @reports_bp.route('/')
 @login_required
+@roles_required('Genel')
 def index():
     return render_template('reports/index.html')
 
@@ -71,6 +197,7 @@ def index():
 
 @reports_bp.route('/stock')
 @login_required
+@roles_required('Genel')
 def stock_report():
     """Mevcut stok listesi"""
     category_id = request.args.get('category', type=int)
@@ -88,25 +215,8 @@ def stock_report():
     critical_items = sum(1 for p in products if p.current_stock < p.minimum_stock)
     empty_items = sum(1 for p in products if p.current_stock <= 0)
     
-    # AI ile özet/yorum üret
+    # AI summary will be fetched asynchronously.
     ai_summary = None
-    try:
-        api_key = current_app.config.get('GEMINI_API_KEY')
-        if api_key:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.5-pro')
-            # Sadece temel sayısal özetleri gönder
-            summary_prompt = f"""
-            Aşağıda bir stok raporunun özet verileri var:
-            - Toplam ürün: {total_items}
-            - Kritik stok: {critical_items}
-            - Tükenen ürün: {empty_items}
-            Kısa ve anlaşılır bir şekilde, stok durumu hakkında yöneticilere öneri ve analiz sunan bir özet yaz. (Türkçe)
-            """
-            response = model.generate_content(summary_prompt)
-            ai_summary = response.text.strip()
-    except Exception as e:
-        ai_summary = f"AI özet üretilemedi: {e}"
 
     return render_template('reports/stock.html',
         products=products,
@@ -118,8 +228,52 @@ def stock_report():
         ai_summary=ai_summary
     )
 
+@reports_bp.route('/api/stock-summary', methods=['POST'])
+@login_required
+@roles_required('Genel')
+def api_stock_summary():
+    """Stok sayfası için asenkron AI özetini üretir"""
+    data = request.json or {}
+    total_items = data.get('total_items', 0)
+    critical_items = data.get('critical_items', 0)
+    empty_items = data.get('empty_items', 0)
+    
+    # Gerçek ürün isimlerini çekmek için (maksimum 15 tane kritik ürün)
+    critical_products = Product.query.filter(
+        Product.is_active == True,
+        Product.current_stock < Product.minimum_stock
+    ).limit(15).all()
+    
+    critical_productsList = [f"{p.name} (Stok: {p.current_stock}, Min: {p.minimum_stock})" for p in critical_products]
+    
+    try:
+        api_key = current_app.config.get('GEMINI_API_KEY')
+        if not api_key:
+            return jsonify({'success': False, 'message': 'API anahtarı bulunamadı.'})
+            
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        summary_prompt = f"""
+        Sen şirketin stok yöneticisisin. Aşağıda mevcut stok raporunun gerçek verileri var:
+        - Toplam ürün çeşidi: {total_items}
+        - Kritik stok seviyesine düşenler: {critical_items}
+        - Tamamen tükenenler: {empty_items}
+        
+        Örnek bazı kritik/tükenen ürünler:
+        {', '.join(critical_productsList) if critical_productsList else 'Kritik ürün yok!'}
+        
+        Lütfen yöneticilere stok durumu hakkında durum tespiti yapan ve aksiyona dönük ÖZET bir stratejik değerlendirme yaz. (En fazla 3-4 cümle, Türkçe). Çok profesyonel ol. Tablo ekleme, sadece metin.
+        """
+        response = model.generate_content(summary_prompt)
+        ai_summary = response.text.strip()
+        return jsonify({'success': True, 'summary': ai_summary})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f"AI özet üretilemedi: {str(e)}"})
+
 @reports_bp.route('/stock/export')
 @login_required
+@roles_required('Genel')
 def export_stock():
     """Stok listesini CSV olarak dışa aktar"""
     products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
@@ -156,6 +310,7 @@ def export_stock():
 
 @reports_bp.route('/critical')
 @login_required
+@roles_required('Genel')
 def critical_report():
     """Kritik stok raporu"""
     products = Product.query.filter(
@@ -169,6 +324,7 @@ def critical_report():
 
 @reports_bp.route('/movements')
 @login_required
+@roles_required('Genel')
 def movements_report():
     """Stok hareketleri raporu"""
     start_date = request.args.get('start_date')
@@ -205,6 +361,7 @@ def movements_report():
 
 @reports_bp.route('/monthly')
 @login_required
+@roles_required('Genel')
 def monthly_report():
     """Aylık giriş/çıkış raporu"""
     year = request.args.get('year', datetime.utcnow().year, type=int)
@@ -270,6 +427,7 @@ def monthly_report():
 
 @reports_bp.route('/production')
 @login_required
+@roles_required('Genel')
 def production_report():
     """Üretim raporu - Reçetelerden yapılan üretimler"""
     category_id = request.args.get('category', type=int)
@@ -321,6 +479,7 @@ def production_report():
 
 @reports_bp.route('/top-consumption')
 @login_required
+@roles_required('Genel')
 def top_consumption():
     """En çok tüketilen ürünler"""
     days = request.args.get('days', 30, type=int)
@@ -351,6 +510,7 @@ def top_consumption():
 
 @reports_bp.route('/counting')
 @login_required
+@roles_required('Genel')
 def counting_report():
     """Sayım raporları"""
     sessions = CountSession.query.filter_by(status='completed').order_by(
@@ -361,6 +521,7 @@ def counting_report():
 
 @reports_bp.route('/counting/<int:id>')
 @login_required
+@roles_required('Genel')
 def counting_detail(id):
     """Sayım detay raporu"""
     session = CountSession.query.get_or_404(id)
@@ -392,6 +553,7 @@ def counting_detail(id):
 
 @reports_bp.route('/warehouse')
 @login_required
+@roles_required('Genel')
 def warehouse_report():
     """Depo durumu raporu"""
     categories = Category.query.all()
@@ -436,6 +598,7 @@ def warehouse_report():
 
 @reports_bp.route('/movement')
 @login_required
+@roles_required('Genel')
 def movement_report():
     """Stok hareketleri raporu (alternatif URL)"""
     return movements_report()
@@ -444,6 +607,7 @@ def movement_report():
 
 @reports_bp.route('/export/products')
 @login_required
+@roles_required('Genel')
 def export_products():
     """Ürün listesini CSV olarak dışa aktar"""
     products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
@@ -472,6 +636,7 @@ def export_products():
 
 @reports_bp.route('/export/movements')
 @login_required
+@roles_required('Genel')
 def export_movements():
     """Stok hareketlerini CSV olarak dışa aktar"""
     movements = StockMovement.query.order_by(StockMovement.date.desc()).limit(1000).all()
@@ -503,6 +668,7 @@ def export_movements():
 
 @reports_bp.route('/common-products')
 @login_required
+@roles_required('Genel')
 def common_products():
     """Tüm üretim hatlarında ortak kullanılan ürünler (somun, civata vs)"""
     # Ortak ürünleri bulmak için anahtar kelimeler

@@ -23,13 +23,21 @@
                             <input type="text" name="name" class="form-control" required placeholder="Ürün adını girin">
                         </div>
 
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label">Kategori</label>
                             <select name="category_id" class="form-select">
                                 <option value="">Kategori Seçin</option>
                                 {% for cat in categories %}
                                 <option value="{{ cat.id }}">{{ cat.name }}</option>
                                 {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Ürün Tipi *</label>
+                            <select name="type" class="form-select" required>
+                                <option value="hammadde">Hammadde (Satın Alınan)</option>
+                                <option value="yarimamul">Yarı Mamül (İşlenen)</option>
+                                <option value="mamul">Mamül (Üretilen Makine)</option>
                             </select>
                         </div>
                         <div class="col-md-6">

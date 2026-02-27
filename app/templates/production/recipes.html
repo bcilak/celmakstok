@@ -6,11 +6,16 @@
 <div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
     <div>
         <h1 class="page-title"><i class="bi bi-journal-code me-2"></i>Reçete Yönetimi</h1>
-        <p class="page-subtitle">Üretim reçetelerini oluştur ve yönet</p>
+        <p class="page-subtitle">Üretim reçetelerini oluştur, yönet ve BOM ağacı içe aktar</p>
     </div>
-    <a href="{{ url_for('production.add_recipe') }}" class="btn btn-primary">
-        <i class="bi bi-plus-lg me-1"></i>Yeni Reçete
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('production.import_bom') }}" class="btn btn-success">
+            <i class="bi bi-file-earmark-excel me-1"></i>Excel'den İçe Aktar
+        </a>
+        <a href="{{ url_for('production.add_recipe') }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Yeni Reçete
+        </a>
+    </div>
 </div>
 
 <!-- Özet Kartları -->
@@ -93,136 +98,238 @@
     </div>
 </div>
 
-<!-- Reçete Listesi -->
-<div class="card border-0 shadow-sm">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
-        <h5 class="mb-0">
-            <i class="bi bi-list-ul me-2"></i>Reçete Listesi
-        </h5>
-        <span class="badge bg-primary rounded-pill px-3">{{ recipes|length }} reçete</span>
+<!-- Reçete Listesi Sekmeleri -->
+<ul class="nav nav-tabs mb-4" id="recipeTab" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active fw-semibold" id="main-recipes-tab" data-bs-toggle="tab"
+            data-bs-target="#main-recipes" type="button" role="tab" aria-controls="main-recipes" aria-selected="true">
+            <i class="bi bi-box-seam me-2"></i>Ana Mamül Reçeteleri
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-semibold" id="sub-recipes-tab" data-bs-toggle="tab" data-bs-target="#sub-recipes"
+            type="button" role="tab" aria-controls="sub-recipes" aria-selected="false">
+            <i class="bi bi-diagram-3 me-2"></i>Yarımamül (Alt Montaj) Reçeteleri
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="recipeTabContent">
+    <!-- Ana Mamül Reçeteleri -->
+    <div class="tab-pane fade show active" id="main-recipes" role="tabpanel" aria-labelledby="main-recipes-tab">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                <h5 class="mb-0">
+                    <i class="bi bi-list-ul me-2"></i>Ana Ürün Reçeteleri
+                </h5>
+            </div>
+
+            {% set main_recipes = recipes | selectattr('target_product') | selectattr('target_product.type', 'equalto',
+            'mamul') | list %}
+            {% set legacy_recipes = [] %}
+            {% for r in recipes %}
+            {% if not r.target_product %}
+            {% set _ = legacy_recipes.append(r) %}
+            {% endif %}
+            {% endfor %}
+            {% set all_main = main_recipes + legacy_recipes %}
+
+            {% if all_main %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th class="ps-4">Reçete Adı</th>
+                            <th>Üretim Hattı</th>
+                            <th>Hedef Ürün</th>
+                            <th class="text-center">Malzeme</th>
+                            <th class="text-center">Durum</th>
+                            <th class="text-center pe-4">İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for recipe in all_main %}
+                        <tr class="item-row">
+                            <td class="ps-4">
+                                <div class="d-flex align-items-center">
+                                    <div class="gradient-icon primary me-3" style="width: 40px; height: 40px;">
+                                        <i class="bi bi-journal-text" style="font-size: 1rem;"></i>
+                                    </div>
+                                    <div>
+                                        <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
+                                            class="text-decoration-none text-dark fw-semibold d-block">
+                                            {{ recipe.name }}
+                                        </a>
+                                        {% if recipe.description %}
+                                        <small class="text-muted">{{ recipe.description[:40] }}{% if
+                                            recipe.description|length >
+                                            40 %}...{% endif %}</small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                {% if recipe.category %}
+                                <span class="category-tag">
+                                    <i class="bi bi-gear"></i>
+                                    {{ recipe.category.name }}
+                                </span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if recipe.target_product %}
+                                <span class="badge bg-info bg-opacity-10 text-info px-2 py-1">
+                                    {{ recipe.target_product.name }}
+                                </span>
+                                {% else %}
+                                <span class="text-muted">Eski Reçete</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2">
+                                    {{ recipe.total_items }} malzeme
+                                </span>
+                            </td>
+                            <td class="text-center">
+                                {% if recipe.is_active %}
+                                <span class="badge bg-success bg-opacity-10 text-success px-3 py-2">
+                                    <i class="bi bi-check-circle me-1"></i>Aktif
+                                </span>
+                                {% else %}
+                                <span class="badge bg-danger bg-opacity-10 text-danger px-3 py-2">
+                                    <i class="bi bi-x-circle me-1"></i>Pasif
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center pe-4">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <a href="{{ url_for('production.produce_with_recipe', id=recipe.id) }}"
+                                        class="btn btn-success action-btn" title="Üretim Yap">
+                                        <i class="bi bi-play-fill"></i>
+                                    </a>
+                                    <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
+                                        class="btn btn-outline-primary action-btn" title="Görüntüle">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('production.edit_recipe', id=recipe.id) }}"
+                                        class="btn btn-outline-warning action-btn" title="Düzenle">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    {% if current_user.role == 'admin' %}
+                                    <button type="button" class="btn btn-outline-danger action-btn" title="Sil"
+                                        onclick="if(confirm('{{ recipe.name }} reçetesini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) { document.getElementById('delete-recipe-{{ recipe.id }}').submit(); }">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                    <form id="delete-recipe-{{ recipe.id }}"
+                                        action="{{ url_for('production.delete_recipe', id=recipe.id) }}" method="POST"
+                                        style="display:none;"></form>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="card-body text-center py-5">
+                <div class="gradient-icon primary mx-auto mb-4" style="width: 80px; height: 80px; font-size: 2rem;">
+                    <i class="bi bi-journal-x"></i>
+                </div>
+                <h4 class="text-muted">Kayıtlı Ana Mamül Reçetesi Bulunamadı</h4>
+            </div>
+            {% endif %}
+        </div>
     </div>
 
-    {% if recipes %}
-    <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-            <thead>
-                <tr>
-                    <th class="ps-4">Reçete Adı</th>
-                    <th>Üretim Hattı</th>
-                    <th>Model</th>
-                    <th class="text-center">Malzeme</th>
-                    <th class="text-center">Toplam Parça</th>
-                    <th class="text-center">Durum</th>
-                    <th class="text-center pe-4">İşlemler</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for recipe in recipes %}
-                <tr class="item-row">
-                    <td class="ps-4">
-                        <div class="d-flex align-items-center">
-                            <div class="gradient-icon primary me-3" style="width: 40px; height: 40px;">
-                                <i class="bi bi-journal-text" style="font-size: 1rem;"></i>
-                            </div>
-                            <div>
-                                <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
-                                    class="text-decoration-none text-dark fw-semibold d-block">
-                                    {{ recipe.name }}
-                                </a>
-                                {% if recipe.description %}
-                                <small class="text-muted">{{ recipe.description[:40] }}{% if recipe.description|length >
-                                    40 %}...{% endif %}</small>
+
+    <!-- Yarımamül Reçeteleri -->
+    <div class="tab-pane fade" id="sub-recipes" role="tabpanel" aria-labelledby="sub-recipes-tab">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                <h5 class="mb-0">
+                    <i class="bi bi-diagram-3 me-2"></i>Alt Bileşen (Yarımamül) Reçeteleri
+                </h5>
+            </div>
+
+            {% set sub_recipes = recipes | selectattr('target_product') | selectattr('target_product.type', 'equalto',
+            'yarimamul') | list %}
+
+            {% if sub_recipes %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th class="ps-4">Alt Reçete Adı</th>
+                            <th>Üretim Hattı</th>
+                            <th>Açıklama</th>
+                            <th class="text-center">Malzeme</th>
+                            <th class="text-center pe-4">İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for recipe in sub_recipes %}
+                        <tr class="item-row">
+                            <td class="ps-4">
+                                <div class="d-flex align-items-center">
+                                    <div class="gradient-icon secondary me-3" style="width: 40px; height: 40px;">
+                                        <i class="bi bi-diagram-2" style="font-size: 1rem;"></i>
+                                    </div>
+                                    <div>
+                                        <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
+                                            class="text-decoration-none text-dark fw-semibold d-block">
+                                            {{ recipe.name }}
+                                        </a>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                {% if recipe.category %}
+                                <span class="category-tag">
+                                    <i class="bi bi-gear"></i>
+                                    {{ recipe.category.name }}
+                                </span>
+                                {% else %}
+                                <span class="text-muted">-</span>
                                 {% endif %}
-                            </div>
-                        </div>
-                    </td>
-                    <td>
-                        {% if recipe.category %}
-                        <span class="category-tag">
-                            <i class="bi bi-gear"></i>
-                            {{ recipe.category.name }}
-                        </span>
-                        {% else %}
-                        <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if recipe.model_variant %}
-                        <span class="badge bg-info bg-opacity-10 text-info px-2 py-1">
-                            {{ recipe.model_variant }}
-                        </span>
-                        {% else %}
-                        <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">
-                        <span class="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2">
-                            {{ recipe.total_items }} malzeme
-                        </span>
-                    </td>
-                    <td class="text-center">
-                        {% set total_parts = namespace(value=0) %}
-                        {% for item in recipe.items %}
-                        {% set total_parts.value = total_parts.value + item.quantity %}
+                            </td>
+                            <td>
+                                <small class="text-muted">{{ recipe.description }}</small>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2">
+                                    {{ recipe.total_items }} malzeme
+                                </span>
+                            </td>
+                            <td class="text-center pe-4">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
+                                        class="btn btn-outline-primary action-btn" title="Görüntüle">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('production.edit_recipe', id=recipe.id) }}"
+                                        class="btn btn-outline-warning action-btn" title="Düzenle">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
                         {% endfor %}
-                        <span class="fw-bold fs-5">{{ total_parts.value|int }}</span>
-                        <small class="text-muted d-block">parça</small>
-                    </td>
-                    <td class="text-center">
-                        {% if recipe.is_active %}
-                        <span class="badge bg-success bg-opacity-10 text-success px-3 py-2">
-                            <i class="bi bi-check-circle me-1"></i>Aktif
-                        </span>
-                        {% else %}
-                        <span class="badge bg-danger bg-opacity-10 text-danger px-3 py-2">
-                            <i class="bi bi-x-circle me-1"></i>Pasif
-                        </span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center pe-4">
-                        <div class="btn-group btn-group-sm" role="group">
-                            <a href="{{ url_for('production.produce_with_recipe', id=recipe.id) }}"
-                                class="btn btn-success action-btn" title="Üretim Yap">
-                                <i class="bi bi-play-fill"></i>
-                            </a>
-                            <a href="{{ url_for('production.view_recipe', id=recipe.id) }}"
-                                class="btn btn-outline-primary action-btn" title="Görüntüle">
-                                <i class="bi bi-eye"></i>
-                            </a>
-                            <a href="{{ url_for('production.edit_recipe', id=recipe.id) }}"
-                                class="btn btn-outline-warning action-btn" title="Düzenle">
-                                <i class="bi bi-pencil"></i>
-                            </a>
-                            {% if current_user.role == 'admin' %}
-                            <button type="button" class="btn btn-outline-danger action-btn" title="Sil"
-                                onclick="if(confirm('{{ recipe.name }} reçetesini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) { document.getElementById('delete-recipe-{{ recipe.id }}').submit(); }">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                            {% endif %}
-                        </div>
-                        {% if current_user.role == 'admin' %}
-                        <form id="delete-recipe-{{ recipe.id }}"
-                            action="{{ url_for('production.delete_recipe', id=recipe.id) }}" method="POST"
-                            style="display:none;"></form>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="card-body text-center py-5">
-        <div class="gradient-icon primary mx-auto mb-4" style="width: 80px; height: 80px; font-size: 2rem;">
-            <i class="bi bi-journal-x"></i>
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="card-body text-center py-5">
+                <div class="gradient-icon secondary mx-auto mb-4" style="width: 80px; height: 80px; font-size: 2rem;">
+                    <i class="bi bi-diagram-3"></i>
+                </div>
+                <h4 class="text-muted">Kayıtlı Yarımamül Reçetesi Bulunamadı</h4>
+            </div>
+            {% endif %}
         </div>
-        <h4 class="text-muted">Henüz reçete oluşturulmamış</h4>
-        <p class="text-muted mb-4">Yeni bir reçete oluşturarak üretim süreçlerinizi otomatikleştirin.</p>
-        <a href="{{ url_for('production.add_recipe') }}" class="btn btn-primary btn-lg">
-            <i class="bi bi-plus-lg me-2"></i>İlk Reçeteyi Oluştur
-        </a>
     </div>
-    {% endif %}
 </div>
 
 <!-- Bilgi Kartı -->

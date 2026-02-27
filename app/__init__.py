@@ -2,6 +2,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_migrate import Migrate
+from flasgger import Swagger
 from config import Config
 
 db = SQLAlchemy()
@@ -18,6 +19,13 @@ def create_app(config_class=Config):
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
+    
+    app.config['SWAGGER'] = {
+        'title': 'ÇELMAK Stok Takip API',
+        'uiversion': 3,
+        'openapi': '3.0.0'
+    }
+    Swagger(app)
 
     # Blueprint'leri kaydet
     from app.routes.main import main_bp
@@ -29,6 +37,7 @@ def create_app(config_class=Config):
     from app.routes.counting import counting_bp
     from app.routes.reports import reports_bp
     from app.routes.api import api_bp
+    from app.routes.ai_internal import ai_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp, url_prefix='/auth')
@@ -39,5 +48,7 @@ def create_app(config_class=Config):
     app.register_blueprint(counting_bp, url_prefix='/counting')
     app.register_blueprint(reports_bp, url_prefix='/reports')
     app.register_blueprint(api_bp, url_prefix='/api')
+    # Internal AI endpoints (protected by API key, register under /internal/ai)
+    app.register_blueprint(ai_bp, url_prefix='/internal/ai')
 
     return app

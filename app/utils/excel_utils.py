@@ -423,3 +423,125 @@ def export_stock_movements_to_excel(movements):
     output.seek(0)
 
     return output
+
+def parse_bom_excel(file_stream, main_product_name):
+    """
+    Parse the provided Urun Agaci (BOM) Excel template.
+    Returns a list of components with their parent relationships.
+    """
+    try:
+        try:
+            # header=None prevents pandas from using the first row as column names,
+            # which is critical because some users put top-level BOM groups (like Kasa) on row 1
+            df = pd.read_excel(file_stream, sheet_name=0, header=None)
+        except Exception as e:
+            return [], [{'row': 0, 'error': f'Dosya okuma hatası: {str(e)}'}]
+        
+        success_list = []
+        error_list = []
+        
+        current_group_level1 = None
+        current_group_level2 = None
+        
+        for index, row in df.iterrows():
+            # DO NOT SKIP index 0 anymore, as it might contain valid groups.
+            
+            r = [str(x).strip() if pd.notna(x) else '' for x in row.tolist()]
+            if not any(bool(x) for x in r): continue
+            
+            col0 = r[0] if len(r) > 0 else '' # Group Level 1
+            col1 = r[1] if len(r) > 1 else '' # Group Level 2 / Or Item if others empty
+            col2 = r[2] if len(r) > 2 else '' 
+            col3 = r[3] if len(r) > 3 else '' # Real Item Name
+            col4 = r[4] if len(r) > 4 else '' # Item Material/Size
+            col5 = r[5] if len(r) > 5 else '' # Qty
+            col6 = r[6] if len(r) > 6 else '' # Unit
+            col7 = r[7] if len(r) > 7 else '' # Main Qty
+            col8 = r[8] if len(r) > 8 else '' # Main Unit
+            
+            # Detect group hierarchies
+            if col0 and col0.lower() != 'nan':
+                if current_group_level1 != col0:
+                    current_group_level1 = col0
+                    current_group_level2 = None
+                    # Level 1 group is a child of the MAIN product
+                    success_list.append({
+                        'parent_name': main_product_name,
+                        'name': current_group_level1,
+                        'quantity': 1.0, # Excel doesn't always specify, default to 1
+                        'unit_type': 'adet'
+                    })
+                    
+            if col1 and col1.lower() != 'nan':
+                # Level 2 Group detection:
+                # Case 1: Pure group header (no item details in col3, col4, col5, col7)
+                # Case 2: Group header + first item on the same line (col1 has text AND col3 has text)
+                is_group = False
+                if not col3 and not col4 and not col5 and not col7:
+                    is_group = True
+                elif col1 and col3:
+                    is_group = True
+                    
+                if is_group:
+                    if current_group_level2 != col1:
+                        current_group_level2 = col1
+                        # Level 2 group is a child of the Level 1 group (or MAIN if Level 1 is missing, though unlikely)
+                        parent_of_l2 = current_group_level1 if current_group_level1 else main_product_name
+                        success_list.append({
+                            'parent_name': parent_of_l2,
+                            'name': current_group_level2,
+                            'quantity': 1.0,
+                            'unit_type': 'adet'
+                        })
+            
+            # Parent designation for the CURRENT ITEM
+            parent_name = current_group_level2 if current_group_level2 else (current_group_level1 if current_group_level1 else main_product_name)
+            
+            # Item designation
+            item_name = ''
+            if col3 and col3.lower() != 'nan':
+                item_name = col3
+            elif col2 and col2.lower() != 'nan':
+                item_name = col2
+            elif col1 and col1.lower() != 'nan' and not col3:
+                # Fallback if no specific item column is used, but col1 has data and it's not a pure group
+                if col4 or col5 or col7: 
+                    item_name = col1
+            
+            if not item_name: continue
+            
+            # QTY and UNIT
+            qty_str = col7 if col7 else col5 # Prefer the "Main QTY" (Ana Adet) column
+            unit_str = col8 if col8 else col6
+            
+            # Combine material info if exists
+            if col4 and col4.lower() != 'nan':
+                # Sadece eğer aynı isimde geçmiyorsa ekle
+                if col4 not in item_name:
+                    item_name += f' ({col4})'
+                    
+            qty = 1.0
+            try:
+                qty = float(qty_str.replace(',','.'))
+            except:
+                if col5:
+                    try: qty = float(col5.replace(',','.'))
+                    except: pass
+                    
+            unit = 'adet'
+            if 'kilo' in unit_str.lower() or 'kg' in unit_str.lower():
+                unit = 'kg'
+            elif 'metre' in unit_str.lower() or 'mt' in unit_str.lower():
+                unit = 'metre'
+                
+            success_list.append({
+                'parent_name': parent_name,
+                'name': item_name,
+                'quantity': qty,
+                'unit_type': unit
+            })
+                
+        return success_list, error_list
+    except Exception as e:
+        return [], [{'row': 0, 'error': f'Beklenmeyen hata: {str(e)}'}]
+

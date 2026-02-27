@@ -43,3 +43,7 @@ class Config:
 
     # Gemini AI API Key
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+    # Internal AI integration API key (use strong secret in production)
+    AI_API_KEY = os.environ.get('AI_API_KEY') or 'change-me-ai-key'
+    # Optional comma-separated list of allowed IPs for AI internal endpoints
+    AI_ALLOWED_IPS = [ip.strip() for ip in os.environ.get('AI_ALLOWED_IPS', '').split(',') if ip.strip()]

@@ -5,6 +5,7 @@ from app import db
 from sqlalchemy import func
 from functools import wraps
 from datetime import datetime, timedelta
+from app.utils.decorators import roles_required
 
 api_bp = Blueprint('api', __name__)
 
@@ -29,6 +30,7 @@ def require_api_key(f):
 
 @api_bp.route('/products')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def get_products():
     """Ürün listesi API"""
     products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
@@ -45,6 +47,7 @@ def get_products():
 
 @api_bp.route('/products/<int:id>')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def get_product(id):
     """Tek ürün detayı API"""
     product = Product.query.get_or_404(id)
@@ -64,6 +67,7 @@ def get_product(id):
 
 @api_bp.route('/products/search')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def search_products():
     """Ürün arama API"""
     q = request.args.get('q', '')
@@ -90,6 +94,7 @@ def search_products():
 
 @api_bp.route('/products/by-qr/<code>')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def get_product_by_qr(code):
     """QR koddan ürün bul"""
     product = None
@@ -118,6 +123,7 @@ def get_product_by_qr(code):
 
 @api_bp.route('/stock/quick', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def quick_stock_movement():
     """Hızlı stok hareketi API"""
     data = request.get_json()
@@ -165,6 +171,7 @@ def quick_stock_movement():
 
 @api_bp.route('/categories')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def get_categories():
     """Kategori listesi API"""
     categories = Category.query.all()
@@ -178,6 +185,7 @@ def get_categories():
 
 @api_bp.route('/production-lines')
 @login_required
+@roles_required('Genel', 'Yönetici')
 def get_production_lines():
     """Üretim hatları API (Kategoriler)"""
     lines = Category.query.filter_by(is_active=True).all()
@@ -190,6 +198,7 @@ def get_production_lines():
 
 @api_bp.route('/dashboard/stats')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def dashboard_stats():
     """Dashboard istatistikleri API"""
     
@@ -227,6 +236,7 @@ def dashboard_stats():
 
 @api_bp.route('/counting/<int:session_id>/item/<int:item_id>', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def api_count_item(session_id, item_id):
     """Sayım kalemi güncelleme API"""
 
@@ -257,9 +267,31 @@ def api_count_item(session_id, item_id):
 # ================== ÜRÜN AĞACI API'LERİ ==================
 
 @api_bp.route('/v1/products/full', methods=['GET'])
-@login_required
+@require_api_key
 def api_products_full():
-    """Tüm ürün listesi (detaylı) - Dış uygulama entegrasyonu için"""
+    """
+    Tüm Ürün Listesi (Detaylı)
+    Dış uygulama entegrasyonu için tam ürün listesi
+    ---
+    tags:
+      - Ürünler (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - name: category_id
+        in: query
+        type: integer
+        required: false
+        description: Belirli bir kategoriye ait ürünleri getir
+      - name: include_inactive
+        in: query
+        type: string
+        required: false
+        description: Pasif ürünleri de dahil et ('true' veya 'false')
+    responses:
+      200:
+        description: Başarılı ürün listesi
+    """
     category_id = request.args.get('category_id', type=int)
     include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
 
@@ -300,9 +332,29 @@ def api_products_full():
 
 
 @api_bp.route('/v1/recipes', methods=['GET'])
-@login_required
+@require_api_key
 def api_recipes_list():
-    """Tüm reçete listesi - Dış uygulama entegrasyonu için"""
+    """
+    Tüm Reçete Listesi
+    Dış uygulama entegrasyonu için reçeteler
+    ---
+    tags:
+      - Reçeteler (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - name: category_id
+        in: query
+        type: integer
+        required: false
+      - name: include_inactive
+        in: query
+        type: string
+        required: false
+    responses:
+      200:
+        description: Başarılı yanıt
+    """
     category_id = request.args.get('category_id', type=int)
     include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
 
@@ -339,9 +391,25 @@ def api_recipes_list():
 
 
 @api_bp.route('/v1/recipes/<int:recipe_id>', methods=['GET'])
-@login_required
+@require_api_key
 def api_recipe_detail(recipe_id):
-    """Reçete detayı ve malzeme listesi"""
+    """
+    Reçete Detayı ve Malzeme Listesi
+    Spesifik bir reçetenin içerdiği malzemeler
+    ---
+    tags:
+      - Reçeteler (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - name: recipe_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Reçete detayları
+    """
     recipe = Recipe.query.get_or_404(recipe_id)
 
     items = []
@@ -375,11 +443,24 @@ def api_recipe_detail(recipe_id):
 
 
 @api_bp.route('/v1/product-tree', methods=['GET'])
-@login_required
+@require_api_key
 def api_product_tree():
     """
-    Ürün ağacı - Tüm reçeteleri ve malzemeleri hiyerarşik yapıda döndürür
-    Dış uygulamalar için tam ürün ağacı verisi
+    Ürün Ağacı (Hiyerarşik)
+    Tüm reçeteleri ve malzemeleri hiyerarşik yapıda döndürür
+    ---
+    tags:
+      - Ürün Ağacı (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - name: include_inactive
+        in: query
+        type: string
+        required: false
+    responses:
+      200:
+        description: Başarılı ağaç yapısı
     """
     include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
 
@@ -434,11 +515,24 @@ def api_product_tree():
 
 
 @api_bp.route('/v1/product-tree/flat', methods=['GET'])
-@login_required
+@require_api_key
 def api_product_tree_flat():
     """
-    Düz ürün ağacı - İlişkileri ID referanslarıyla döndürür
-    Graph/network görselleştirme için uygun format
+    Ürün Ağacı (Düz / Graph)
+    İlişkileri ID referanslarıyla döndürür
+    ---
+    tags:
+      - Ürün Ağacı (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - name: include_inactive
+        in: query
+        type: string
+        required: false
+    responses:
+      200:
+        description: Nodes ve edges döner
     """
     include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
 
@@ -505,9 +599,29 @@ def api_product_tree_flat():
 
 
 @api_bp.route('/v1/recipe/<int:recipe_id>/can-produce', methods=['GET'])
-@login_required
+@require_api_key
 def api_can_produce(recipe_id):
-    """Reçete için üretim yapılabilir mi kontrol et"""
+    """
+    Üretilebilirlik Kontrolü
+    Makine/Reçete için üretim yapılabilir mi kontrol et
+    ---
+    tags:
+      - Üretim (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - name: recipe_id
+        in: path
+        type: integer
+        required: true
+      - name: quantity
+        in: query
+        type: integer
+        required: false
+    responses:
+      200:
+        description: Kontrol sonucu
+    """
     recipe = Recipe.query.get_or_404(recipe_id)
     quantity = request.args.get('quantity', 1, type=int)
 
@@ -539,9 +653,29 @@ def api_can_produce(recipe_id):
 
 
 @api_bp.route('/v1/recipe/<int:recipe_id>/missing-materials', methods=['GET'])
-@login_required
+@require_api_key
 def api_missing_materials(recipe_id):
-    """Reçete için eksik malzemeleri listele"""
+    """
+    Eksik Malzemeler
+    Reçete için eksik malzemeleri listele
+    ---
+    tags:
+      - Üretim (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - name: recipe_id
+        in: path
+        type: integer
+        required: true
+      - name: quantity
+        in: query
+        type: integer
+        required: false
+    responses:
+      200:
+        description: Başarılı
+    """
     recipe = Recipe.query.get_or_404(recipe_id)
     quantity = request.args.get('quantity', 1, type=int)
 
@@ -831,6 +965,7 @@ def api_product_purchasing_details(product_id):
 
 @api_bp.route('/v1/purchasing/notify', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def api_purchasing_notify():
     """
     Kritik stok bildirimi oluştur
@@ -909,4 +1044,168 @@ def api_product_by_code(product_code):
             'last_purchase_date': last_purchase.date.isoformat() if last_purchase else None,
             'last_purchase_quantity': float(last_purchase.quantity) if last_purchase else None
         }
+    })
+
+@api_bp.route('/v1/stock/sync', methods=['POST'])
+@require_api_key
+def api_stock_sync():
+    """
+    Toplu Stok Senkronizasyonu
+    Dış sistemlerden gelen verilerle stok adetlerini günceller (Sayım/Düzeltme hareketi oluşturarak)
+    ---
+    tags:
+      - Stok (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  product_code:
+                    type: string
+                  stock_quantity:
+                    type: number
+                  note:
+                    type: string
+    responses:
+      200:
+        description: Senkronizasyon sonucu
+    """
+    data = request.get_json()
+    if not data or 'items' not in data:
+        return jsonify({'success': False, 'message': 'Eksik veya hatalı veri. items dizisi gereklidir.'}), 400
+
+    items = data.get('items', [])
+    results = []
+    
+    for item in items:
+        code = item.get('product_code')
+        new_quantity = item.get('stock_quantity')
+        note = item.get('note', 'API Senkronizasyonu')
+        
+        if not code or new_quantity is None:
+            results.append({'code': code, 'status': 'error', 'message': 'Eksik veri'})
+            continue
+            
+        product = Product.query.filter_by(code=code, is_active=True).first()
+        if not product:
+            results.append({'code': code, 'status': 'error', 'message': 'Ürün bulunamadı'})
+            continue
+            
+        old_quantity = product.current_stock
+        difference = new_quantity - old_quantity
+        
+        if difference == 0:
+            results.append({'code': code, 'status': 'skipped', 'message': 'Stok zaten güncel'})
+            continue
+            
+        movement_type = 'giris' if difference > 0 else 'cikis'
+        
+        movement = StockMovement(
+            product_id=product.id,
+            movement_type=movement_type,
+            quantity=abs(difference),
+            source='Sistem Senkronizasyonu' if difference > 0 else 'Depo',
+            destination='Depo' if difference > 0 else 'Sistem Senkronizasyonu',
+            note=note,
+            # Sistem kullanıcısı id'si yok, o yüzden user_id null kalabilir. 
+            # API ile eklendiğini kaynak/notlardan anlayacağız.
+        )
+        
+        product.current_stock = new_quantity
+        db.session.add(movement)
+        
+        results.append({
+            'code': code, 
+            'status': 'success', 
+            'old_stock': float(old_quantity), 
+            'new_stock': float(new_quantity)
+        })
+        
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'processed_count': len(items),
+        'results': results
+    })
+
+@api_bp.route('/v1/products/price-sync', methods=['POST'])
+@require_api_key
+def api_product_price_sync():
+    """
+    Satın Alma Fiyat Senkronizasyonu
+    Dış satın alma uygulamasından gelen güncel fiyatları ürünlere işler. Gizli alanlardır.
+    ---
+    tags:
+      - Ürünler (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  cost:
+                    type: number
+                  currency:
+                    type: string
+    responses:
+      200:
+        description: Fiyat senkronizasyonu sonucu
+    """
+    data = request.get_json()
+    if not data or 'items' not in data:
+        return jsonify({'success': False, 'message': 'Eksik veya hatalı veri. items dizisi gereklidir.'}), 400
+
+    items = data.get('items', [])
+    results = []
+    
+    for item in items:
+        code = item.get('code')
+        cost = item.get('cost')
+        currency = item.get('currency', 'TRY')
+        
+        if not code or cost is None:
+            results.append({'code': code, 'status': 'error', 'message': 'Eksik veri (code veya cost)'})
+            continue
+            
+        product = Product.query.filter_by(code=code, is_active=True).first()
+        if not product:
+            results.append({'code': code, 'status': 'error', 'message': 'Ürün bulunamadı'})
+            continue
+            
+        product.unit_cost = float(cost)
+        product.currency = currency
+        
+        results.append({
+            'code': code, 
+            'status': 'success', 
+            'new_cost': float(cost), 
+            'currency': currency
+        })
+        
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'processed_count': len(items),
+        'results': results
     })

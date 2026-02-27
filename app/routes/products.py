@@ -9,6 +9,7 @@ from app.utils.excel_utils import (
     parse_product_excel,
     export_products_to_excel
 )
+from app.utils.decorators import roles_required
 from datetime import datetime
 import io
 import zipfile
@@ -25,9 +26,11 @@ def natural_sort_key(code):
 
 @products_bp.route('/')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def index():
     page = request.args.get('page', 1, type=int)
     category_id = request.args.get('category', type=int)
+    selected_type = request.args.get('type', '')
     search = request.args.get('search', '')
     status = request.args.get('status', '')
     sort_by = request.args.get('sort_by', 'name')
@@ -38,6 +41,9 @@ def index():
     
     if category_id:
         query = query.filter_by(category_id=category_id)
+        
+    if selected_type:
+        query = query.filter_by(type=selected_type)
     
     if search:
         query = query.filter(
@@ -98,6 +104,7 @@ def index():
         products=products, 
         categories=categories,
         selected_category=category_id,
+        selected_type=selected_type,
         search=search,
         status=status,
         sort_by=sort_by,
@@ -106,12 +113,14 @@ def index():
 
 @products_bp.route('/add', methods=['GET', 'POST'])
 @login_required
+@roles_required('Yönetici', 'Personel')
 def add():
     if request.method == 'POST':
         code = request.form.get('code')
         name = request.form.get('name')
         category_id = request.form.get('category_id', type=int)
         unit_type = request.form.get('unit_type', 'adet')
+        product_type = request.form.get('type', 'hammadde')
         minimum_stock = request.form.get('minimum_stock', 0, type=float)
         current_stock = request.form.get('current_stock', 0, type=float)
         barcode = request.form.get('barcode', '')
@@ -125,6 +134,7 @@ def add():
                 name=name,
                 category_id=category_id,
                 unit_type=unit_type,
+                type=product_type,
                 minimum_stock=minimum_stock,
                 current_stock=current_stock,
                 barcode=barcode,
@@ -154,10 +164,11 @@ def add():
 
 @products_bp.route('/<int:id>')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def view(id):
     product = Product.query.get_or_404(id)
     # Sadece admin pasif ürünü görebilir
-    if not product.is_active and (not current_user.is_authenticated or current_user.role != 'admin'):
+    if not product.is_active and (not current_user.is_authenticated or not current_user.is_admin()):
         flash('Bu ürün pasif durumdadır.', 'error')
         return redirect(url_for('products.index'))
     movements = StockMovement.query.filter_by(product_id=id).order_by(
@@ -167,6 +178,7 @@ def view(id):
 
 @products_bp.route('/<int:id>/edit', methods=['GET', 'POST'])
 @login_required
+@roles_required('Yönetici', 'Personel')
 def edit(id):
     product = Product.query.get_or_404(id)
     
@@ -174,6 +186,7 @@ def edit(id):
         product.name = request.form.get('name')
         product.category_id = request.form.get('category_id', type=int)
         product.unit_type = request.form.get('unit_type', 'adet')
+        product.type = request.form.get('type', 'hammadde')
         product.minimum_stock = request.form.get('minimum_stock', 0, type=float)
         product.barcode = request.form.get('barcode', '')
         product.notes = request.form.get('notes', '')
@@ -187,11 +200,8 @@ def edit(id):
 
 @products_bp.route('/<int:id>/delete')
 @login_required
+@roles_required('Yönetici')
 def delete(id):
-    if current_user.role not in ['admin']:
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('products.index'))
-    
     product = Product.query.get_or_404(id)
     product.is_active = False
     db.session.commit()
@@ -200,6 +210,7 @@ def delete(id):
 
 @products_bp.route('/<int:id>/qr')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def qr_code(id):
     product = Product.query.get_or_404(id)
 
@@ -222,6 +233,7 @@ def qr_code(id):
 
 @products_bp.route('/<int:id>/qr/download')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def download_qr(id):
     product = Product.query.get_or_404(id)
 
@@ -244,6 +256,7 @@ def download_qr(id):
 
 @products_bp.route('/qr/bulk-download', methods=['POST'])
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def bulk_download_qr():
     """Seçilen ürünlerin QR kodlarını ZIP olarak indir"""
     product_ids = request.form.getlist('product_ids[]')
@@ -293,6 +306,7 @@ def bulk_download_qr():
 
 @products_bp.route('/qr/download-all')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def download_all_qr():
     """Tüm aktif ürünlerin QR kodlarını ZIP olarak indir"""
     # Filtreleri al
@@ -359,12 +373,14 @@ def download_all_qr():
 
 @products_bp.route('/categories')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def categories():
     categories = Category.query.all()
     return render_template('products/categories.html', categories=categories)
 
 @products_bp.route('/categories/add', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def add_category():
     name = request.form.get('name')
     note = request.form.get('note', '')
@@ -381,11 +397,8 @@ def add_category():
 
 @products_bp.route('/categories/<int:id>/delete')
 @login_required
+@roles_required('Yönetici')
 def delete_category(id):
-    if current_user.role != 'admin':
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('products.categories'))
-    
     category = Category.query.get_or_404(id)
     if category.products.count() > 0:
         flash('Bu kategoride ürünler var, silinemez.', 'error')
@@ -400,18 +413,16 @@ def delete_category(id):
 
 @products_bp.route('/import')
 @login_required
+@roles_required('Yönetici')
 def import_page():
     """Excel import sayfası"""
-    if current_user.role not in ['admin', 'yonetici']:
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('products.index'))
-    
     categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
     return render_template('products/import.html', categories=categories)
 
 
 @products_bp.route('/import/template')
 @login_required
+@roles_required('Yönetici')
 def download_template():
     """Excel şablonunu indir"""
     template = create_product_template()
@@ -426,12 +437,9 @@ def download_template():
 
 @products_bp.route('/import/upload', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def upload_import():
     """Excel dosyasını yükle ve import et"""
-    if current_user.role not in ['admin', 'yonetici']:
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('products.index'))
-    
     if 'file' not in request.files:
         flash('Dosya seçilmedi.', 'error')
         return redirect(url_for('products.import_page'))
@@ -529,6 +537,7 @@ def upload_import():
 
 @products_bp.route('/export')
 @login_required
+@roles_required('Genel', 'Yönetici')
 def export_products():
     """Ürünleri Excel'e aktar"""
     category_id = request.args.get('category', type=int)
@@ -567,6 +576,7 @@ def export_products():
 
 @products_bp.route('/bulk-qr')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def bulk_qr():
     """Toplu QR kod yazdırma sayfası"""
     page = request.args.get('page', 1, type=int)
@@ -599,6 +609,7 @@ def bulk_qr():
 
 @products_bp.route('/generate-bulk-qr', methods=['POST'])
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def generate_bulk_qr():
     """Seçili ürünler için toplu QR kod oluştur ve ZIP olarak indir"""
     product_ids = request.form.getlist('product_ids[]')
@@ -653,6 +664,7 @@ def generate_bulk_qr():
 
 @products_bp.route('/preview-qr/<int:product_id>')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def preview_qr(product_id):
     """Tek ürün için QR kod önizleme"""
     product = Product.query.get_or_404(product_id)
@@ -679,18 +691,16 @@ def preview_qr(product_id):
 
 @products_bp.route('/import/simple')
 @login_required
+@roles_required('Yönetici')
 def simple_import_page():
     """Basit Excel import sayfası (Kategori web'de seçilir)"""
-    if current_user.role not in ['admin', 'yonetici']:
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('products.index'))
-
     categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
     return render_template('products/simple_import.html', categories=categories)
 
 
 @products_bp.route('/import/simple/template')
 @login_required
+@roles_required('Yönetici')
 def download_simple_template():
     """Basit Excel şablonunu indir (Kategori ID yok)"""
     template = create_product_template_simple()
@@ -705,6 +715,7 @@ def download_simple_template():
 
 @products_bp.route('/import/simple/upload', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def simple_upload_import():
     """Basit Excel'i yükle ve önizleme sayfasına gönder"""
     if current_user.role not in ['admin', 'yonetici']:
@@ -754,12 +765,9 @@ def simple_upload_import():
 
 @products_bp.route('/import/preview')
 @login_required
+@roles_required('Yönetici')
 def import_preview():
     """Import önizleme ve kategori seçimi"""
-    if current_user.role not in ['admin', 'yonetici']:
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('products.index'))
-
     from flask import session
 
     products = session.get('import_products', [])
@@ -792,6 +800,7 @@ def import_preview():
 
 @products_bp.route('/import/confirm', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def confirm_import():
     """Önizlenen ürünleri kategorileriyle birlikte kaydet"""
     if current_user.role not in ['admin', 'yonetici']:

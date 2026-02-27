@@ -4,6 +4,7 @@ from app.models import Product, Category, StockMovement, CountSession, User
 from app import db
 from sqlalchemy import func
 from datetime import datetime, timedelta
+from app.utils.decorators import roles_required
 
 main_bp = Blueprint('main', __name__)
 
@@ -15,6 +16,7 @@ def index():
 
 @main_bp.route('/dashboard')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def dashboard():
     try:
         # Özet istatistikler
@@ -94,6 +96,7 @@ def dashboard():
 
 @main_bp.route('/about')
 @login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
 def about():
     """Proje hakkında sayfası"""
     stats = {

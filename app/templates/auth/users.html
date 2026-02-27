@@ -35,7 +35,9 @@
                                 <div class="user-avatar" style="width: 32px; height: 32px; font-size: 0.875rem;">
                                     {{ user.full_name[0] }}
                                 </div>
-                                <span class="fw-medium">{{ user.full_name }}</span>
+                                <a href="{{ url_for('auth.user_detail', id=user.id) }}" class="fw-medium">
+                                    {{ user.full_name }}
+                                </a>
                             </div>
                         </td>
                         <td>{{ user.username }}</td>
@@ -63,6 +65,12 @@
                         </td>
                         <td>{{ user.created_at.strftime('%d.%m.%Y') }}</td>
                         <td class="text-end">
+                            {% if current_user.is_admin() %}
+                            <a href="{{ url_for('auth.user_detail', id=user.id) }}"
+                                class="btn btn-sm btn-outline-primary me-1">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            {% endif %}
                             {% if user.id != current_user.id %}
                             <a href="{{ url_for('auth.toggle_user', id=user.id) }}"
                                 class="btn btn-sm btn-outline-{{ 'danger' if user.is_active else 'success' }}"

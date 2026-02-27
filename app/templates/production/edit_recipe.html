@@ -34,6 +34,19 @@
                         </div>
 
                         <div class="mb-3">
+                            <label for="target_product_id" class="form-label">Üretilecek Ürün (Hedef) *</label>
+                            <select class="form-select" id="target_product_id" name="target_product_id" required>
+                                <option value="">-- Mamül / Yarımamül Seçiniz --</option>
+                                {% for p in target_products %}
+                                <option value="{{ p.id }}" {% if recipe.target_product_id==p.id %}selected{% endif %}>
+                                    {{ p.name }} ({{ p.code }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Bu reçete üretildiğinde hangi ürünün stoğu artacak?</small>
+                        </div>
+
+                        <div class="mb-3">
                             <label for="category_id" class="form-label">Üretim Hattı</label>
                             <select class="form-select" id="category_id" name="category_id">
                                 <option value="">-- Seçiniz --</option>

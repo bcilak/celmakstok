@@ -99,7 +99,7 @@
                         value="{{ search }}">
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label small text-muted">
                     <i class="bi bi-folder me-1"></i>Kategori
                 </label>
@@ -112,7 +112,18 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
+                <label class="form-label small text-muted">
+                    <i class="bi bi-layers me-1"></i>Ürün Tipi
+                </label>
+                <select name="type" class="form-select">
+                    <option value="">Tümü</option>
+                    <option value="hammadde" {% if selected_type=='hammadde' %}selected{% endif %}>Hammadde</option>
+                    <option value="yarimamul" {% if selected_type=='yarimamul' %}selected{% endif %}>Yarı Mamül</option>
+                    <option value="mamul" {% if selected_type=='mamul' %}selected{% endif %}>Mamül</option>
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label small text-muted">
                     <i class="bi bi-funnel me-1"></i>Durum
                 </label>
@@ -159,7 +170,7 @@
                             {% endif %}
                         </a>
                     </th>
-                    <th>Kategori</th>
+                    <th>Kategori / Tip</th>
                     <th class="text-end">Mevcut Stok</th>
                     <th class="text-end">Min. Stok</th>
                     <th class="text-center">Durum</th>
@@ -186,12 +197,25 @@
                     </td>
                     <td>
                         {% if product.category %}
-                        <span class="category-tag">
+                        <span class="category-tag d-block mb-1">
                             <i class="bi bi-folder"></i>
                             {{ product.category.name }}
                         </span>
                         {% else %}
-                        <span class="text-muted">-</span>
+                        <span class="text-muted d-block mb-1">-</span>
+                        {% endif %}
+
+                        {% if product.type == 'hammadde' %}
+                        <span
+                            class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25"><i
+                                class="bi bi-box me-1"></i>Hammadde</span>
+                        {% elif product.type == 'yarimamul' %}
+                        <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25"><i
+                                class="bi bi-tools me-1"></i>Yarı Mamül</span>
+                        {% elif product.type == 'mamul' %}
+                        <span
+                            class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25"><i
+                                class="bi bi-check-circle me-1"></i>Mamül</span>
                         {% endif %}
                     </td>
                     <td class="text-end">
@@ -269,9 +293,10 @@
             <ul class="pagination justify-content-center mb-0">
                 {% if products.has_prev %}
                 <li class="page-item">
-                    <a class="page-link"
-                        href="?page={{ products.prev_num }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}">
-                        <i class="bi bi-chevron-left"></i> Önceki
+                    href="?page={{ products.prev_num }}&search={{ search }}&category={{ selected_category or ''
+                    }}&type={{ selected_type or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order
+                    }}">
+                    <i class="bi bi-chevron-left"></i> Önceki
                     </a>
                 </li>
                 {% endif %}
@@ -280,7 +305,7 @@
                 {% if page %}
                 <li class="page-item {% if page == products.page %}active{% endif %}">
                     <a class="page-link"
-                        href="?page={{ page }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}">
+                        href="?page={{ page }}&search={{ search }}&category={{ selected_category or '' }}&type={{ selected_type or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}">
                         {{ page }}
                     </a>
                 </li>
@@ -292,7 +317,7 @@
                 {% if products.has_next %}
                 <li class="page-item">
                     <a class="page-link"
-                        href="?page={{ products.next_num }}&search={{ search }}&category={{ selected_category or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}">
+                        href="?page={{ products.next_num }}&search={{ search }}&category={{ selected_category or '' }}&type={{ selected_type or '' }}&status={{ status }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}">
                         Sonraki <i class="bi bi-chevron-right"></i>
                     </a>
                 </li>

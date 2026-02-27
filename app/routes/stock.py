@@ -4,11 +4,13 @@ from app.models import Product, StockMovement, Category
 from app import db
 from datetime import datetime, date
 import json
+from app.utils.decorators import roles_required
 
 stock_bp = Blueprint('stock', __name__)
 
 @stock_bp.route('/')
 @login_required
+@roles_required('Genel', 'Yönetici')
 def index():
     page = request.args.get('page', 1, type=int)
     movement_type = request.args.get('type', '')
@@ -42,6 +44,7 @@ def index():
 
 @stock_bp.route('/in', methods=['GET', 'POST'])
 @login_required
+@roles_required('Yönetici', 'Personel')
 def stock_in():
     """Stok girişi"""
     if request.method == 'POST':
@@ -49,13 +52,24 @@ def stock_in():
         quantity = request.form.get('quantity', type=float)
         movement_type = request.form.get('movement_type', 'satin_alma')
         notes = request.form.get('notes', '')
+        location_id = request.form.get('location_id', type=int)
         
         product = Product.query.get_or_404(product_id)
         
         if quantity <= 0:
             flash('Miktar sıfırdan büyük olmalıdır.', 'error')
+        elif not location_id:
+            flash('Lütfen giriş yapılacak lokasyonu seçin.', 'error')
         else:
             product.current_stock += quantity
+            
+            # Lokasyon stoğunu güncelle
+            from app.models import LocationStock
+            loc_stock = LocationStock.query.filter_by(location_id=location_id, product_id=product_id).first()
+            if not loc_stock:
+                loc_stock = LocationStock(location_id=location_id, product_id=product_id, quantity=0)
+                db.session.add(loc_stock)
+            loc_stock.quantity += quantity
             
             # Kaynak belirle
             source_map = {
@@ -73,6 +87,7 @@ def stock_in():
                 quantity=quantity,
                 source=source,
                 destination='Depo',
+                to_location_id=location_id,
                 note=notes,
                 user_id=current_user.id
             )
@@ -99,10 +114,14 @@ def stock_in():
         ('diger', 'Diğer'),
     ]
     
-    return render_template('stock/stock_in.html', products=products, movement_types=movement_types, selected_product=selected_product)
+    from app.models import Location
+    locations = Location.query.filter_by(is_active=True).all()
+    
+    return render_template('stock/stock_in.html', products=products, movement_types=movement_types, selected_product=selected_product, locations=locations)
 
 @stock_bp.route('/out', methods=['GET', 'POST'])
 @login_required
+@roles_required('Yönetici', 'Personel')
 def stock_out():
     """Stok çıkışı"""
     if request.method == 'POST':
@@ -110,37 +129,48 @@ def stock_out():
         quantity = request.form.get('quantity', type=float)
         movement_type = request.form.get('movement_type', 'cikis')
         category_id = request.form.get('category_id', type=int)
-        notes = request.form.get('notes', '')
+        location_id = request.form.get('location_id', type=int)
         
         product = Product.query.get_or_404(product_id)
         
         if quantity <= 0:
             flash('Miktar sıfırdan büyük olmalıdır.', 'error')
-        elif quantity > product.current_stock:
-            flash(f'Yetersiz stok! Mevcut: {product.current_stock} {product.unit_type}', 'error')
+        elif not location_id:
+            flash('Lütfen çıkış yapılacak lokasyonu seçin.', 'error')
         else:
-            product.current_stock -= quantity
+            from app.models import LocationStock
+            loc_stock = LocationStock.query.filter_by(location_id=location_id, product_id=product_id).first()
             
-            destination = 'Dış'
-            if category_id:
-                category = Category.query.get(category_id)
-                if category:
-                    destination = category.name
-            
-            movement = StockMovement(
-                product_id=product_id,
-                movement_type=movement_type,
-                quantity=quantity,
-                source='Depo',
-                destination=destination,
-                note=notes,
-                user_id=current_user.id
-            )
-            db.session.add(movement)
-            db.session.commit()
-            
-            flash(f'{product.name} için {quantity} {product.unit_type} çıkış yapıldı.', 'success')
-            return redirect(url_for('stock.index'))
+            if not loc_stock or loc_stock.quantity < quantity:
+                available = loc_stock.quantity if loc_stock else 0
+                flash(f'Seçili lokasyonda yetersiz stok! Mevcut: {available} {product.unit_type}', 'error')
+            elif quantity > product.current_stock:
+                flash(f'Yetersiz toplam stok! Mevcut: {product.current_stock} {product.unit_type}', 'error')
+            else:
+                product.current_stock -= quantity
+                loc_stock.quantity -= quantity
+                
+                destination = 'Dış'
+                if category_id:
+                    category = Category.query.get(category_id)
+                    if category:
+                        destination = category.name
+                
+                movement = StockMovement(
+                    product_id=product_id,
+                    movement_type=movement_type,
+                    quantity=quantity,
+                    source='Depo',
+                    destination=destination,
+                    from_location_id=location_id,
+                    note=notes,
+                    user_id=current_user.id
+                )
+                db.session.add(movement)
+                db.session.commit()
+                
+                flash(f'{product.name} için {quantity} {product.unit_type} çıkış yapıldı.', 'success')
+                return redirect(url_for('stock.index'))
     
     products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
     categories = Category.query.filter_by(is_active=True).all()
@@ -166,6 +196,7 @@ def stock_out():
 
 @stock_bp.route('/transfer', methods=['GET', 'POST'])
 @login_required
+@roles_required('Yönetici')
 def transfer():
     """Hatlar arası transfer"""
     if request.method == 'POST':
@@ -209,6 +240,7 @@ def transfer():
 
 @stock_bp.route('/quick', methods=['GET', 'POST'])
 @login_required
+@roles_required('Yönetici')
 def quick_movement():
     """Hızlı stok hareketi"""
     if request.method == 'POST':
@@ -274,6 +306,7 @@ def quick_movement():
 
 @stock_bp.route('/api/search-products')
 @login_required
+@roles_required('Genel', 'Yönetici')
 def search_products():
     """Ürün arama API'si"""
     query = request.args.get('q', '').strip()

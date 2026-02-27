@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 
+{% block head %}
+<!-- Marked.js for Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <style>
     /* --- Modern Değişkenler --- */
@@ -179,6 +184,21 @@
         color: #1e293b;
         border-bottom-left-radius: 4px;
         border: 1px solid rgba(226, 232, 240, 0.8);
+        overflow-wrap: break-word;
+        /* Prevent long tables/links from breaking layout */
+    }
+
+    .message-wrapper.ai .bubble table {
+        width: 100%;
+        font-size: 0.9em;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+
+    .message-wrapper.ai .bubble th {
+        background-color: #f1f5f9;
+        font-weight: 600;
+        text-align: left;
     }
 
     .message-wrapper.user .bubble {
@@ -375,13 +395,16 @@
             </div>
 
             <!-- Input Form -->
-            <form method="POST" action="{{ url_for('reports.ai_assistant') }}" id="aiForm">
+            <form method="POST" action="{{ url_for('reports.ai_assistant') }}" id="aiForm"
+                onsubmit="return handleFormSubmit()">
                 <div class="input-wrapper">
                     <textarea class="chat-input" id="queryInput" name="query" rows="1"
                         placeholder="Merak ettiğiniz raporu sorun..." required></textarea>
 
-                    <button type="submit" class="send-btn-modern">
-                        <i class="bi bi-send-fill fs-6"></i>
+                    <button type="submit" class="send-btn-modern" id="sendBtn">
+                        <i class="bi bi-send-fill fs-6" id="sendIcon"></i>
+                        <span class="spinner-border spinner-border-sm d-none" id="sendSpinner" role="status"
+                            aria-hidden="true"></span>
                     </button>
                 </div>
             </form>
@@ -391,33 +414,82 @@
 </div>
 
 <script>
-    // 1. Otomatik Scroll (En alta)
+    // 1. Markdown Parsing
+    document.addEventListener("DOMContentLoaded", function () {
+        // Find all AI message bubbles
+        const aiBubbles = document.querySelectorAll('.message-wrapper.ai .bubble');
+
+        // Setup marked options
+        marked.setOptions({
+            breaks: true, // Convert \n to <br>
+            gfm: true     // GitHub Flavored Markdown (for tables)
+        });
+
+        aiBubbles.forEach(function (bubble) {
+            // Get the raw text content (not innerHTML, to avoid HTML escaping issues)
+            let rawText = bubble.textContent || bubble.innerText;
+
+            if (rawText && rawText.trim() !== "") {
+                // Parse markdown to HTML
+                let parsedHtml = marked.parse(rawText.trim());
+                // Set the inner HTML
+                bubble.innerHTML = parsedHtml;
+
+                // Format tables for Bootstrap
+                const tables = bubble.querySelectorAll('table');
+                tables.forEach(table => {
+                    table.classList.add('table', 'table-sm', 'table-bordered', 'table-hover');
+                });
+            }
+        });
+
+        scrollToBottom();
+    });
+
+    // 2. Otomatik Scroll (En alta)
     const chatBox = document.getElementById('chat-scroll-area');
 
     function scrollToBottom() {
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // Sayfa yüklendiğinde çalıştır
-    window.addEventListener('load', scrollToBottom);
+    // 3. Form Submit Handling (Loading State)
+    function handleFormSubmit() {
+        const input = document.getElementById('queryInput');
+        if (input.value.trim() === "") return false;
 
-    // 2. Textarea Enter Tuşu Kontrolü
+        // Disable button & show spinner
+        const btn = document.getElementById('sendBtn');
+        const icon = document.getElementById('sendIcon');
+        const spinner = document.getElementById('sendSpinner');
+
+        btn.disabled = true;
+        icon.classList.add('d-none');
+        spinner.classList.remove('d-none');
+        return true;
+    }
+
+    // 4. Textarea Enter Tuşu Kontrolü
     const input = document.getElementById('queryInput');
     input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault(); // Yeni satıra geçmeyi engelle
             if (this.value.trim() !== "") {
-                document.getElementById('aiForm').submit();
+                if (handleFormSubmit()) {
+                    document.getElementById('aiForm').submit();
+                }
             }
         }
     });
 
-    // 3. Chip Tıklama Fonksiyonu
+    // 5. Chip Tıklama Fonksiyonu
     function setQuery(text) {
         input.value = text;
         input.focus();
-        // İsterseniz direkt gönderebilirsiniz:
-        // document.getElementById('aiForm').submit();
+        // Otomatik gönder
+        if (handleFormSubmit()) {
+            document.getElementById('aiForm').submit();
+        }
     }
 </script>
 

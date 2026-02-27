@@ -3,17 +3,20 @@ from flask_login import login_required, current_user
 from app.models import Product, CountSession, CountItem, StockMovement
 from app import db
 from datetime import datetime, date
+from app.utils.decorators import roles_required
 
 counting_bp = Blueprint('counting', __name__)
 
 @counting_bp.route('/')
 @login_required
+@roles_required('Genel', 'Yönetici')
 def index():
     sessions = CountSession.query.order_by(CountSession.created_at.desc()).all()
     return render_template('counting/index.html', sessions=sessions)
 
 @counting_bp.route('/new', methods=['GET', 'POST'])
 @login_required
+@roles_required('Yönetici')
 def new_session():
     if request.method == 'POST':
         session_name = request.form.get('session_name')
@@ -47,6 +50,7 @@ def new_session():
 
 @counting_bp.route('/<int:id>')
 @login_required
+@roles_required('Genel', 'Yönetici')
 def view(id):
     session = CountSession.query.get_or_404(id)
     
@@ -84,6 +88,7 @@ def view(id):
 
 @counting_bp.route('/<int:id>/count', methods=['GET', 'POST'])
 @login_required
+@roles_required('Yönetici')
 def count(id):
     """QR ile sayım ekranı"""
     session = CountSession.query.get_or_404(id)
@@ -143,6 +148,7 @@ def count(id):
 
 @counting_bp.route('/<int:id>/item/<int:item_id>/count', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def count_item(id, item_id):
     """Tek ürün sayımı"""
     session = CountSession.query.get_or_404(id)
@@ -165,6 +171,7 @@ def count_item(id, item_id):
 
 @counting_bp.route('/<int:id>/complete', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def complete_session(id):
     """Sayımı tamamla"""
     session = CountSession.query.get_or_404(id)
@@ -178,13 +185,10 @@ def complete_session(id):
 
 @counting_bp.route('/<int:id>/apply', methods=['POST'])
 @login_required
+@roles_required('Yönetici')
 def apply_differences(id):
     """Sayım farklarını sisteme uygula"""
     session = CountSession.query.get_or_404(id)
-    
-    if current_user.role not in ['admin']:
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('counting.view', id=id))
     
     # Farkı olan kalemleri bul
     items = CountItem.query.filter(
@@ -222,13 +226,10 @@ def apply_differences(id):
 
 @counting_bp.route('/<int:id>/cancel')
 @login_required
+@roles_required('Yönetici')
 def cancel_session(id):
     """Sayımı iptal et"""
     session = CountSession.query.get_or_404(id)
-    
-    if current_user.role not in ['admin']:
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('counting.view', id=id))
     
     session.status = 'cancelled'
     db.session.commit()

@@ -183,17 +183,23 @@
                                 {% endif %}
                             </div>
                             <div>
-                                <div class="fw-medium">{{ movement.date.strftime('%d.%m.%Y') }}</div>
-                                <small class="text-muted">{{ movement.date.strftime('%H:%M') }}</small>
+                                <div class="fw-medium">{{ movement.date.strftime('%d.%m.%Y') if movement.date else '-'
+                                    }}</div>
+                                <small class="text-muted">{{ movement.date.strftime('%H:%M') if movement.date else ''
+                                    }}</small>
                             </div>
                         </div>
                     </td>
                     <td>
+                        {% if movement.product %}
                         <a href="{{ url_for('products.view', id=movement.product.id) }}"
                             class="text-decoration-none text-dark fw-semibold d-block">
                             {{ movement.product.name }}
                         </a>
                         <code class="small text-muted">{{ movement.product.code }}</code>
+                        {% else %}
+                        <span class="text-muted d-block">Silinmiş Ürün</span>
+                        {% endif %}
                     </td>
                     <td>
                         {% if movement.direction == 'in' %}
@@ -237,9 +243,10 @@
                         <div class="d-flex align-items-center">
                             <div class="bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-2"
                                 style="width: 32px; height: 32px;">
-                                <small class="text-primary fw-bold">{{ movement.user.full_name[0] }}</small>
+                                <small class="text-primary fw-bold">{{ movement.user.full_name[0] if
+                                    movement.user.full_name else '?' }}</small>
                             </div>
-                            <small class="text-muted">{{ movement.user.full_name }}</small>
+                            <small class="text-muted">{{ movement.user.full_name or 'Bilinmeyen' }}</small>
                         </div>
                         {% else %}
                         <span class="text-muted">-</span>

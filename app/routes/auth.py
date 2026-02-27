@@ -1,7 +1,8 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, login_required, current_user
-from app.models import User
+from app.models import User, StockMovement, ProductionRecord, CountSession
 from app import db
+from app.utils.decorators import roles_required
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -67,26 +68,52 @@ def change_password():
 
 @auth_bp.route('/users')
 @login_required
+@roles_required('Admin')
 def users():
-    if current_user.role != 'admin':
-        flash('Bu sayfaya erişim yetkiniz yok.', 'error')
-        return redirect(url_for('main.dashboard'))
-    
     users = User.query.all()
     return render_template('auth/users.html', users=users)
 
+
+@auth_bp.route('/users/<int:id>')
+@login_required
+@roles_required('Admin')
+def user_detail(id):
+    user = User.query.get_or_404(id)
+
+    # recent stock movements by user
+    movements = (StockMovement.query
+                 .filter_by(user_id=id)
+                 .order_by(StockMovement.date.desc())
+                 .limit(200)
+                 .all())
+
+    # recent production records by user
+    productions = (ProductionRecord.query
+                   .filter_by(user_id=id)
+                   .order_by(ProductionRecord.date.desc())
+                   .limit(200)
+                   .all())
+
+    # count sessions started by user
+    sessions = (CountSession.query
+                .filter_by(user_id=id)
+                .order_by(CountSession.created_at.desc())
+                .all())
+
+    return render_template('auth/user_detail.html', user=user,
+                           movements=movements,
+                           productions=productions,
+                           sessions=sessions)
+
 @auth_bp.route('/users/add', methods=['GET', 'POST'])
 @login_required
+@roles_required('Admin')
 def add_user():
-    if current_user.role != 'admin':
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('main.dashboard'))
-    
     if request.method == 'POST':
         username = request.form.get('username')
         full_name = request.form.get('full_name')
         password = request.form.get('password')
-        role = request.form.get('role', 'user')
+        role = request.form.get('role', 'Personel')
         
         if User.query.filter_by(username=username).first():
             flash('Bu kullanıcı adı zaten kullanılıyor.', 'error')
@@ -102,11 +129,8 @@ def add_user():
 
 @auth_bp.route('/users/<int:id>/toggle')
 @login_required
+@roles_required('Admin')
 def toggle_user(id):
-    if current_user.role != 'admin':
-        flash('Bu işlem için yetkiniz yok.', 'error')
-        return redirect(url_for('main.dashboard'))
-    
     user = User.query.get_or_404(id)
     if user.id == current_user.id:
         flash('Kendi hesabınızı devre dışı bırakamazsınız.', 'error')

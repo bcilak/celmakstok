@@ -2,11 +2,13 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
 from app.models import Product, Category
 from app import db
+from app.utils.decorators import roles_required
 
 warehouse_bp = Blueprint('warehouse', __name__)
 
 @warehouse_bp.route('/')
 @login_required
+@roles_required('Genel', 'Yönetici')
 def index():
     # Kritik stoklar
     critical_products = Product.query.filter(
@@ -42,6 +44,7 @@ def index():
 
 @warehouse_bp.route('/critical')
 @login_required
+@roles_required('Genel', 'Yönetici')
 def critical():
     """Kritik stok listesi"""
     products = Product.query.filter(
