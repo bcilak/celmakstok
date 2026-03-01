@@ -112,29 +112,35 @@ def get_product_costs(keyword: str = "") -> dict:
         query = query.filter(
             (Product.name.ilike(f'%{keyword}%')) | (Product.code.ilike(f'%{keyword}%'))
         )
-    products = query.limit(30).all()
+    products = query.limit(100).all()
     
     if not products:
         return {"result": f"'{keyword}' aramasına uygun ürün bulunamadı."}
     
     result = []
     total_value = 0
-    has_cost_count = 0
+    no_cost_count = 0
+    
+    # Önce maliyeti olan ürünleri listele
     for p in products:
         if p.unit_cost and p.unit_cost > 0:
-            has_cost_count += 1
             vat_str = f"%{int(p.vat_rate)}" if p.vat_rate else "%0"
             cost_with_vat = round(p.unit_cost * (1 + (p.vat_rate or 0) / 100), 2)
             stock_value = round(p.current_stock * p.unit_cost, 2)
             total_value += stock_value
             result.append(f"Kod: {p.code}, Ad: {p.name}, Birim Maliyet: {p.unit_cost} {p.currency}, KDV: {vat_str}, KDV Dahil: {cost_with_vat} {p.currency}, Stok: {p.current_stock} {p.unit_type}, Stok Değeri: {stock_value} {p.currency}")
         else:
-            result.append(f"Kod: {p.code}, Ad: {p.name}, Birim Maliyet: Henüz girilmemiş, Stok: {p.current_stock} {p.unit_type}")
+            no_cost_count += 1
     
-    if has_cost_count > 0:
-        result.append(f"--- TOPLAM STOK DEĞERİ (KDV Hariç): {round(total_value, 2)} TRY ({has_cost_count} üründe maliyet var) ---")
-    else:
-        result.append("--- DİKKAT: Hiçbir üründe maliyet bilgisi girilmemiş. Satın alma uygulamasından fiyat senkronizasyonu yapılmalıdır. ---")
+    # Özet bilgi
+    cost_count = len(result)
+    if cost_count > 0:
+        result.append(f"ÖZET: {cost_count} üründe maliyet bilgisi mevcut. TOPLAM STOK DEĞERİ (KDV Hariç): {round(total_value, 2)} TRY")
+    if no_cost_count > 0:
+        result.append(f"NOT: {no_cost_count} üründe henüz maliyet bilgisi girilmemiş. Bu ürünlerin fiyatları satın alma uygulamasından senkronize edilmelidir.")
+    if cost_count == 0:
+        result.append("DİKKAT: Hiçbir üründe maliyet bilgisi bulunamadı. Satın alma uygulamasından fiyat senkronizasyonu yapılmalıdır.")
+    
     return {"result": result}
 
 @reports_bp.route('/ai-assistant')
