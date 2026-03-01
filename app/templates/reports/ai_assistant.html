@@ -383,146 +383,194 @@
 </div>
 
 <script>
-    const chatBody = document.getElementById('chatBody');
-    const queryInput = document.getElementById('queryInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const sendIcon = document.getElementById('sendIcon');
-    const sendSpinner = document.getElementById('sendSpinner');
-    const clearBtn = document.getElementById('clearBtn');
-    const statusText = document.getElementById('statusText');
-    const chipsArea = document.getElementById('chipsArea');
-
-    let isProcessing = false;
-    let chatHistory = []; // Sohbet geçmişi sadece frontend'de tutulur
-
-    marked.setOptions({ breaks: true, gfm: true });
-
-    function scrollToBottom() {
-        chatBody.scrollTo({ top: chatBody.scrollHeight, behavior: 'smooth' });
-    }
-
-    function escapeHtml(text) {
-        const d = document.createElement('div');
-        d.textContent = text;
-        return d.innerHTML;
-    }
-
-    function parseMarkdown(bubble) {
-        let raw = bubble.textContent || bubble.innerText;
-        if (raw && raw.trim()) {
-            bubble.innerHTML = marked.parse(raw.trim());
-            bubble.querySelectorAll('table').forEach(t => t.classList.add('table', 'table-sm', 'table-bordered', 'table-hover'));
-        }
-    }
-
-    function addUserMessage(text) {
-        const ws = document.getElementById('welcomeScreen');
-        if (ws) ws.remove();
-        const el = document.createElement('div');
-        el.className = 'message-wrapper user';
-        el.innerHTML = `<div class="bubble">${escapeHtml(text)}</div><div class="avatar user"><i class="bi bi-person-fill"></i></div>`;
-        chatBody.appendChild(el);
-        scrollToBottom();
-    }
-
-    function showTypingIndicator() {
-        const el = document.createElement('div');
-        el.className = 'message-wrapper ai';
-        el.id = 'typingIndicator';
-        el.innerHTML = `<div class="avatar ai"><i class="bi bi-stars"></i></div><div class="bubble"><div class="typing-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>`;
-        chatBody.appendChild(el);
-        scrollToBottom();
-    }
-
-    function removeTypingIndicator() {
-        const el = document.getElementById('typingIndicator');
-        if (el) el.remove();
-    }
-
-    function addAIMessage(text) {
-        removeTypingIndicator();
-        const wrapper = document.createElement('div');
-        wrapper.className = 'message-wrapper ai';
-        const bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        bubble.textContent = text;
-        wrapper.innerHTML = `<div class="avatar ai"><i class="bi bi-stars"></i></div>`;
-        wrapper.appendChild(bubble);
-        chatBody.appendChild(wrapper);
-        parseMarkdown(bubble);
-        scrollToBottom();
-    }
-
-    function setLoading(loading) {
-        isProcessing = loading;
-        sendBtn.disabled = loading;
-        queryInput.disabled = loading;
-        sendIcon.classList.toggle('d-none', loading);
-        sendSpinner.classList.toggle('d-none', !loading);
-        chipsArea.querySelectorAll('.chip-btn').forEach(c => c.classList.toggle('disabled', loading));
-        statusText.innerHTML = loading
-            ? '<span class="status-dot" style="background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,0.2);animation:pulse 1s infinite"></span>Düşünüyor...'
-            : '<span class="status-dot"></span>Online • Yapay Zeka';
-    }
-
-    async function sendMessage(text) {
-        if (!text.trim() || isProcessing) return;
-
-        addUserMessage(text);
-        chatHistory.push({ role: 'user', content: text });
-        queryInput.value = '';
-        setLoading(true);
-        showTypingIndicator();
-
+    document.addEventListener('DOMContentLoaded', function () {
         try {
-            const res = await fetch('{{ url_for("reports.ai_assistant_ask") }}', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'same-origin',
-                body: JSON.stringify({ query: text, history: chatHistory.slice(-6) })
-            });
+            var chatBody = document.getElementById('chatBody');
+            var queryInput = document.getElementById('queryInput');
+            var sendBtn = document.getElementById('sendBtn');
+            var sendIcon = document.getElementById('sendIcon');
+            var sendSpinner = document.getElementById('sendSpinner');
+            var clearBtn = document.getElementById('clearBtn');
+            var statusText = document.getElementById('statusText');
+            var chipsArea = document.getElementById('chipsArea');
+            var isProcessing = false;
+            var chatHistory = [];
+            var ASK_URL = '{{ url_for("reports.ai_assistant_ask") }}';
+            var CLEAR_URL = '{{ url_for("reports.ai_assistant_clear") }}';
 
-            if (!res.ok) {
-                console.error('API Error:', res.status);
-                addAIMessage('Sunucu hatası (Kod: ' + res.status + '). Tekrar deneyin.');
-                chatHistory.push({ role: 'ai', content: 'Hata oluştu' });
-                return;
+            console.log('AI Chat initialized. ASK_URL:', ASK_URL);
+
+            // Marked.js setup (optional)
+            try { if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true }); } } catch (e) { console.warn('marked.js error:', e); }
+
+            function scrollToBottom() {
+                chatBody.scrollTop = chatBody.scrollHeight;
             }
 
-            const data = await res.json();
-            const answer = data.success ? data.answer : (data.error || 'Bir hata oluştu.');
-            addAIMessage(answer);
-            chatHistory.push({ role: 'ai', content: answer });
+            function escapeHtml(t) {
+                var d = document.createElement('div');
+                d.textContent = t;
+                return d.innerHTML;
+            }
 
-        } catch (err) {
-            console.error('Fetch error:', err);
-            removeTypingIndicator();
-            addAIMessage('Bağlantı hatası. Sayfayı yenileyip tekrar deneyin.');
-        } finally {
-            setLoading(false);
-            queryInput.focus();
+            function renderMarkdown(text) {
+                try {
+                    if (typeof marked !== 'undefined') {
+                        return marked.parse(text);
+                    }
+                } catch (e) { console.warn('Markdown parse error:', e); }
+                return escapeHtml(text);
+            }
+
+            function addUserMessage(text) {
+                var ws = document.getElementById('welcomeScreen');
+                if (ws) ws.remove();
+                var el = document.createElement('div');
+                el.className = 'message-wrapper user';
+                el.innerHTML = '<div class="bubble">' + escapeHtml(text) + '</div><div class="avatar user"><i class="bi bi-person-fill"></i></div>';
+                chatBody.appendChild(el);
+                scrollToBottom();
+            }
+
+            function showTypingIndicator() {
+                var el = document.createElement('div');
+                el.className = 'message-wrapper ai';
+                el.id = 'typingIndicator';
+                el.innerHTML = '<div class="avatar ai"><i class="bi bi-stars"></i></div><div class="bubble"><div class="typing-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
+                chatBody.appendChild(el);
+                scrollToBottom();
+            }
+
+            function removeTypingIndicator() {
+                var el = document.getElementById('typingIndicator');
+                if (el) el.remove();
+            }
+
+            function addAIMessage(text) {
+                removeTypingIndicator();
+                var wrapper = document.createElement('div');
+                wrapper.className = 'message-wrapper ai';
+                var bubble = document.createElement('div');
+                bubble.className = 'bubble';
+                bubble.innerHTML = renderMarkdown(text);
+                // Format tables
+                var tables = bubble.querySelectorAll('table');
+                for (var i = 0; i < tables.length; i++) {
+                    tables[i].classList.add('table', 'table-sm', 'table-bordered', 'table-hover');
+                }
+                wrapper.innerHTML = '<div class="avatar ai"><i class="bi bi-stars"></i></div>';
+                wrapper.appendChild(bubble);
+                chatBody.appendChild(wrapper);
+                scrollToBottom();
+            }
+
+            function setLoading(loading) {
+                isProcessing = loading;
+                sendBtn.disabled = loading;
+                queryInput.disabled = loading;
+                if (loading) {
+                    sendIcon.classList.add('d-none');
+                    sendSpinner.classList.remove('d-none');
+                } else {
+                    sendIcon.classList.remove('d-none');
+                    sendSpinner.classList.add('d-none');
+                }
+                var chips = chipsArea.querySelectorAll('.chip-btn');
+                for (var i = 0; i < chips.length; i++) {
+                    if (loading) chips[i].classList.add('disabled');
+                    else chips[i].classList.remove('disabled');
+                }
+                statusText.innerHTML = loading
+                    ? '<span class="status-dot" style="background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,0.2);animation:pulse 1s infinite"></span>Düşünüyor...'
+                    : '<span class="status-dot"></span>Online • Yapay Zeka';
+            }
+
+            function sendMessage(text) {
+                if (!text || !text.trim() || isProcessing) return;
+                console.log('Sending message:', text.substring(0, 50));
+
+                addUserMessage(text);
+                chatHistory.push({ role: 'user', content: text });
+                queryInput.value = '';
+                setLoading(true);
+                showTypingIndicator();
+
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', ASK_URL, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.withCredentials = true;
+                xhr.timeout = 120000; // 2 dakika timeout
+
+                xhr.onload = function () {
+                    console.log('Response status:', xhr.status);
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        if (data.success) {
+                            addAIMessage(data.answer);
+                            chatHistory.push({ role: 'ai', content: data.answer });
+                        } else {
+                            addAIMessage(data.error || 'Bir hata oluştu.');
+                        }
+                    } catch (e) {
+                        console.error('Parse error:', e);
+                        addAIMessage('Sunucu yanıtı okunamadı (Kod: ' + xhr.status + ')');
+                    }
+                    setLoading(false);
+                    queryInput.focus();
+                };
+
+                xhr.onerror = function () {
+                    console.error('XHR error');
+                    removeTypingIndicator();
+                    addAIMessage('Bağlantı hatası oluştu. Sayfayı yenileyip tekrar deneyin.');
+                    setLoading(false);
+                };
+
+                xhr.ontimeout = function () {
+                    console.error('XHR timeout');
+                    removeTypingIndicator();
+                    addAIMessage('İstek zaman aşımına uğradı. Tekrar deneyin.');
+                    setLoading(false);
+                };
+
+                xhr.send(JSON.stringify({ query: text, history: chatHistory.slice(-6) }));
+            }
+
+            // Enter tuşu
+            queryInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage(queryInput.value);
+                }
+            });
+
+            // Gönder butonu
+            sendBtn.addEventListener('click', function () {
+                sendMessage(queryInput.value);
+            });
+
+            // Chip tıklama
+            var chips = chipsArea.querySelectorAll('.chip-btn');
+            for (var i = 0; i < chips.length; i++) {
+                chips[i].addEventListener('click', function () {
+                    sendMessage(this.getAttribute('data-query'));
+                });
+            }
+
+            // Temizle
+            clearBtn.addEventListener('click', function () {
+                chatHistory = [];
+                chatBody.innerHTML = '<div class="text-center my-auto p-4" id="welcomeScreen"><div class="mb-3"><i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i></div><h4 class="fw-bold text-dark">Merhaba! 👋</h4><p class="text-muted">Veritabanı ile ilgili raporları saniyeler içinde hazırlayabilirim.</p></div>';
+                var xhrClear = new XMLHttpRequest();
+                xhrClear.open('POST', CLEAR_URL, true);
+                xhrClear.withCredentials = true;
+                xhrClear.send();
+            });
+
+            console.log('AI Chat ready!');
+        } catch (e) {
+            console.error('AI Chat init error:', e);
         }
-    }
-
-    // Enter tuşu
-    queryInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(this.value); }
-    });
-
-    // Gönder butonu
-    sendBtn.addEventListener('click', () => sendMessage(queryInput.value));
-
-    // Chip tıklama
-    chipsArea.querySelectorAll('.chip-btn').forEach(chip => {
-        chip.addEventListener('click', function () { sendMessage(this.dataset.query); });
-    });
-
-    // Temizle
-    clearBtn.addEventListener('click', async function () {
-        chatHistory = [];
-        chatBody.innerHTML = `<div class="text-center my-auto p-4" id="welcomeScreen"><div class="mb-3"><i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i></div><h4 class="fw-bold text-dark">Merhaba! 👋</h4><p class="text-muted">Veritabanı ile ilgili raporları saniyeler içinde hazırlayabilirim.</p></div>`;
-        // Eski session verisini de temizle
-        fetch('{{ url_for("reports.ai_assistant_clear") }}', { method: 'POST', credentials: 'same-origin' }).catch(() => { });
     });
 </script>
 {% endblock %}
