@@ -1,0 +1,566 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .guide-container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+
+    .guide-header {
+        text-align: center;
+        margin-bottom: 2.5rem;
+        padding: 2.5rem;
+        border-radius: 20px;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%);
+        color: white;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .guide-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -30%;
+        width: 400px;
+        height: 400px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .guide-header h1 {
+        font-size: 2rem;
+        font-weight: 800;
+        margin-bottom: 8px;
+    }
+
+    .guide-header p {
+        opacity: 0.9;
+        font-size: 1.05rem;
+        margin: 0;
+    }
+
+    .guide-section {
+        background: #fff;
+        border-radius: 16px;
+        padding: 2rem;
+        margin-bottom: 1.5rem;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        transition: box-shadow 0.2s;
+    }
+
+    .guide-section:hover {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+
+    .section-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.3rem;
+        color: #fff;
+        margin-right: 12px;
+        flex-shrink: 0;
+    }
+
+    .section-title {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1.2rem;
+    }
+
+    .section-title h3 {
+        margin: 0;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #1e293b;
+    }
+
+    .step-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .step-list li {
+        padding: 10px 0 10px 32px;
+        position: relative;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.95rem;
+        color: #475569;
+    }
+
+    .step-list li:last-child {
+        border-bottom: none;
+    }
+
+    .step-list li::before {
+        content: attr(data-step);
+        position: absolute;
+        left: 0;
+        top: 10px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: #e0e7ff;
+        color: #4f46e5;
+        font-size: 0.75rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .step-list li strong {
+        color: #1e293b;
+    }
+
+    .tip-box {
+        background: #f0fdf4;
+        border-left: 4px solid #22c55e;
+        padding: 12px 16px;
+        border-radius: 0 10px 10px 0;
+        margin-top: 12px;
+        font-size: 0.9rem;
+        color: #166534;
+    }
+
+    .tip-box i {
+        margin-right: 6px;
+    }
+
+    .warn-box {
+        background: #fefce8;
+        border-left: 4px solid #eab308;
+        padding: 12px 16px;
+        border-radius: 0 10px 10px 0;
+        margin-top: 12px;
+        font-size: 0.9rem;
+        color: #854d0e;
+    }
+
+    .warn-box i {
+        margin-right: 6px;
+    }
+
+    .shortcut-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 12px;
+        margin-top: 10px;
+    }
+
+    .shortcut-card {
+        background: #f8fafc;
+        border-radius: 12px;
+        padding: 14px;
+        text-align: center;
+        border: 1px solid #e2e8f0;
+    }
+
+    .shortcut-card i {
+        font-size: 1.8rem;
+        display: block;
+        margin-bottom: 6px;
+    }
+
+    .shortcut-card strong {
+        display: block;
+        font-size: 0.9rem;
+        color: #1e293b;
+    }
+
+    .shortcut-card small {
+        color: #64748b;
+        font-size: 0.8rem;
+    }
+
+    .toc {
+        background: #f8fafc;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .toc h5 {
+        font-weight: 700;
+        margin-bottom: 10px;
+        color: #334155;
+    }
+
+    .toc a {
+        display: block;
+        padding: 5px 0;
+        color: #4f46e5;
+        text-decoration: none;
+        font-size: 0.92rem;
+        transition: padding-left 0.2s;
+    }
+
+    .toc a:hover {
+        padding-left: 8px;
+        color: #7c3aed;
+    }
+</style>
+
+<div class="guide-container">
+
+    <!-- Header -->
+    <div class="guide-header">
+        <h1><i class="bi bi-book"></i> Kullanım Kılavuzu</h1>
+        <p>ÇELMAK Stok & Üretim Takip Sistemi (MRP)</p>
+    </div>
+
+    <!-- İçindekiler -->
+    <div class="toc">
+        <h5><i class="bi bi-list-ul"></i> İçindekiler</h5>
+        <a href="#dashboard">1. Dashboard (Ana Sayfa)</a>
+        <a href="#urunler">2. Ürün Yönetimi</a>
+        <a href="#stok">3. Stok Hareketleri</a>
+        <a href="#hizli">4. Hızlı İşlem (QR Kod)</a>
+        <a href="#uretim">5. Üretim Hatları & Reçeteler</a>
+        <a href="#depo">6. Depo Yönetimi & Lokasyonlar</a>
+        <a href="#sayim">7. Stok Sayımı</a>
+        <a href="#raporlar">8. Raporlar</a>
+        <a href="#ai">9. AI Rapor Asistanı</a>
+        <a href="#kullanicilar">10. Kullanıcı Yönetimi</a>
+        <a href="#ipuclari">11. İpuçları & Kısayollar</a>
+    </div>
+
+    <!-- 1. Dashboard -->
+    <div class="guide-section" id="dashboard">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                <i class="bi bi-grid-1x2-fill"></i>
+            </div>
+            <h3>1. Dashboard (Ana Sayfa)</h3>
+        </div>
+        <p>Sisteme giriş yaptığınızda karşınıza çıkan ana ekrandır. Genel durum özetini burada görebilirsiniz:</p>
+        <ul class="step-list">
+            <li data-step="•"><strong>Toplam Ürün Sayısı</strong> – Sistemde kayıtlı aktif ürün adedi</li>
+            <li data-step="•"><strong>Kritik Stoklar</strong> – Minimum seviyenin altına düşen ürünler</li>
+            <li data-step="•"><strong>Son Hareketler</strong> – En son yapılan stok giriş/çıkışları</li>
+            <li data-step="•"><strong>Üretim Özeti</strong> – Aktif üretim hatları ve son üretimler</li>
+        </ul>
+    </div>
+
+    <!-- 2. Ürün Yönetimi -->
+    <div class="guide-section" id="urunler">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                <i class="bi bi-box-fill"></i>
+            </div>
+            <h3>2. Ürün Yönetimi</h3>
+        </div>
+        <p>Tüm hammadde, yarı mamül ve mamül ürünlerinizi buradan yönetirsiniz.</p>
+
+        <h6 class="fw-bold mt-3 mb-2">Yeni Ürün Ekleme</h6>
+        <ol class="step-list">
+            <li data-step="1">Sol menüden <strong>Ürünler</strong>'e tıklayın</li>
+            <li data-step="2"><strong>"+ Yeni Ürün"</strong> butonuna basın</li>
+            <li data-step="3"><strong>Ürün Kodu</strong> girin (benzersiz olmalı, örn: URN-001)</li>
+            <li data-step="4"><strong>Ürün Adı</strong>, <strong>Birim</strong> (adet/kg/metre) ve
+                <strong>Kategori</strong> seçin</li>
+            <li data-step="5"><strong>Ürün Tipi</strong> belirleyin: Hammadde, Yarı Mamül veya Mamül</li>
+            <li data-step="6"><strong>Minimum Stok</strong> seviyesini girin (kritik uyarı için)</li>
+            <li data-step="7"><strong>Kaydet</strong>'e basın</li>
+        </ol>
+
+        <h6 class="fw-bold mt-3 mb-2">Ürün Tipleri</h6>
+        <ul class="step-list">
+            <li data-step="🔵"><strong>Hammadde</strong> – Dışarıdan satın alınan malzemeler (çelik, civata, boya vb.)
+            </li>
+            <li data-step="🟡"><strong>Yarı Mamül</strong> – Atölyede işlenen parçalar (kesim, büküm yapılmış parçalar)
+            </li>
+            <li data-step="🟢"><strong>Mamül</strong> – Bitmiş, satılabilir nihai ürünler</li>
+        </ul>
+
+        <h6 class="fw-bold mt-3 mb-2">Excel'den Toplu Aktarma</h6>
+        <ol class="step-list">
+            <li data-step="1"><strong>Excel'den Aktar</strong> menüsüne gidin (Yönetici yetkisi gerekir)</li>
+            <li data-step="2">Excel dosyanızı yükleyin (sütunlar: Kod, Ad, Birim, Stok, Min Stok)</li>
+            <li data-step="3">Önizleme ekranında verileri kontrol edin</li>
+            <li data-step="4"><strong>İçe Aktar</strong> butonuna basarak onaylayın</li>
+        </ol>
+
+        <div class="tip-box">
+            <i class="bi bi-lightbulb-fill"></i>
+            <strong>İpucu:</strong> Ürün kodlarını tutarlı bir formatta kullanın (örn: HAM-001, YM-050, MAM-100). Bu,
+            arama ve raporlamayı kolaylaştırır.
+        </div>
+    </div>
+
+    <!-- 3. Stok Hareketleri -->
+    <div class="guide-section" id="stok">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                <i class="bi bi-arrow-left-right"></i>
+            </div>
+            <h3>3. Stok Hareketleri</h3>
+        </div>
+        <p>Ürünlerin giriş-çıkış kayıtlarını buradan yönetirsiniz.</p>
+
+        <h6 class="fw-bold mt-3 mb-2">Stok Girişi (Satın Alma / Üretim)</h6>
+        <ol class="step-list">
+            <li data-step="1"><strong>Stok Hareketleri</strong> menüsüne gidin</li>
+            <li data-step="2"><strong>"+ Yeni Hareket"</strong> butonuna basın</li>
+            <li data-step="3">Hareket tipi olarak <strong>Giriş</strong> seçin</li>
+            <li data-step="4">Ürünü arayıp seçin, <strong>miktar</strong> girin</li>
+            <li data-step="5">İsteğe bağlı: <strong>Referans No</strong> (fatura no, irsaliye no) ve
+                <strong>Not</strong> ekleyin</li>
+            <li data-step="6"><strong>Kaydet</strong>'e basın – stok otomatik güncellenir</li>
+        </ol>
+
+        <h6 class="fw-bold mt-3 mb-2">Stok Çıkışı (Tüketim / Sevkiyat)</h6>
+        <ol class="step-list">
+            <li data-step="1">Aynı adımları izleyin, hareket tipi olarak <strong>Çıkış</strong> seçin</li>
+            <li data-step="2">Mevcut stoktan fazla çıkış yapamazsınız</li>
+        </ol>
+
+        <div class="warn-box">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <strong>Dikkat:</strong> Stok hareketleri kaydedildikten sonra değiştirilemez. Hatalı girişlerde ters
+            hareket (giriş ise çıkış, çıkış ise giriş) yaparak düzeltebilirsiniz.
+        </div>
+    </div>
+
+    <!-- 4. Hızlı İşlem -->
+    <div class="guide-section" id="hizli">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                <i class="bi bi-qr-code-scan"></i>
+            </div>
+            <h3>4. Hızlı İşlem (QR Kod)</h3>
+        </div>
+        <ol class="step-list">
+            <li data-step="1"><strong>Hızlı İşlem</strong> menüsüne gidin</li>
+            <li data-step="2">Ürünün <strong>QR kodunu</strong> okutun veya <strong>ürün kodunu</strong> yazın</li>
+            <li data-step="3">Giriş veya çıkış miktarını girin</li>
+            <li data-step="4">Onaylayın – stok anında güncellenir</li>
+        </ol>
+
+        <h6 class="fw-bold mt-3 mb-2">QR Kod Yazdırma</h6>
+        <ol class="step-list">
+            <li data-step="1"><strong>Toplu QR Yazdır</strong> menüsüne gidin</li>
+            <li data-step="2">Yazdırmak istediğiniz ürünleri seçin</li>
+            <li data-step="3"><strong>Yazdır</strong> butonuna basın – etiketler PDF olarak hazırlanır</li>
+        </ol>
+
+        <div class="tip-box">
+            <i class="bi bi-lightbulb-fill"></i>
+            <strong>İpucu:</strong> QR etiketleri raf ve kutulara yapıştırarak stok sayımını ve hızlı işlemleri çok daha
+            verimli yapabilirsiniz.
+        </div>
+    </div>
+
+    <!-- 5. Üretim -->
+    <div class="guide-section" id="uretim">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+                <i class="bi bi-gear-fill"></i>
+            </div>
+            <h3>5. Üretim Hatları & Reçeteler</h3>
+        </div>
+
+        <h6 class="fw-bold mt-3 mb-2">Üretim Hatları</h6>
+        <p>Fabrikadaki fiziksel üretim hatlarını temsil eder (örn: Tamburlu Hattı, Talaşlı İmalat).</p>
+        <ol class="step-list">
+            <li data-step="1"><strong>Üretim Hatları</strong> menüsüne gidin</li>
+            <li data-step="2"><strong>"+ Yeni Hat"</strong> ile hat ekleyin (isim ve kod)</li>
+        </ol>
+
+        <h6 class="fw-bold mt-3 mb-2">Reçete Oluşturma</h6>
+        <p>Bir ürünü üretmek için hangi malzemelerin ne kadar gerektiğini tanımlar.</p>
+        <ol class="step-list">
+            <li data-step="1"><strong>Reçeteler</strong> menüsüne gidin</li>
+            <li data-step="2"><strong>"+ Yeni Reçete"</strong> butonuna basın</li>
+            <li data-step="3">Reçete adı girin ve <strong>üretim hattını</strong> seçin</li>
+            <li data-step="4"><strong>Hedef Ürün</strong>'ü seçin (üretilecek mamül veya yarı mamül)</li>
+            <li data-step="5"><strong>Malzeme Listesi</strong>: Gerekli hammaddeleri ve miktarlarını ekleyin</li>
+            <li data-step="6">Kaydedin</li>
+        </ol>
+
+        <h6 class="fw-bold mt-3 mb-2">Üretim Başlatma</h6>
+        <ol class="step-list">
+            <li data-step="1">Reçete detay sayfasından <strong>"Üretim Yap"</strong> butonuna basın</li>
+            <li data-step="2">Kaç adet üretileceğini girin</li>
+            <li data-step="3">Sistem otomatik olarak hammaddeleri stoktan düşer, mamülü stoğa ekler</li>
+        </ol>
+
+        <div class="warn-box">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <strong>Dikkat:</strong> Üretim için yeterli hammadde stokta yoksa sistem uyarı verir. Önce hammadde girişi
+            yapmanız gerekir.
+        </div>
+    </div>
+
+    <!-- 6. Depo -->
+    <div class="guide-section" id="depo">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #6366f1, #4338ca);">
+                <i class="bi bi-house-fill"></i>
+            </div>
+            <h3>6. Depo Yönetimi & Lokasyonlar</h3>
+        </div>
+        <p>Stoklar fabrika içinde farklı lokasyonlarda (depo, raf, üretim hattı) tutulabilir.</p>
+        <ol class="step-list">
+            <li data-step="1"><strong>Depo Yönetimi</strong> menüsüne gidin</li>
+            <li data-step="2">Yeni lokasyon eklemek için <strong>"+ Yeni Lokasyon"</strong> butonunu kullanın</li>
+            <li data-step="3">Lokasyonlar: Ana Depo, Üretim Hattı, Sevkiyat Alanı gibi bölümler tanımlayabilirsiniz</li>
+        </ol>
+
+        <h6 class="fw-bold mt-3 mb-2">Kritik Stoklar</h6>
+        <p><strong>Kritik Stoklar</strong> menüsünden minimum seviyenin altına düşen tüm ürünleri tek ekranda
+            görebilirsiniz. Acil sipariş verilmesi gereken malzemeleri hızlıca tespit edebilirsiniz.</p>
+    </div>
+
+    <!-- 7. Sayım -->
+    <div class="guide-section" id="sayim">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #14b8a6, #0d9488);">
+                <i class="bi bi-clipboard-check-fill"></i>
+            </div>
+            <h3>7. Stok Sayımı</h3>
+        </div>
+        <p>Fiziksel stok sayımı yaparak sistem verilerini gerçek durum ile eşleştirin.</p>
+        <ol class="step-list">
+            <li data-step="1"><strong>Stok Sayımı</strong> menüsüne gidin</li>
+            <li data-step="2"><strong>"+ Yeni Sayım"</strong> butonuna basın</li>
+            <li data-step="3">Sayım yapılacak lokasyonu veya kategoriyi seçin</li>
+            <li data-step="4">Her ürün için <strong>fiili sayım miktarını</strong> girin</li>
+            <li data-step="5">Sistem, farkları (fazla/eksik) otomatik hesaplar</li>
+            <li data-step="6"><strong>Sayımı Onayla</strong> diyerek stokları güncelleyin</li>
+        </ol>
+
+        <div class="tip-box">
+            <i class="bi bi-lightbulb-fill"></i>
+            <strong>İpucu:</strong> Sayımı QR kod okutarak yaparsanız çok daha hızlı tamamlarsınız. Hatalı ürün girişi
+            riski de azalır.
+        </div>
+    </div>
+
+    <!-- 8. Raporlar -->
+    <div class="guide-section" id="raporlar">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #f97316, #ea580c);">
+                <i class="bi bi-bar-chart-fill"></i>
+            </div>
+            <h3>8. Raporlar</h3>
+        </div>
+        <p>Sisteme tüm detaylı raporlara <strong>Raporlar</strong> menüsünden erişebilirsiniz:</p>
+        <ul class="step-list">
+            <li data-step="📊"><strong>Stok Raporu</strong> – Tüm ürünlerin güncel stok durumu, CSV olarak dışa
+                aktarılabilir</li>
+            <li data-step="📉"><strong>Kritik Stok Raporu</strong> – Minimum seviyenin altına düşen ürünler</li>
+            <li data-step="📋"><strong>Hareket Raporu</strong> – Belirli tarih aralığında yapılan giriş/çıkışlar</li>
+            <li data-step="📅"><strong>Aylık Rapor</strong> – Ay bazlı giriş/çıkış özeti</li>
+            <li data-step="🏭"><strong>Üretim Raporu</strong> – Reçetelerden yapılan üretimler</li>
+            <li data-step="🏪"><strong>Depo Raporu</strong> – Lokasyon bazlı stok dağılımı</li>
+            <li data-step="📤"><strong>Dışa Aktarma</strong> – Raporları CSV/Excel formatında indirin</li>
+        </ul>
+    </div>
+
+    <!-- 9. AI Asistan -->
+    <div class="guide-section" id="ai">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #4f46e5, #7c3aed);">
+                <i class="bi bi-robot"></i>
+            </div>
+            <h3>9. AI Rapor Asistanı</h3>
+        </div>
+        <p>Yapay zeka destekli asistan, doğal dilde soru sorarak anlık raporlar almanızı sağlar.</p>
+
+        <h6 class="fw-bold mt-3 mb-2">Nasıl Kullanılır?</h6>
+        <ol class="step-list">
+            <li data-step="1"><strong>Raporlar</strong> menüsünden <strong>AI Asistanı</strong>'na gidin</li>
+            <li data-step="2">Alt kısımdaki metin kutusuna sorunuzu yazın</li>
+            <li data-step="3"><strong>Enter</strong> tuşuna basın veya <strong>gönder butonuna</strong> tıklayın</li>
+            <li data-step="4">AI, veritabanından gerçek verileri çekerek size rapor sunar</li>
+        </ol>
+
+        <h6 class="fw-bold mt-3 mb-2">Örnek Sorular</h6>
+        <ul class="step-list">
+            <li data-step="💬"><strong>"Kritik seviyedeki malzemeler"</strong> – Stoku düşük olan ürünleri listeler</li>
+            <li data-step="💬"><strong>"Test ürünü ara"</strong> – Belirtilen ürünü arayıp detaylarını gösterir</li>
+            <li data-step="💬"><strong>"Toplam stok değeri"</strong> – Maliyet bilgisi olan ürünlerin toplam değerini
+                hesaplar</li>
+            <li data-step="💬"><strong>"Üretim durumu nedir?"</strong> – Üretim hatları ve reçeteleri özetler</li>
+            <li data-step="💬"><strong>"Son stok hareketleri"</strong> – Son yapılan giriş/çıkışları listeler</li>
+            <li data-step="💬"><strong>"Tamburlu maliyeti ne kadar?"</strong> – Belirli bir ürünün maliyet bilgisini
+                getirir</li>
+        </ul>
+
+        <div class="tip-box">
+            <i class="bi bi-lightbulb-fill"></i>
+            <strong>İpucu:</strong> Hızlı sorular alanındaki butonlara tıklayarak hazır sorguları doğrudan
+            gönderebilirsiniz. Sohbeti temizlemek için sağ üstteki çöp kutusu ikonunu kullanın.
+        </div>
+    </div>
+
+    <!-- 10. Kullanıcılar -->
+    <div class="guide-section" id="kullanicilar">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #64748b, #475569);">
+                <i class="bi bi-people-fill"></i>
+            </div>
+            <h3>10. Kullanıcı Yönetimi (Sadece Admin)</h3>
+        </div>
+        <ol class="step-list">
+            <li data-step="1"><strong>Kullanıcılar</strong> menüsüne gidin (sadece admin görebilir)</li>
+            <li data-step="2"><strong>"+ Yeni Kullanıcı"</strong> ile ekleyin</li>
+            <li data-step="3"><strong>Rol</strong> atayın: Admin, Yönetici, Depo veya Genel</li>
+        </ol>
+        <ul class="step-list">
+            <li data-step="👑"><strong>Admin</strong> – Tüm yetkilere sahip, kullanıcı ve kategori yönetimi</li>
+            <li data-step="🔧"><strong>Yönetici</strong> – Ürün, reçete, stok yönetimi, Excel aktarımı</li>
+            <li data-step="📦"><strong>Depo</strong> – Stok giriş/çıkış, sayım ve hızlı işlem</li>
+            <li data-step="👤"><strong>Genel</strong> – Sadece görüntüleme ve AI asistanı kullanma</li>
+        </ul>
+    </div>
+
+    <!-- 11. İpuçları -->
+    <div class="guide-section" id="ipuclari">
+        <div class="section-title">
+            <div class="section-icon" style="background: linear-gradient(135deg, #22c55e, #16a34a);">
+                <i class="bi bi-stars"></i>
+            </div>
+            <h3>11. İpuçları & Kısayollar</h3>
+        </div>
+        <div class="shortcut-grid">
+            <div class="shortcut-card">
+                <i class="bi bi-search text-primary"></i>
+                <strong>Hızlı Arama</strong>
+                <small>Ürün listesinde üstteki arama kutusunu kullanın</small>
+            </div>
+            <div class="shortcut-card">
+                <i class="bi bi-qr-code text-success"></i>
+                <strong>QR ile Hız</strong>
+                <small>Sayım ve girişlerde QR okutarak zaman kazanın</small>
+            </div>
+            <div class="shortcut-card">
+                <i class="bi bi-robot text-info"></i>
+                <strong>AI'ya Sorun</strong>
+                <small>Rapor bulmak yerine AI'ya doğrudan sorun</small>
+            </div>
+            <div class="shortcut-card">
+                <i class="bi bi-download text-warning"></i>
+                <strong>CSV Dışa Aktar</strong>
+                <small>Raporları Excel'de analiz etmek için CSV indirin</small>
+            </div>
+        </div>
+
+        <div class="tip-box mt-3">
+            <i class="bi bi-lightbulb-fill"></i>
+            <strong>Pro İpucu:</strong> Her ürün için doğru <strong>minimum stok</strong> seviyesi belirleyin. Bu sayede
+            kritik stoklar raporu size zamanında uyarı verir ve malzeme eksikliklerini önlersiniz.
+        </div>
+    </div>
+
+</div>
+{% endblock %}

@@ -143,6 +143,12 @@ def get_product_costs(keyword: str = "") -> dict:
     
     return {"result": result}
 
+@reports_bp.route('/guide')
+@login_required
+@roles_required('Genel')
+def guide():
+    return render_template('reports/guide.html')
+
 @reports_bp.route('/ai-assistant')
 @login_required
 @roles_required('Genel')
