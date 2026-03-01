@@ -174,10 +174,63 @@
         max-width: 85%;
     }
 
+    /* Markdown rendered content */
+    .message-wrapper.ai .bubble p {
+        margin: 0 0 8px 0;
+    }
+
+    .message-wrapper.ai .bubble p:last-child {
+        margin-bottom: 0;
+    }
+
+    .message-wrapper.ai .bubble h1,
+    .message-wrapper.ai .bubble h2,
+    .message-wrapper.ai .bubble h3 {
+        margin: 12px 0 6px 0;
+        font-size: 1.05em;
+        color: #334155;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 4px;
+    }
+
+    .message-wrapper.ai .bubble h3 {
+        font-size: 0.98em;
+        border-bottom: none;
+    }
+
+    .message-wrapper.ai .bubble ul,
+    .message-wrapper.ai .bubble ol {
+        margin: 4px 0 8px 0;
+        padding-left: 20px;
+    }
+
+    .message-wrapper.ai .bubble li {
+        margin-bottom: 3px;
+    }
+
+    .message-wrapper.ai .bubble strong {
+        color: #1e293b;
+    }
+
+    .message-wrapper.ai .bubble hr {
+        border: none;
+        border-top: 1px solid #e2e8f0;
+        margin: 10px 0;
+    }
+
+    .message-wrapper.ai .bubble code {
+        background: #f1f5f9;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 0.88em;
+        color: #475569;
+    }
+
+    /* Tables - only when AI uses them */
     .message-wrapper.ai .bubble table {
         width: 100%;
         font-size: 0.85em;
-        margin: 10px 0;
+        margin: 8px 0;
         border-collapse: collapse;
         white-space: nowrap;
     }
@@ -189,10 +242,9 @@
         text-align: left;
     }
 
-    .message-wrapper.ai .bubble th {
+    .message-wrapper.ai .bubble table th {
         background-color: #f1f5f9;
         font-weight: 600;
-        text-align: left;
     }
 
     .message-wrapper.user .bubble {
