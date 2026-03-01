@@ -106,8 +106,8 @@ def get_production_info() -> dict:
     return {"result": result}
 
 def get_product_costs(keyword: str = "") -> dict:
-    """Ürünlerin birim maliyet, KDV oranı ve toplam stok değeri bilgilerini getirir. keyword ile filtreleme yapılabilir, boş bırakılırsa maliyeti olan tüm ürünleri getirir."""
-    query = Product.query.filter(Product.is_active == True, Product.unit_cost > 0)
+    """Ürünlerin birim maliyet, KDV oranı ve toplam stok değeri bilgilerini getirir. keyword ile filtreleme yapılabilir."""
+    query = Product.query.filter(Product.is_active == True)
     if keyword:
         query = query.filter(
             (Product.name.ilike(f'%{keyword}%')) | (Product.code.ilike(f'%{keyword}%'))
@@ -115,18 +115,26 @@ def get_product_costs(keyword: str = "") -> dict:
     products = query.limit(30).all()
     
     if not products:
-        return {"result": f"Maliyet bilgisi olan ürün bulunamadı" + (f" ('{keyword}' araması)" if keyword else "") + ". Fiyatlar satın alma uygulamasından senkronize edilmelidir."}
+        return {"result": f"'{keyword}' aramasına uygun ürün bulunamadı."}
     
     result = []
     total_value = 0
+    has_cost_count = 0
     for p in products:
-        vat_str = f"%{int(p.vat_rate)}" if p.vat_rate else "Yok"
-        cost_with_vat = round(p.unit_cost * (1 + (p.vat_rate or 0) / 100), 2)
-        stock_value = round(p.current_stock * p.unit_cost, 2)
-        total_value += stock_value
-        result.append(f"Kod: {p.code}, Ad: {p.name}, Birim Maliyet: {p.unit_cost} {p.currency}, KDV: {vat_str}, KDV Dahil: {cost_with_vat} {p.currency}, Stok: {p.current_stock} {p.unit_type}, Stok Değeri: {stock_value} {p.currency}")
+        if p.unit_cost and p.unit_cost > 0:
+            has_cost_count += 1
+            vat_str = f"%{int(p.vat_rate)}" if p.vat_rate else "%0"
+            cost_with_vat = round(p.unit_cost * (1 + (p.vat_rate or 0) / 100), 2)
+            stock_value = round(p.current_stock * p.unit_cost, 2)
+            total_value += stock_value
+            result.append(f"Kod: {p.code}, Ad: {p.name}, Birim Maliyet: {p.unit_cost} {p.currency}, KDV: {vat_str}, KDV Dahil: {cost_with_vat} {p.currency}, Stok: {p.current_stock} {p.unit_type}, Stok Değeri: {stock_value} {p.currency}")
+        else:
+            result.append(f"Kod: {p.code}, Ad: {p.name}, Birim Maliyet: Henüz girilmemiş, Stok: {p.current_stock} {p.unit_type}")
     
-    result.append(f"--- TOPLAM STOK DEĞERİ (KDV Hariç): {round(total_value, 2)} TRY ---")
+    if has_cost_count > 0:
+        result.append(f"--- TOPLAM STOK DEĞERİ (KDV Hariç): {round(total_value, 2)} TRY ({has_cost_count} üründe maliyet var) ---")
+    else:
+        result.append("--- DİKKAT: Hiçbir üründe maliyet bilgisi girilmemiş. Satın alma uygulamasından fiyat senkronizasyonu yapılmalıdır. ---")
     return {"result": result}
 
 @reports_bp.route('/ai-assistant')
@@ -171,6 +179,8 @@ def ai_assistant_ask():
         
         Cevaplarını her zaman şık bir Markdown formatında ver. Özellikle stok veya listeleme verilerini tablo halinde sun! Vurgulanması gereken yerleri kalın yap. Asla ham json veya dizi gösterme, okunabilir hale getir.
         Cevapların kısa, net ve anlaşılır olsun. Gereksiz tekrar yapma.
+        
+        ÖNEMLİ: Maliyet veya fiyat sorulduğunda mutlaka get_product_costs fonksiyonunu kullan. Eğer maliyetler henüz girilmemişse, kullanıcıya 'Satın alma uygulamasından fiyat senkronizasyonu yapılmalıdır' şeklinde bilgi ver.
         """
 
         tools = [get_critical_stock, search_product, get_recent_movements, get_production_info, get_product_costs]
