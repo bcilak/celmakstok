@@ -36,6 +36,9 @@ def get_critical_stock() -> dict:
         status = "Boş" if p.current_stock <= 0 else "Kritik"
         cat_name = p.category.name if p.category else '-'
         cost_info = f"{p.unit_cost} {p.currency}" if p.unit_cost > 0 else "Bilinmiyor"
+        vat_info = f"%{int(p.vat_rate)}" if p.vat_rate else "Belirtilmemiş"
+        cost_with_vat = round(p.unit_cost * (1 + p.vat_rate / 100), 2) if p.unit_cost > 0 and p.vat_rate else None
+        cost_vat_str = f", KDV Dahil: {cost_with_vat} {p.currency}" if cost_with_vat else ""
         
         loc_info = []
         for ls in p.location_stocks:
@@ -43,7 +46,7 @@ def get_critical_stock() -> dict:
                 loc_info.append(f"{ls.location.name}: {ls.quantity}")
         loc_str = ", ".join(loc_info) if loc_info else "Depo/Belirsiz"
         
-        result.append(f"Kod: {p.code}, Ad: {p.name} (Tip: {p.type}), Kategori: {cat_name}, Toplam Stok: {p.current_stock} {p.unit_type}, Min Stok: {p.minimum_stock}, Durum: {status}, Lokasyon Dağılımı: [{loc_str}], Birim Maliyet: {cost_info}")
+        result.append(f"Kod: {p.code}, Ad: {p.name} (Tip: {p.type}), Kategori: {cat_name}, Toplam Stok: {p.current_stock} {p.unit_type}, Min Stok: {p.minimum_stock}, Durum: {status}, Lokasyon Dağılımı: [{loc_str}], Birim Maliyet: {cost_info}, KDV: {vat_info}{cost_vat_str}")
     
     return {"result": result}
 
@@ -61,6 +64,9 @@ def search_product(keyword: str) -> dict:
     for p in products:
         cat_name = p.category.name if p.category else '-'
         cost_info = f"{p.unit_cost} {p.currency}" if p.unit_cost > 0 else "Bilinmiyor"
+        vat_info = f"%{int(p.vat_rate)}" if p.vat_rate else "Belirtilmemiş"
+        cost_with_vat = round(p.unit_cost * (1 + p.vat_rate / 100), 2) if p.unit_cost > 0 and p.vat_rate else None
+        cost_vat_str = f", KDV Dahil: {cost_with_vat} {p.currency}" if cost_with_vat else ""
         
         loc_info = []
         for ls in p.location_stocks:
@@ -68,7 +74,7 @@ def search_product(keyword: str) -> dict:
                 loc_info.append(f"{ls.location.name}: {ls.quantity}")
         loc_str = ", ".join(loc_info) if loc_info else "Depo/Belirsiz"
         
-        result.append(f"Kod: {p.code}, Ad: {p.name} (Tip: {p.type}), Kategori: {cat_name}, Toplam Stok: {p.current_stock} {p.unit_type}, Min Stok: {p.minimum_stock}, Lokasyon Dağılımı: [{loc_str}], Birim Maliyet: {cost_info}")
+        result.append(f"Kod: {p.code}, Ad: {p.name} (Tip: {p.type}), Kategori: {cat_name}, Toplam Stok: {p.current_stock} {p.unit_type}, Min Stok: {p.minimum_stock}, Lokasyon Dağılımı: [{loc_str}], Birim Maliyet: {cost_info}, KDV: {vat_info}{cost_vat_str}")
     
     return {"result": result}
 
@@ -125,8 +131,15 @@ def ai_assistant():
                 Sana verilen fonksiyonları sadece gerektiğinde kullan. Gelen verilere dayanarak kullanıcılara şık, net ve analitik raporlar sun. 
                 Sistemimizde ürünlerin 3 farklı Ürün Tipi vardır: Hakedişte dışarıdan alınan "hammadde", atölyede işlediğimiz "yarimamul" (ör: Kesim/Büküm yapılmış parça), ve bitmiş nihai "mamul" (satılabilir ürün).
                 Ayrıca sistemimizde stoklar Fabrika içindeki "Lokasyonlara" bölünmüş durumdadır. Çektiğin verilerde ("Lokasyon Dağılımı") parantez içinden ürünün hangi üretim hattında veya depoda ne kadar olduğunu görebilir, kullanıcıya detay verebilirsin.
-                Gelen ürün detaylarındaki "Birim Maliyet" bilgisi, diğer bir dış Satın Alma uygulamasından anlık senkronize edilmektedir. Maliyet hesaplamalarını yaparken bu "Birim Maliyet" alanını kullanabilirsin.
+                
+                MALİYET ve FİYAT BİLGİLERİ:
+                - "Birim Maliyet" bilgisi dış Satın Alma uygulamasından (celmaksatinalma) anlık senkronize edilmektedir.
+                - Her üründe "KDV" (Katma Değer Vergisi) oranı da bulunmaktadır. "KDV Dahil" fiyat = Birim Maliyet × (1 + KDV/100) formülüyle hesaplanır.
+                - Maliyet hesaplamalarında hem KDV hariç hem KDV dahil tutarları açıkça belirt. Toplam stok değeri = Stok Miktarı × Birim Maliyet şeklinde hesaplanır.
+                - Kullanıcı fiyat, maliyet veya bütçe sorduğunda bu verileri net ve anlaşılır şekilde sun.
+                
                 Cevaplarını her zaman şık bir Markdown formatında ver. Özellikle stok veya listeleme verilerini tablo halinde sun! Vurgulanması gereken yerleri kalın yap. Asla ham json veya dizi gösterme, okunabilir hale getir.
+                Cevapların kısa, net ve anlaşılır olsun. Gereksiz tekrar yapma.
                 """
                 
                 # Fonksiyonları (Tools) tanımla
