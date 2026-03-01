@@ -546,8 +546,17 @@
             const response = await fetch('{{ url_for("reports.ai_assistant_ask") }}', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
                 body: JSON.stringify({ query: text })
             });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                console.error('AI API Error:', response.status, errText);
+                removeTypingIndicator();
+                addAIMessage('Sunucu hatası oluştu (Kod: ' + response.status + '). Tekrar deneyin.');
+                return;
+            }
 
             const data = await response.json();
 
@@ -557,8 +566,9 @@
                 addAIMessage(data.error || 'Bir hata oluştu. Lütfen tekrar deneyin.');
             }
         } catch (err) {
+            console.error('Fetch error:', err);
             removeTypingIndicator();
-            addAIMessage('Bağlantı hatası oluştu. Lütfen internet bağlantınızı kontrol edin.');
+            addAIMessage('Bağlantı hatası oluştu. Lütfen sayfayı yenileyip tekrar deneyin.');
         } finally {
             setLoading(false);
             queryInput.focus();
@@ -589,7 +599,7 @@
     clearBtn.addEventListener('click', async function () {
         if (!confirm('Sohbet geçmişi silinecek. Emin misiniz?')) return;
         try {
-            await fetch('{{ url_for("reports.ai_assistant_clear") }}', { method: 'POST' });
+            await fetch('{{ url_for("reports.ai_assistant_clear") }}', { method: 'POST', credentials: 'same-origin' });
             chatBody.innerHTML = `
                 <div class="text-center my-auto p-4" id="welcomeScreen">
                     <div class="mb-3">
