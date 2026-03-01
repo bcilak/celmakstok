@@ -415,7 +415,7 @@ def add_recipe():
             return redirect(url_for('production.edit_recipe', id=recipe.id))
     
     categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
-    target_products = Product.query.filter(Product.type.in_(['mamul', 'yarimamul']), Product.is_active==True).order_by(Product.name).all()
+    target_products = Product.query.filter(Product.is_active==True).order_by(Product.name).all()
     return render_template('production/add_recipe.html', categories=categories, target_products=target_products)
 
 
@@ -484,7 +484,7 @@ def edit_recipe(id):
     
     categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
     products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
-    target_products = Product.query.filter(Product.type.in_(['mamul', 'yarimamul']), Product.is_active==True).order_by(Product.name).all()
+    target_products = Product.query.filter(Product.is_active==True).order_by(Product.name).all()
     return render_template('production/edit_recipe.html', 
                           recipe=recipe, 
                           categories=categories,
