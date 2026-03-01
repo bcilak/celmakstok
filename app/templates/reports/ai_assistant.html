@@ -1,19 +1,15 @@
 {% extends "base.html" %}
 
 {% block head %}
-<!-- Marked.js for Markdown rendering -->
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 {% endblock %}
 
 {% block content %}
 <style>
-    /* --- Modern Değişkenler --- */
     :root {
-        --chat-bg: #ffffff;
         --chat-accent: #4f46e5;
         --chat-accent-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
         --user-msg-bg: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        --ai-msg-bg: #f8fafc;
         --shadow-soft: 0 10px 40px -10px rgba(0, 0, 0, 0.1);
         --shadow-glow: 0 0 20px rgba(79, 70, 229, 0.3);
     }
@@ -179,8 +175,7 @@
     .message-wrapper.ai .bubble table {
         width: 100%;
         font-size: 0.9em;
-        margin-top: 10px;
-        margin-bottom: 10px;
+        margin: 10px 0;
     }
 
     .message-wrapper.ai .bubble th {
@@ -196,7 +191,6 @@
         box-shadow: 0 4px 15px rgba(79, 70, 229, 0.25);
     }
 
-    /* --- Typing Indicator --- */
     .typing-indicator {
         display: flex;
         align-items: center;
@@ -239,7 +233,6 @@
         }
     }
 
-    /* --- Footer & Input --- */
     .chat-footer {
         padding: 1.5rem;
         background: rgba(255, 255, 255, 0.95);
@@ -342,8 +335,6 @@
 
 <div class="container-fluid d-flex align-items-center justify-content-center py-4">
     <div class="chat-container col-12 col-xl-9">
-
-        <!-- Header -->
         <div class="chat-header">
             <div class="bot-status">
                 <div class="bot-icon-box"><i class="bi bi-robot"></i></div>
@@ -354,61 +345,31 @@
                     </small>
                 </div>
             </div>
-            <div>
-                <button class="btn btn-light btn-sm rounded-circle border" id="clearBtn" data-bs-toggle="tooltip"
-                    title="Sohbeti Temizle">
-                    <i class="bi bi-trash3 text-muted"></i>
-                </button>
-            </div>
+            <button class="btn btn-light btn-sm rounded-circle border" id="clearBtn" title="Sohbeti Temizle">
+                <i class="bi bi-trash3 text-muted"></i>
+            </button>
         </div>
 
-        <!-- Mesaj Alanı -->
         <div class="chat-body" id="chatBody">
-            {% if chat_history %}
-            {% for msg in chat_history %}
-            {% if msg.role == 'user' %}
-            <div class="message-wrapper user">
-                <div class="bubble">{{ msg.content }}</div>
-                <div class="avatar user"><i class="bi bi-person-fill"></i></div>
-            </div>
-            {% else %}
-            <div class="message-wrapper ai">
-                <div class="avatar ai"><i class="bi bi-stars"></i></div>
-                <div class="bubble ai-markdown">{{ msg.content|safe }}</div>
-            </div>
-            {% endif %}
-            {% endfor %}
-            {% else %}
             <div class="text-center my-auto p-4" id="welcomeScreen">
-                <div class="mb-3">
-                    <i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i>
-                </div>
+                <div class="mb-3"><i class="bi bi-chat-square-quote text-primary opacity-25"
+                        style="font-size: 4rem;"></i></div>
                 <h4 class="fw-bold text-dark">Merhaba! 👋</h4>
                 <p class="text-muted">Veritabanı ile ilgili raporları saniyeler içinde hazırlayabilirim.</p>
             </div>
-            {% endif %}
         </div>
 
-        <!-- Footer -->
         <div class="chat-footer">
             <div class="chips-area" id="chipsArea">
-                <div class="chip-btn" data-query="Stokta biten ürünler neler?">
-                    <i class="bi bi-lightning-fill text-warning"></i> Stoksuz Ürünler
-                </div>
-                <div class="chip-btn" data-query="Bu ay en çok ne sattık?">
-                    <i class="bi bi-graph-up text-success"></i> Çok Satanlar
-                </div>
-                <div class="chip-btn" data-query="Kritik seviyedeki malzemeler">
-                    <i class="bi bi-exclamation-circle text-danger"></i> Kritik Stok
-                </div>
-                <div class="chip-btn" data-query="Üretim durumu nedir?">
-                    <i class="bi bi-gear-wide-connected text-primary"></i> Üretim Hattı
-                </div>
-                <div class="chip-btn" data-query="Toplam stok değeri ne kadar?">
-                    <i class="bi bi-currency-dollar text-info"></i> Stok Değeri
-                </div>
+                <div class="chip-btn" data-query="Stokta biten ürünler neler?"><i
+                        class="bi bi-lightning-fill text-warning"></i> Stoksuz Ürünler</div>
+                <div class="chip-btn" data-query="Kritik seviyedeki malzemeler"><i
+                        class="bi bi-exclamation-circle text-danger"></i> Kritik Stok</div>
+                <div class="chip-btn" data-query="Üretim durumu nedir?"><i
+                        class="bi bi-gear-wide-connected text-primary"></i> Üretim Hattı</div>
+                <div class="chip-btn" data-query="Toplam stok değeri ne kadar?"><i
+                        class="bi bi-currency-dollar text-info"></i> Stok Değeri</div>
             </div>
-
             <div class="input-wrapper">
                 <textarea class="chat-input" id="queryInput" rows="1"
                     placeholder="Merak ettiğiniz raporu sorun..."></textarea>
@@ -430,62 +391,46 @@
     const clearBtn = document.getElementById('clearBtn');
     const statusText = document.getElementById('statusText');
     const chipsArea = document.getElementById('chipsArea');
-    const welcomeScreen = document.getElementById('welcomeScreen');
 
     let isProcessing = false;
+    let chatHistory = []; // Sohbet geçmişi sadece frontend'de tutulur
 
-    // Marked.js setup
     marked.setOptions({ breaks: true, gfm: true });
-
-    // Sayfa yüklenince markdown parse et ve en alta kaydır
-    document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('.ai-markdown').forEach(parseMarkdown);
-        scrollToBottom();
-    });
-
-    function parseMarkdown(bubble) {
-        let raw = bubble.textContent || bubble.innerText;
-        if (raw && raw.trim()) {
-            bubble.innerHTML = marked.parse(raw.trim());
-            bubble.querySelectorAll('table').forEach(t => {
-                t.classList.add('table', 'table-sm', 'table-bordered', 'table-hover');
-            });
-        }
-    }
 
     function scrollToBottom() {
         chatBody.scrollTo({ top: chatBody.scrollHeight, behavior: 'smooth' });
     }
 
-    // Kullanıcı mesajını ekle
+    function escapeHtml(text) {
+        const d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function parseMarkdown(bubble) {
+        let raw = bubble.textContent || bubble.innerText;
+        if (raw && raw.trim()) {
+            bubble.innerHTML = marked.parse(raw.trim());
+            bubble.querySelectorAll('table').forEach(t => t.classList.add('table', 'table-sm', 'table-bordered', 'table-hover'));
+        }
+    }
+
     function addUserMessage(text) {
-        if (welcomeScreen) welcomeScreen.remove();
-        const wrapper = document.createElement('div');
-        wrapper.className = 'message-wrapper user';
-        wrapper.innerHTML = `
-            <div class="bubble">${escapeHtml(text)}</div>
-            <div class="avatar user"><i class="bi bi-person-fill"></i></div>
-        `;
-        chatBody.appendChild(wrapper);
+        const ws = document.getElementById('welcomeScreen');
+        if (ws) ws.remove();
+        const el = document.createElement('div');
+        el.className = 'message-wrapper user';
+        el.innerHTML = `<div class="bubble">${escapeHtml(text)}</div><div class="avatar user"><i class="bi bi-person-fill"></i></div>`;
+        chatBody.appendChild(el);
         scrollToBottom();
     }
 
-    // Typing indicator ekle
     function showTypingIndicator() {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'message-wrapper ai';
-        wrapper.id = 'typingIndicator';
-        wrapper.innerHTML = `
-            <div class="avatar ai"><i class="bi bi-stars"></i></div>
-            <div class="bubble">
-                <div class="typing-indicator">
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                </div>
-            </div>
-        `;
-        chatBody.appendChild(wrapper);
+        const el = document.createElement('div');
+        el.className = 'message-wrapper ai';
+        el.id = 'typingIndicator';
+        el.innerHTML = `<div class="avatar ai"><i class="bi bi-stars"></i></div><div class="bubble"><div class="typing-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>`;
+        chatBody.appendChild(el);
         scrollToBottom();
     }
 
@@ -494,13 +439,12 @@
         if (el) el.remove();
     }
 
-    // AI cevabını ekle
     function addAIMessage(text) {
         removeTypingIndicator();
         const wrapper = document.createElement('div');
         wrapper.className = 'message-wrapper ai';
         const bubble = document.createElement('div');
-        bubble.className = 'bubble ai-markdown';
+        bubble.className = 'bubble';
         bubble.textContent = text;
         wrapper.innerHTML = `<div class="avatar ai"><i class="bi bi-stars"></i></div>`;
         wrapper.appendChild(bubble);
@@ -509,66 +453,51 @@
         scrollToBottom();
     }
 
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
     function setLoading(loading) {
         isProcessing = loading;
         sendBtn.disabled = loading;
         queryInput.disabled = loading;
         sendIcon.classList.toggle('d-none', loading);
         sendSpinner.classList.toggle('d-none', !loading);
-
-        // Chips devre dışı
-        chipsArea.querySelectorAll('.chip-btn').forEach(c => {
-            c.classList.toggle('disabled', loading);
-        });
-
-        // Status text
+        chipsArea.querySelectorAll('.chip-btn').forEach(c => c.classList.toggle('disabled', loading));
         statusText.innerHTML = loading
-            ? '<span class="status-dot" style="background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,0.2);"></span>Düşünüyor...'
+            ? '<span class="status-dot" style="background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,0.2);animation:pulse 1s infinite"></span>Düşünüyor...'
             : '<span class="status-dot"></span>Online • Yapay Zeka';
     }
 
-    // Mesaj gönder (AJAX)
     async function sendMessage(text) {
         if (!text.trim() || isProcessing) return;
 
         addUserMessage(text);
+        chatHistory.push({ role: 'user', content: text });
         queryInput.value = '';
         setLoading(true);
         showTypingIndicator();
 
         try {
-            const response = await fetch('{{ url_for("reports.ai_assistant_ask") }}', {
+            const res = await fetch('{{ url_for("reports.ai_assistant_ask") }}', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ query: text })
+                body: JSON.stringify({ query: text, history: chatHistory.slice(-6) })
             });
 
-            if (!response.ok) {
-                const errText = await response.text();
-                console.error('AI API Error:', response.status, errText);
-                removeTypingIndicator();
-                addAIMessage('Sunucu hatası oluştu (Kod: ' + response.status + '). Tekrar deneyin.');
+            if (!res.ok) {
+                console.error('API Error:', res.status);
+                addAIMessage('Sunucu hatası (Kod: ' + res.status + '). Tekrar deneyin.');
+                chatHistory.push({ role: 'ai', content: 'Hata oluştu' });
                 return;
             }
 
-            const data = await response.json();
+            const data = await res.json();
+            const answer = data.success ? data.answer : (data.error || 'Bir hata oluştu.');
+            addAIMessage(answer);
+            chatHistory.push({ role: 'ai', content: answer });
 
-            if (data.success) {
-                addAIMessage(data.answer);
-            } else {
-                addAIMessage(data.error || 'Bir hata oluştu. Lütfen tekrar deneyin.');
-            }
         } catch (err) {
             console.error('Fetch error:', err);
             removeTypingIndicator();
-            addAIMessage('Bağlantı hatası oluştu. Lütfen sayfayı yenileyip tekrar deneyin.');
+            addAIMessage('Bağlantı hatası. Sayfayı yenileyip tekrar deneyin.');
         } finally {
             setLoading(false);
             queryInput.focus();
@@ -577,42 +506,23 @@
 
     // Enter tuşu
     queryInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage(this.value);
-        }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(this.value); }
     });
 
     // Gönder butonu
-    sendBtn.addEventListener('click', function () {
-        sendMessage(queryInput.value);
-    });
+    sendBtn.addEventListener('click', () => sendMessage(queryInput.value));
 
     // Chip tıklama
     chipsArea.querySelectorAll('.chip-btn').forEach(chip => {
-        chip.addEventListener('click', function () {
-            sendMessage(this.dataset.query);
-        });
+        chip.addEventListener('click', function () { sendMessage(this.dataset.query); });
     });
 
-    // Sohbeti temizle
+    // Temizle
     clearBtn.addEventListener('click', async function () {
-        if (!confirm('Sohbet geçmişi silinecek. Emin misiniz?')) return;
-        try {
-            await fetch('{{ url_for("reports.ai_assistant_clear") }}', { method: 'POST', credentials: 'same-origin' });
-            chatBody.innerHTML = `
-                <div class="text-center my-auto p-4" id="welcomeScreen">
-                    <div class="mb-3">
-                        <i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i>
-                    </div>
-                    <h4 class="fw-bold text-dark">Merhaba! 👋</h4>
-                    <p class="text-muted">Veritabanı ile ilgili raporları saniyeler içinde hazırlayabilirim.</p>
-                </div>
-            `;
-        } catch (e) {
-            alert('Temizleme başarısız oldu.');
-        }
+        chatHistory = [];
+        chatBody.innerHTML = `<div class="text-center my-auto p-4" id="welcomeScreen"><div class="mb-3"><i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i></div><h4 class="fw-bold text-dark">Merhaba! 👋</h4><p class="text-muted">Veritabanı ile ilgili raporları saniyeler içinde hazırlayabilirim.</p></div>`;
+        // Eski session verisini de temizle
+        fetch('{{ url_for("reports.ai_assistant_clear") }}', { method: 'POST', credentials: 'same-origin' }).catch(() => { });
     });
 </script>
-
 {% endblock %}

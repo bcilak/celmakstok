@@ -109,11 +109,7 @@ def get_production_info() -> dict:
 @login_required
 @roles_required('Genel')
 def ai_assistant():
-    history_key = f'chat_history_{current_user.id}'
-    if history_key not in session:
-        session[history_key] = []
-    chat_history = session[history_key]
-    return render_template('reports/ai_assistant.html', chat_history=chat_history)
+    return render_template('reports/ai_assistant.html')
 
 
 @reports_bp.route('/ai-assistant/ask', methods=['POST'])
@@ -121,16 +117,13 @@ def ai_assistant():
 @roles_required('Genel')
 def ai_assistant_ask():
     """AJAX endpoint - AI sohbet sorgusu"""
-    history_key = f'chat_history_{current_user.id}'
-    if history_key not in session:
-        session[history_key] = []
-    chat_history = session[history_key]
-
     data = request.get_json()
     if not data or not data.get('query'):
         return jsonify({'success': False, 'error': 'Soru boş olamaz.'}), 400
 
     query = data['query']
+    # Client tarafından gelen son sohbet geçmişi (session'a yazmıyoruz)
+    client_history = data.get('history', [])
 
     try:
         api_key = current_app.config.get('GEMINI_API_KEY')
@@ -159,12 +152,15 @@ def ai_assistant_ask():
         tools = [get_critical_stock, search_product, get_recent_movements, get_production_info]
         model = genai.GenerativeModel('gemini-2.5-flash', tools=tools, system_instruction=system_instruction)
 
+        # Son 6 mesajı bağlam olarak kullan
         context = ""
-        if len(chat_history) > 0:
+        recent = client_history[-6:] if len(client_history) > 6 else client_history
+        if recent:
             context = "Geçmiş Sohbet:\n"
-            for msg in chat_history[-6:]:
-                role_name = "Kullanıcı" if msg['role'] == "user" else "Araç/Asistan"
-                context += f"{role_name}: {msg['content']}\n"
+            for msg in recent:
+                role_name = "Kullanıcı" if msg.get('role') == 'user' else "Araç/Asistan"
+                content = msg.get('content', '')[:300]  # Bağlamı kısa tut
+                context += f"{role_name}: {content}\n"
             context += f"\nKullanıcının Yeni Sorusu: {query}"
         else:
             context = query
@@ -179,36 +175,23 @@ def ai_assistant_ask():
         except ValueError:
             answer = "Veriler analiz edildi ancak gösterilebilir bir rapor oluşturulamadı."
 
-        chat_history.append({'role': 'user', 'content': query})
-        chat_history.append({'role': 'ai', 'content': answer})
-
-        if len(chat_history) > 20:
-            chat_history = chat_history[-20:]
-
-        session[history_key] = chat_history
-        session.modified = True
-
         return jsonify({'success': True, 'answer': answer})
 
     except Exception as e:
         import traceback
         print(traceback.format_exc())
-        error_msg = f"Bir hata oluştu: {str(e)}"
-        chat_history.append({'role': 'user', 'content': query})
-        chat_history.append({'role': 'ai', 'content': error_msg})
-        session[history_key] = chat_history
-        session.modified = True
-        return jsonify({'success': False, 'error': error_msg}), 500
+        return jsonify({'success': False, 'error': f'Bir hata oluştu: {str(e)}'}), 500
 
 
 @reports_bp.route('/ai-assistant/clear', methods=['POST'])
 @login_required
 @roles_required('Genel')
 def ai_assistant_clear():
-    """Sohbet geçmişini temizle"""
+    """Sohbet geçmişini temizle (eski session verisini de siler)"""
     history_key = f'chat_history_{current_user.id}'
-    session[history_key] = []
-    session.modified = True
+    if history_key in session:
+        del session[history_key]
+        session.modified = True
     return jsonify({'success': True})
 
 
