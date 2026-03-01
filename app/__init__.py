@@ -51,4 +51,14 @@ def create_app(config_class=Config):
     # Internal AI endpoints (protected by API key, register under /internal/ai)
     app.register_blueprint(ai_bp, url_prefix='/internal/ai')
 
+    # Eski sohbet geçmişini session'dan temizle (cookie overflow fix)
+    from flask import session as flask_session
+    @app.before_request
+    def cleanup_session():
+        keys_to_remove = [k for k in flask_session if k.startswith('chat_history_')]
+        for k in keys_to_remove:
+            del flask_session[k]
+        if keys_to_remove:
+            flask_session.modified = True
+
     return app
