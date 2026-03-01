@@ -1227,3 +1227,80 @@ def api_product_price_sync():
         'processed_count': len(items),
         'results': results
     })
+
+
+@api_bp.route('/v1/products/sync-cost', methods=['POST'])
+@require_api_key
+def api_sync_cost():
+    """
+    Satın Alma Uygulamasından Tekil Fiyat Senkronizasyonu
+    Satın alma uygulaması (celmaksatinalma) bu endpoint'e ürün fiyat bilgisi gönderir.
+    ---
+    tags:
+      - Ürünler (Entegrasyon)
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            product_code:
+              type: string
+              description: Ürün kodu
+            unit_cost:
+              type: number
+              description: Birim maliyet
+            currency:
+              type: string
+              description: Para birimi (TRY, USD, EUR)
+            vat_rate:
+              type: number
+              description: KDV oranı (%)
+    responses:
+      200:
+        description: Fiyat güncelleme sonucu
+      401:
+        description: Yetkisiz erişim
+      404:
+        description: Ürün bulunamadı
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'JSON verisi gereklidir'}), 400
+
+    product_code = data.get('product_code')
+    unit_cost = data.get('unit_cost')
+    vat_rate = data.get('vat_rate')
+    currency = data.get('currency', 'TRY')
+
+    if not product_code:
+        return jsonify({'success': False, 'error': 'product_code alanı gereklidir'}), 400
+
+    if unit_cost is None:
+        return jsonify({'success': False, 'error': 'unit_cost alanı gereklidir'}), 400
+
+    product = Product.query.filter_by(code=product_code, is_active=True).first()
+    if not product:
+        return jsonify({'success': False, 'error': f'Ürün bulunamadı: {product_code}'}), 404
+
+    product.unit_cost = float(unit_cost)
+    product.currency = currency
+    if vat_rate is not None:
+        product.vat_rate = float(vat_rate)
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': f'{product_code} fiyatı güncellendi',
+        'data': {
+            'product_code': product_code,
+            'product_name': product.name,
+            'unit_cost': product.unit_cost,
+            'currency': product.currency,
+            'vat_rate': product.vat_rate
+        }
+    })

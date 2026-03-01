@@ -111,6 +111,7 @@ class Product(db.Model):
     # Satın alma & Fiyatlandırma (Gizli alanlar - Dış API'den beslenir)
     unit_cost = db.Column(db.Float, default=0.0)    # Birim maliyet/fiyat
     currency = db.Column(db.String(10), default='TRY') # Para birimi (TRY, USD, EUR vb.)
+    vat_rate = db.Column(db.Float, default=0.0)    # KDV oranı (%)
     
     # Ek bilgiler
     barcode = db.Column(db.String(100))  # Barkod
