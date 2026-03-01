@@ -105,6 +105,30 @@ def get_production_info() -> dict:
         
     return {"result": result}
 
+def get_product_costs(keyword: str = "") -> dict:
+    """Ürünlerin birim maliyet, KDV oranı ve toplam stok değeri bilgilerini getirir. keyword ile filtreleme yapılabilir, boş bırakılırsa maliyeti olan tüm ürünleri getirir."""
+    query = Product.query.filter(Product.is_active == True, Product.unit_cost > 0)
+    if keyword:
+        query = query.filter(
+            (Product.name.ilike(f'%{keyword}%')) | (Product.code.ilike(f'%{keyword}%'))
+        )
+    products = query.limit(30).all()
+    
+    if not products:
+        return {"result": f"Maliyet bilgisi olan ürün bulunamadı" + (f" ('{keyword}' araması)" if keyword else "") + ". Fiyatlar satın alma uygulamasından senkronize edilmelidir."}
+    
+    result = []
+    total_value = 0
+    for p in products:
+        vat_str = f"%{int(p.vat_rate)}" if p.vat_rate else "Yok"
+        cost_with_vat = round(p.unit_cost * (1 + (p.vat_rate or 0) / 100), 2)
+        stock_value = round(p.current_stock * p.unit_cost, 2)
+        total_value += stock_value
+        result.append(f"Kod: {p.code}, Ad: {p.name}, Birim Maliyet: {p.unit_cost} {p.currency}, KDV: {vat_str}, KDV Dahil: {cost_with_vat} {p.currency}, Stok: {p.current_stock} {p.unit_type}, Stok Değeri: {stock_value} {p.currency}")
+    
+    result.append(f"--- TOPLAM STOK DEĞERİ (KDV Hariç): {round(total_value, 2)} TRY ---")
+    return {"result": result}
+
 @reports_bp.route('/ai-assistant')
 @login_required
 @roles_required('Genel')
@@ -149,7 +173,7 @@ def ai_assistant_ask():
         Cevapların kısa, net ve anlaşılır olsun. Gereksiz tekrar yapma.
         """
 
-        tools = [get_critical_stock, search_product, get_recent_movements, get_production_info]
+        tools = [get_critical_stock, search_product, get_recent_movements, get_production_info, get_product_costs]
         model = genai.GenerativeModel('gemini-2.5-flash', tools=tools, system_instruction=system_instruction)
 
         # Son 6 mesajı bağlam olarak kullan
