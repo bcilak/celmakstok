@@ -11,7 +11,6 @@
     :root {
         --chat-bg: #ffffff;
         --chat-accent: #4f46e5;
-        /* İndigo */
         --chat-accent-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
         --user-msg-bg: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
         --ai-msg-bg: #f8fafc;
@@ -19,13 +18,11 @@
         --shadow-glow: 0 0 20px rgba(79, 70, 229, 0.3);
     }
 
-    /* --- Sayfa Arka Planı (Daha canlı) --- */
     body {
         background: radial-gradient(circle at 10% 20%, rgb(239, 246, 255) 0%, rgb(219, 228, 255) 90%) !important;
         min-height: 100vh;
     }
 
-    /* --- Ana Chat Kartı (Glassmorphism) --- */
     .chat-container {
         height: 85vh;
         max-width: 900px;
@@ -34,16 +31,12 @@
         flex-direction: column;
         border-radius: 24px;
         background: rgba(255, 255, 255, 0.85);
-        /* Yarım şeffaf */
         backdrop-filter: blur(12px);
-        /* Buzlu cam efekti */
         border: 1px solid rgba(255, 255, 255, 0.6);
         box-shadow: var(--shadow-soft);
         overflow: hidden;
-        position: relative;
     }
 
-    /* --- Header --- */
     .chat-header {
         padding: 1.2rem 1.5rem;
         background: rgba(255, 255, 255, 0.9);
@@ -98,7 +91,6 @@
         }
     }
 
-    /* --- Mesaj Alanı --- */
     .chat-body {
         flex: 1;
         overflow-y: auto;
@@ -109,7 +101,6 @@
         background: rgba(255, 255, 255, 0.4);
     }
 
-    /* Scrollbar Gizleme/Güzelleştirme */
     .chat-body::-webkit-scrollbar {
         width: 6px;
     }
@@ -123,7 +114,6 @@
         border-radius: 10px;
     }
 
-    /* --- Mesaj Baloncukları --- */
     .message-wrapper {
         display: flex;
         align-items: flex-end;
@@ -175,7 +165,6 @@
         border-radius: 18px;
         font-size: 0.98rem;
         line-height: 1.6;
-        position: relative;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
     }
 
@@ -185,7 +174,6 @@
         border-bottom-left-radius: 4px;
         border: 1px solid rgba(226, 232, 240, 0.8);
         overflow-wrap: break-word;
-        /* Prevent long tables/links from breaking layout */
     }
 
     .message-wrapper.ai .bubble table {
@@ -208,12 +196,47 @@
         box-shadow: 0 4px 15px rgba(79, 70, 229, 0.25);
     }
 
-    .msg-time {
-        font-size: 0.7rem;
-        margin-top: 4px;
-        opacity: 0.6;
-        text-align: right;
-        display: block;
+    /* --- Typing Indicator --- */
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 12px 18px;
+    }
+
+    .typing-indicator .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #94a3b8;
+        animation: typingBounce 1.4s infinite ease-in-out;
+    }
+
+    .typing-indicator .dot:nth-child(1) {
+        animation-delay: 0s;
+    }
+
+    .typing-indicator .dot:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .typing-indicator .dot:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+    @keyframes typingBounce {
+
+        0%,
+        80%,
+        100% {
+            transform: scale(0.6);
+            opacity: 0.4;
+        }
+
+        40% {
+            transform: scale(1);
+            opacity: 1;
+        }
     }
 
     /* --- Footer & Input --- */
@@ -221,10 +244,8 @@
         padding: 1.5rem;
         background: rgba(255, 255, 255, 0.95);
         border-top: 1px solid rgba(0, 0, 0, 0.05);
-        position: relative;
     }
 
-    /* Öneri Etiketleri (Chips) */
     .chips-area {
         display: flex;
         gap: 8px;
@@ -260,12 +281,15 @@
         transform: translateY(-2px);
     }
 
-    /* Modern Input Kutusu */
+    .chip-btn.disabled {
+        pointer-events: none;
+        opacity: 0.5;
+    }
+
     .input-wrapper {
         background: #f8fafc;
         border: 2px solid transparent;
         border-radius: 20px;
-        /* Hap şeklinde */
         padding: 6px;
         display: flex;
         align-items: center;
@@ -308,64 +332,54 @@
     .send-btn-modern:hover {
         transform: scale(1.1) rotate(-10deg);
     }
+
+    .send-btn-modern:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
 </style>
 
 <div class="container-fluid d-flex align-items-center justify-content-center py-4">
-
     <div class="chat-container col-12 col-xl-9">
 
         <!-- Header -->
         <div class="chat-header">
             <div class="bot-status">
-                <div class="bot-icon-box">
-                    <i class="bi bi-robot"></i>
-                </div>
+                <div class="bot-icon-box"><i class="bi bi-robot"></i></div>
                 <div>
                     <h5 class="fw-bold mb-0 text-dark">Rapor Asistanı</h5>
-                    <small class="text-muted" style="font-size: 0.8rem;">
+                    <small class="text-muted" style="font-size: 0.8rem;" id="statusText">
                         <span class="status-dot"></span>Online • Yapay Zeka
                     </small>
                 </div>
             </div>
             <div>
-                <a href="{{ url_for('reports.ai_assistant') }}" class="btn btn-light btn-sm rounded-circle border"
-                    data-bs-toggle="tooltip" title="Temizle">
+                <button class="btn btn-light btn-sm rounded-circle border" id="clearBtn" data-bs-toggle="tooltip"
+                    title="Sohbeti Temizle">
                     <i class="bi bi-trash3 text-muted"></i>
-                </a>
+                </button>
             </div>
         </div>
 
-        <!-- Mesaj Geçmişi -->
-        <div class="chat-body" id="chat-scroll-area">
+        <!-- Mesaj Alanı -->
+        <div class="chat-body" id="chatBody">
             {% if chat_history %}
             {% for msg in chat_history %}
             {% if msg.role == 'user' %}
-            <!-- Kullanıcı -->
             <div class="message-wrapper user">
-                <div class="bubble">
-                    {{ msg.content }}
-                    <!-- Opsiyonel: Tarih eklemek isterseniz backend'den gelmeli -->
-                    <!-- <span class="msg-time">Şimdi</span> -->
-                </div>
-                <div class="avatar user">
-                    <i class="bi bi-person-fill"></i>
-                </div>
+                <div class="bubble">{{ msg.content }}</div>
+                <div class="avatar user"><i class="bi bi-person-fill"></i></div>
             </div>
             {% else %}
-            <!-- AI -->
             <div class="message-wrapper ai">
-                <div class="avatar ai">
-                    <i class="bi bi-stars"></i>
-                </div>
-                <div class="bubble">
-                    {{ msg.content|safe }}
-                </div>
+                <div class="avatar ai"><i class="bi bi-stars"></i></div>
+                <div class="bubble ai-markdown">{{ msg.content|safe }}</div>
             </div>
             {% endif %}
             {% endfor %}
             {% else %}
-            <!-- Boş Ekran Karşılama -->
-            <div class="text-center my-auto p-4">
+            <div class="text-center my-auto p-4" id="welcomeScreen">
                 <div class="mb-3">
                     <i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i>
                 </div>
@@ -377,120 +391,218 @@
 
         <!-- Footer -->
         <div class="chat-footer">
-
-            <!-- Hızlı Öneriler -->
-            <div class="chips-area">
-                <div class="chip-btn" onclick="setQuery('Stokta biten ürünler neler?')">
+            <div class="chips-area" id="chipsArea">
+                <div class="chip-btn" data-query="Stokta biten ürünler neler?">
                     <i class="bi bi-lightning-fill text-warning"></i> Stoksuz Ürünler
                 </div>
-                <div class="chip-btn" onclick="setQuery('Bu ay en çok ne sattık?')">
+                <div class="chip-btn" data-query="Bu ay en çok ne sattık?">
                     <i class="bi bi-graph-up text-success"></i> Çok Satanlar
                 </div>
-                <div class="chip-btn" onclick="setQuery('Kritik seviyedeki malzemeler')">
+                <div class="chip-btn" data-query="Kritik seviyedeki malzemeler">
                     <i class="bi bi-exclamation-circle text-danger"></i> Kritik Stok
                 </div>
-                <div class="chip-btn" onclick="setQuery('Üretim durumu nedir?')">
+                <div class="chip-btn" data-query="Üretim durumu nedir?">
                     <i class="bi bi-gear-wide-connected text-primary"></i> Üretim Hattı
+                </div>
+                <div class="chip-btn" data-query="Toplam stok değeri ne kadar?">
+                    <i class="bi bi-currency-dollar text-info"></i> Stok Değeri
                 </div>
             </div>
 
-            <!-- Input Form -->
-            <form method="POST" action="{{ url_for('reports.ai_assistant') }}" id="aiForm"
-                onsubmit="return handleFormSubmit()">
-                <div class="input-wrapper">
-                    <textarea class="chat-input" id="queryInput" name="query" rows="1"
-                        placeholder="Merak ettiğiniz raporu sorun..." required></textarea>
-
-                    <button type="submit" class="send-btn-modern" id="sendBtn">
-                        <i class="bi bi-send-fill fs-6" id="sendIcon"></i>
-                        <span class="spinner-border spinner-border-sm d-none" id="sendSpinner" role="status"
-                            aria-hidden="true"></span>
-                    </button>
-                </div>
-            </form>
+            <div class="input-wrapper">
+                <textarea class="chat-input" id="queryInput" rows="1"
+                    placeholder="Merak ettiğiniz raporu sorun..."></textarea>
+                <button class="send-btn-modern" id="sendBtn">
+                    <i class="bi bi-send-fill fs-6" id="sendIcon"></i>
+                    <span class="spinner-border spinner-border-sm d-none" id="sendSpinner"></span>
+                </button>
+            </div>
         </div>
     </div>
-
 </div>
 
 <script>
-    // 1. Markdown Parsing
-    document.addEventListener("DOMContentLoaded", function () {
-        // Find all AI message bubbles
-        const aiBubbles = document.querySelectorAll('.message-wrapper.ai .bubble');
+    const chatBody = document.getElementById('chatBody');
+    const queryInput = document.getElementById('queryInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const sendIcon = document.getElementById('sendIcon');
+    const sendSpinner = document.getElementById('sendSpinner');
+    const clearBtn = document.getElementById('clearBtn');
+    const statusText = document.getElementById('statusText');
+    const chipsArea = document.getElementById('chipsArea');
+    const welcomeScreen = document.getElementById('welcomeScreen');
 
-        // Setup marked options
-        marked.setOptions({
-            breaks: true, // Convert \n to <br>
-            gfm: true     // GitHub Flavored Markdown (for tables)
-        });
+    let isProcessing = false;
 
-        aiBubbles.forEach(function (bubble) {
-            // Get the raw text content (not innerHTML, to avoid HTML escaping issues)
-            let rawText = bubble.textContent || bubble.innerText;
+    // Marked.js setup
+    marked.setOptions({ breaks: true, gfm: true });
 
-            if (rawText && rawText.trim() !== "") {
-                // Parse markdown to HTML
-                let parsedHtml = marked.parse(rawText.trim());
-                // Set the inner HTML
-                bubble.innerHTML = parsedHtml;
-
-                // Format tables for Bootstrap
-                const tables = bubble.querySelectorAll('table');
-                tables.forEach(table => {
-                    table.classList.add('table', 'table-sm', 'table-bordered', 'table-hover');
-                });
-            }
-        });
-
+    // Sayfa yüklenince markdown parse et ve en alta kaydır
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.ai-markdown').forEach(parseMarkdown);
         scrollToBottom();
     });
 
-    // 2. Otomatik Scroll (En alta)
-    const chatBox = document.getElementById('chat-scroll-area');
+    function parseMarkdown(bubble) {
+        let raw = bubble.textContent || bubble.innerText;
+        if (raw && raw.trim()) {
+            bubble.innerHTML = marked.parse(raw.trim());
+            bubble.querySelectorAll('table').forEach(t => {
+                t.classList.add('table', 'table-sm', 'table-bordered', 'table-hover');
+            });
+        }
+    }
 
     function scrollToBottom() {
-        chatBox.scrollTop = chatBox.scrollHeight;
+        chatBody.scrollTo({ top: chatBody.scrollHeight, behavior: 'smooth' });
     }
 
-    // 3. Form Submit Handling (Loading State)
-    function handleFormSubmit() {
-        const input = document.getElementById('queryInput');
-        if (input.value.trim() === "") return false;
-
-        // Disable button & show spinner
-        const btn = document.getElementById('sendBtn');
-        const icon = document.getElementById('sendIcon');
-        const spinner = document.getElementById('sendSpinner');
-
-        btn.disabled = true;
-        icon.classList.add('d-none');
-        spinner.classList.remove('d-none');
-        return true;
+    // Kullanıcı mesajını ekle
+    function addUserMessage(text) {
+        if (welcomeScreen) welcomeScreen.remove();
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper user';
+        wrapper.innerHTML = `
+            <div class="bubble">${escapeHtml(text)}</div>
+            <div class="avatar user"><i class="bi bi-person-fill"></i></div>
+        `;
+        chatBody.appendChild(wrapper);
+        scrollToBottom();
     }
 
-    // 4. Textarea Enter Tuşu Kontrolü
-    const input = document.getElementById('queryInput');
-    input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault(); // Yeni satıra geçmeyi engelle
-            if (this.value.trim() !== "") {
-                if (handleFormSubmit()) {
-                    document.getElementById('aiForm').submit();
-                }
+    // Typing indicator ekle
+    function showTypingIndicator() {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper ai';
+        wrapper.id = 'typingIndicator';
+        wrapper.innerHTML = `
+            <div class="avatar ai"><i class="bi bi-stars"></i></div>
+            <div class="bubble">
+                <div class="typing-indicator">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                </div>
+            </div>
+        `;
+        chatBody.appendChild(wrapper);
+        scrollToBottom();
+    }
+
+    function removeTypingIndicator() {
+        const el = document.getElementById('typingIndicator');
+        if (el) el.remove();
+    }
+
+    // AI cevabını ekle
+    function addAIMessage(text) {
+        removeTypingIndicator();
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper ai';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble ai-markdown';
+        bubble.textContent = text;
+        wrapper.innerHTML = `<div class="avatar ai"><i class="bi bi-stars"></i></div>`;
+        wrapper.appendChild(bubble);
+        chatBody.appendChild(wrapper);
+        parseMarkdown(bubble);
+        scrollToBottom();
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function setLoading(loading) {
+        isProcessing = loading;
+        sendBtn.disabled = loading;
+        queryInput.disabled = loading;
+        sendIcon.classList.toggle('d-none', loading);
+        sendSpinner.classList.toggle('d-none', !loading);
+
+        // Chips devre dışı
+        chipsArea.querySelectorAll('.chip-btn').forEach(c => {
+            c.classList.toggle('disabled', loading);
+        });
+
+        // Status text
+        statusText.innerHTML = loading
+            ? '<span class="status-dot" style="background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,0.2);"></span>Düşünüyor...'
+            : '<span class="status-dot"></span>Online • Yapay Zeka';
+    }
+
+    // Mesaj gönder (AJAX)
+    async function sendMessage(text) {
+        if (!text.trim() || isProcessing) return;
+
+        addUserMessage(text);
+        queryInput.value = '';
+        setLoading(true);
+        showTypingIndicator();
+
+        try {
+            const response = await fetch('{{ url_for("reports.ai_assistant_ask") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: text })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                addAIMessage(data.answer);
+            } else {
+                addAIMessage(data.error || 'Bir hata oluştu. Lütfen tekrar deneyin.');
             }
+        } catch (err) {
+            removeTypingIndicator();
+            addAIMessage('Bağlantı hatası oluştu. Lütfen internet bağlantınızı kontrol edin.');
+        } finally {
+            setLoading(false);
+            queryInput.focus();
+        }
+    }
+
+    // Enter tuşu
+    queryInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage(this.value);
         }
     });
 
-    // 5. Chip Tıklama Fonksiyonu
-    function setQuery(text) {
-        input.value = text;
-        input.focus();
-        // Otomatik gönder
-        if (handleFormSubmit()) {
-            document.getElementById('aiForm').submit();
+    // Gönder butonu
+    sendBtn.addEventListener('click', function () {
+        sendMessage(queryInput.value);
+    });
+
+    // Chip tıklama
+    chipsArea.querySelectorAll('.chip-btn').forEach(chip => {
+        chip.addEventListener('click', function () {
+            sendMessage(this.dataset.query);
+        });
+    });
+
+    // Sohbeti temizle
+    clearBtn.addEventListener('click', async function () {
+        if (!confirm('Sohbet geçmişi silinecek. Emin misiniz?')) return;
+        try {
+            await fetch('{{ url_for("reports.ai_assistant_clear") }}', { method: 'POST' });
+            chatBody.innerHTML = `
+                <div class="text-center my-auto p-4" id="welcomeScreen">
+                    <div class="mb-3">
+                        <i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i>
+                    </div>
+                    <h4 class="fw-bold text-dark">Merhaba! 👋</h4>
+                    <p class="text-muted">Veritabanı ile ilgili raporları saniyeler içinde hazırlayabilirim.</p>
+                </div>
+            `;
+        } catch (e) {
+            alert('Temizleme başarısız oldu.');
         }
-    }
+    });
 </script>
 
 {% endblock %}

@@ -105,7 +105,7 @@ def get_production_info() -> dict:
         
     return {"result": result}
 
-@reports_bp.route('/ai-assistant', methods=['GET', 'POST'])
+@reports_bp.route('/ai-assistant')
 @login_required
 @roles_required('Genel')
 def ai_assistant():
@@ -113,90 +113,103 @@ def ai_assistant():
     if history_key not in session:
         session[history_key] = []
     chat_history = session[history_key]
-    
-    if request.method == 'POST':
-        query = request.form.get('query')
-        if query:
-            try:
-                api_key = current_app.config.get('GEMINI_API_KEY')
-                if not api_key:
-                    raise ValueError("GEMINI_API_KEY is not set in the configuration.")
-                    
-                genai.configure(api_key=api_key)
-                
-                # Sistem Talimatı (System Instruction)
-                system_instruction = """
-                Sen ÇELMAK firmasının Stok ve Üretim Takip sisteminde (MRP) çalışan, Türkçe konuşan akıllı bir Raporlama Asistanısın.
-                Sana veri tabanındaki güncel durumları sormaları halinde sana verdiğimiz fonksiyonları (tools) kullanarak gerçek verileri çekmelisin.
-                Sana verilen fonksiyonları sadece gerektiğinde kullan. Gelen verilere dayanarak kullanıcılara şık, net ve analitik raporlar sun. 
-                Sistemimizde ürünlerin 3 farklı Ürün Tipi vardır: Hakedişte dışarıdan alınan "hammadde", atölyede işlediğimiz "yarimamul" (ör: Kesim/Büküm yapılmış parça), ve bitmiş nihai "mamul" (satılabilir ürün).
-                Ayrıca sistemimizde stoklar Fabrika içindeki "Lokasyonlara" bölünmüş durumdadır. Çektiğin verilerde ("Lokasyon Dağılımı") parantez içinden ürünün hangi üretim hattında veya depoda ne kadar olduğunu görebilir, kullanıcıya detay verebilirsin.
-                
-                MALİYET ve FİYAT BİLGİLERİ:
-                - "Birim Maliyet" bilgisi dış Satın Alma uygulamasından (celmaksatinalma) anlık senkronize edilmektedir.
-                - Her üründe "KDV" (Katma Değer Vergisi) oranı da bulunmaktadır. "KDV Dahil" fiyat = Birim Maliyet × (1 + KDV/100) formülüyle hesaplanır.
-                - Maliyet hesaplamalarında hem KDV hariç hem KDV dahil tutarları açıkça belirt. Toplam stok değeri = Stok Miktarı × Birim Maliyet şeklinde hesaplanır.
-                - Kullanıcı fiyat, maliyet veya bütçe sorduğunda bu verileri net ve anlaşılır şekilde sun.
-                
-                Cevaplarını her zaman şık bir Markdown formatında ver. Özellikle stok veya listeleme verilerini tablo halinde sun! Vurgulanması gereken yerleri kalın yap. Asla ham json veya dizi gösterme, okunabilir hale getir.
-                Cevapların kısa, net ve anlaşılır olsun. Gereksiz tekrar yapma.
-                """
-                
-                # Fonksiyonları (Tools) tanımla
-                tools = [get_critical_stock, search_product, get_recent_movements, get_production_info]
-                
-                # Modeli başlat
-                model = genai.GenerativeModel('gemini-2.5-flash', tools=tools, system_instruction=system_instruction)
-                
-                # Geçmişi Gemini formatına çevirmek (otomatik tool calling'i bozduğu için)
-                # Sadece son 5 mesajı metin olarak kullanıcı sorgusuna ekle
-                context = ""
-                if len(chat_history) > 0:
-                    context = "Geçmiş Sohbet:\n"
-                    for msg in chat_history[-6:]:
-                        role_name = "Kullanıcı" if msg['role'] == "user" else "Araç/Asistan"
-                        context += f"{role_name}: {msg['content']}\n"
-                    context += f"\nKullanıcının Yeni Sorusu: {query}"
-                else:
-                    context = query
-                
-                # Sohbeti başlat (Taze bir chat, çünkü geçmiş hatalıysa çalışmıyor)
-                chat = model.start_chat(enable_automatic_function_calling=True)
-                response = chat.send_message(context)
-                
-                try:
-                    answer = response.text.strip()
-                    if not answer:
-                        answer = "Veriler analiz edildi ancak sistem metin üretemedi."
-                except ValueError:
-                    # Gemini returned finish_reason=1 but no text parts
-                    answer = "Veriler analiz edildi ancak gösterilebilir bir rapor oluşturulamadı (Boş Yanıt). En olası sebep stok listesinin çok uzun olması veya API kesintisidir."
-                
-                # Mesajları session geçmişine ekle
-                chat_history.append({'role': 'user', 'content': query})
-                chat_history.append({'role': 'ai', 'content': answer})
-                
-                # Eğer geçmiş çok uzarsa performansı etkilememesi için son 10 mesajı tut
-                if len(chat_history) > 20: 
-                    chat_history = chat_history[-20:]
-                    
-                session[history_key] = chat_history
-                session.modified = True
-                
-            except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                print(error_details)  # Log details conceptually
-                answer = f"Bir hata oluştu: {str(e)}"
-                chat_history.append({'role': 'user', 'content': query})
-                chat_history.append({'role': 'ai', 'content': answer})
-                session[history_key] = chat_history
-                session.modified = True
-                
-        # Post sonrası (refresh önlemek için) redirect ile GET'e çevirebiliriz ama şu anki yapı direkt render döndürüyor.
-        return redirect(url_for('reports.ai_assistant'))
-        
     return render_template('reports/ai_assistant.html', chat_history=chat_history)
+
+
+@reports_bp.route('/ai-assistant/ask', methods=['POST'])
+@login_required
+@roles_required('Genel')
+def ai_assistant_ask():
+    """AJAX endpoint - AI sohbet sorgusu"""
+    history_key = f'chat_history_{current_user.id}'
+    if history_key not in session:
+        session[history_key] = []
+    chat_history = session[history_key]
+
+    data = request.get_json()
+    if not data or not data.get('query'):
+        return jsonify({'success': False, 'error': 'Soru boş olamaz.'}), 400
+
+    query = data['query']
+
+    try:
+        api_key = current_app.config.get('GEMINI_API_KEY')
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is not set in the configuration.")
+
+        genai.configure(api_key=api_key)
+
+        system_instruction = """
+        Sen ÇELMAK firmasının Stok ve Üretim Takip sisteminde (MRP) çalışan, Türkçe konuşan akıllı bir Raporlama Asistanısın.
+        Sana veri tabanındaki güncel durumları sormaları halinde sana verdiğimiz fonksiyonları (tools) kullanarak gerçek verileri çekmelisin.
+        Sana verilen fonksiyonları sadece gerektiğinde kullan. Gelen verilere dayanarak kullanıcılara şık, net ve analitik raporlar sun. 
+        Sistemimizde ürünlerin 3 farklı Ürün Tipi vardır: Hakedişte dışarıdan alınan "hammadde", atölyede işlediğimiz "yarimamul" (ör: Kesim/Büküm yapılmış parça), ve bitmiş nihai "mamul" (satılabilir ürün).
+        Ayrıca sistemimizde stoklar Fabrika içindeki "Lokasyonlara" bölünmüş durumdadır. Çektiğin verilerde ("Lokasyon Dağılımı") parantez içinden ürünün hangi üretim hattında veya depoda ne kadar olduğunu görebilir, kullanıcıya detay verebilirsin.
+        
+        MALİYET ve FİYAT BİLGİLERİ:
+        - "Birim Maliyet" bilgisi dış Satın Alma uygulamasından (celmaksatinalma) anlık senkronize edilmektedir.
+        - Her üründe "KDV" (Katma Değer Vergisi) oranı da bulunmaktadır. "KDV Dahil" fiyat = Birim Maliyet × (1 + KDV/100) formülüyle hesaplanır.
+        - Maliyet hesaplamalarında hem KDV hariç hem KDV dahil tutarları açıkça belirt. Toplam stok değeri = Stok Miktarı × Birim Maliyet şeklinde hesaplanır.
+        - Kullanıcı fiyat, maliyet veya bütçe sorduğunda bu verileri net ve anlaşılır şekilde sun.
+        
+        Cevaplarını her zaman şık bir Markdown formatında ver. Özellikle stok veya listeleme verilerini tablo halinde sun! Vurgulanması gereken yerleri kalın yap. Asla ham json veya dizi gösterme, okunabilir hale getir.
+        Cevapların kısa, net ve anlaşılır olsun. Gereksiz tekrar yapma.
+        """
+
+        tools = [get_critical_stock, search_product, get_recent_movements, get_production_info]
+        model = genai.GenerativeModel('gemini-2.5-flash', tools=tools, system_instruction=system_instruction)
+
+        context = ""
+        if len(chat_history) > 0:
+            context = "Geçmiş Sohbet:\n"
+            for msg in chat_history[-6:]:
+                role_name = "Kullanıcı" if msg['role'] == "user" else "Araç/Asistan"
+                context += f"{role_name}: {msg['content']}\n"
+            context += f"\nKullanıcının Yeni Sorusu: {query}"
+        else:
+            context = query
+
+        chat = model.start_chat(enable_automatic_function_calling=True)
+        response = chat.send_message(context)
+
+        try:
+            answer = response.text.strip()
+            if not answer:
+                answer = "Veriler analiz edildi ancak sistem metin üretemedi."
+        except ValueError:
+            answer = "Veriler analiz edildi ancak gösterilebilir bir rapor oluşturulamadı."
+
+        chat_history.append({'role': 'user', 'content': query})
+        chat_history.append({'role': 'ai', 'content': answer})
+
+        if len(chat_history) > 20:
+            chat_history = chat_history[-20:]
+
+        session[history_key] = chat_history
+        session.modified = True
+
+        return jsonify({'success': True, 'answer': answer})
+
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        error_msg = f"Bir hata oluştu: {str(e)}"
+        chat_history.append({'role': 'user', 'content': query})
+        chat_history.append({'role': 'ai', 'content': error_msg})
+        session[history_key] = chat_history
+        session.modified = True
+        return jsonify({'success': False, 'error': error_msg}), 500
+
+
+@reports_bp.route('/ai-assistant/clear', methods=['POST'])
+@login_required
+@roles_required('Genel')
+def ai_assistant_clear():
+    """Sohbet geçmişini temizle"""
+    history_key = f'chat_history_{current_user.id}'
+    session[history_key] = []
+    session.modified = True
+    return jsonify({'success': True})
 
 
 @reports_bp.route('/')
