@@ -19,11 +19,18 @@
                         </div>
 
                         <div class="mb-3">
+                            <label for="target_search" class="form-label">Ürün Ara (İsteğe Bağlı)</label>
+                            <input type="text" class="form-control" id="target_search"
+                                placeholder="Ürün adı veya kodu arayın...">
+                        </div>
+
+                        <div class="mb-3">
                             <label for="target_product_id" class="form-label">Üretilecek Ürün (Hedef) *</label>
                             <select class="form-select" id="target_product_id" name="target_product_id" required>
                                 <option value="">-- Mamül / Yarımamül Seçiniz --</option>
                                 {% for p in target_products %}
-                                <option value="{{ p.id }}">{{ p.name }} ({{ p.code }})</option>
+                                <option value="{{ p.id }}" data-name="{{ p.name }}" data-code="{{ p.code }}">{{ p.name
+                                    }} ({{ p.code }})</option>
                                 {% endfor %}
                             </select>
                             <small class="text-muted">Bu reçete üretildiğinde hangi ürünün stoğu artacak?</small>
@@ -67,4 +74,32 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('target_search');
+        const productSelect = document.getElementById('target_product_id');
+        const options = productSelect.querySelectorAll('option');
+
+        if (searchInput && productSelect) {
+            searchInput.addEventListener('input', function () {
+                const searchTerm = this.value.toLowerCase();
+
+                options.forEach(option => {
+                    if (option.value === '') return;
+
+                    const name = (option.dataset.name || '').toLowerCase();
+                    const code = (option.dataset.code || '').toLowerCase();
+                    const text = option.textContent.toLowerCase();
+
+                    if (name.includes(searchTerm) || code.includes(searchTerm) || text.includes(searchTerm)) {
+                        option.style.display = '';
+                    } else {
+                        option.style.display = 'none';
+                    }
+                });
+            });
+        }
+    });
+</script>
 {% endblock %}

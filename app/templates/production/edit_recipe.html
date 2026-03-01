@@ -34,11 +34,18 @@
                         </div>
 
                         <div class="mb-3">
+                            <label for="target_search" class="form-label">Ürün Ara (İsteğe Bağlı)</label>
+                            <input type="text" class="form-control" id="target_search"
+                                placeholder="Ürün adı veya kodu arayın...">
+                        </div>
+
+                        <div class="mb-3">
                             <label for="target_product_id" class="form-label">Üretilecek Ürün (Hedef) *</label>
                             <select class="form-select" id="target_product_id" name="target_product_id" required>
                                 <option value="">-- Mamül / Yarımamül Seçiniz --</option>
                                 {% for p in target_products %}
-                                <option value="{{ p.id }}" {% if recipe.target_product_id==p.id %}selected{% endif %}>
+                                <option value="{{ p.id }}" data-name="{{ p.name }}" data-code="{{ p.code }}" {% if
+                                    recipe.target_product_id==p.id %}selected{% endif %}>
                                     {{ p.name }} ({{ p.code }})
                                 </option>
                                 {% endfor %}
@@ -191,27 +198,57 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        // Material Search
         const searchInput = document.getElementById('product_search');
         const productSelect = document.getElementById('product_id');
         const options = productSelect.querySelectorAll('option');
 
-        searchInput.addEventListener('input', function () {
-            const searchTerm = this.value.toLowerCase();
+        if (searchInput && productSelect) {
+            searchInput.addEventListener('input', function () {
+                const searchTerm = this.value.toLowerCase();
 
-            options.forEach(option => {
-                if (option.value === '') return;
+                options.forEach(option => {
+                    if (option.value === '') return;
 
-                const name = (option.dataset.name || '').toLowerCase();
-                const code = (option.dataset.code || '').toLowerCase();
-                const text = option.textContent.toLowerCase();
+                    const name = (option.dataset.name || '').toLowerCase();
+                    const code = (option.dataset.code || '').toLowerCase();
+                    const text = option.textContent.toLowerCase();
 
-                if (name.includes(searchTerm) || code.includes(searchTerm) || text.includes(searchTerm)) {
-                    option.style.display = '';
-                } else {
-                    option.style.display = 'none';
-                }
+                    if (name.includes(searchTerm) || code.includes(searchTerm) || text.includes(searchTerm)) {
+                        option.style.display = '';
+                    } else {
+                        option.style.display = 'none';
+                    }
+                });
             });
-        });
+        }
+
+        // Target Product Search
+        const targetSearch = document.getElementById('target_search');
+        const targetSelect = document.getElementById('target_product_id');
+        if (targetSelect) {
+            const targetOptions = targetSelect.querySelectorAll('option');
+
+            if (targetSearch) {
+                targetSearch.addEventListener('input', function () {
+                    const searchTerm = this.value.toLowerCase();
+
+                    targetOptions.forEach(option => {
+                        if (option.value === '') return;
+
+                        const name = (option.dataset.name || '').toLowerCase();
+                        const code = (option.dataset.code || '').toLowerCase();
+                        const text = option.textContent.toLowerCase();
+
+                        if (name.includes(searchTerm) || code.includes(searchTerm) || text.includes(searchTerm)) {
+                            option.style.display = '';
+                        } else {
+                            option.style.display = 'none';
+                        }
+                    });
+                });
+            }
+        }
     });
 </script>
 {% endblock %}
