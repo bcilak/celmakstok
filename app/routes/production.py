@@ -15,14 +15,18 @@ production_bp = Blueprint('production', __name__)
 @roles_required('Genel', 'Yönetici')
 def index():
     """Kategorileri üretim hatları olarak listele"""
+    active_categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
+    
     if current_user.is_admin():
-        categories = Category.query.order_by(Category.name).all()
+        inactive_categories = Category.query.filter_by(is_active=False).order_by(Category.name).all()
     else:
-        categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
+        inactive_categories = []
+    
+    all_categories = active_categories + inactive_categories
     
     # Her kategori için istatistikler
     category_stats = {}
-    for cat in categories:
+    for cat in all_categories:
         product_count = Product.query.filter_by(category_id=cat.id, is_active=True).count()
         total_stock = db.session.query(func.sum(Product.current_stock)).filter(
             Product.category_id == cat.id,
@@ -44,7 +48,8 @@ def index():
         }
     
     return render_template('production/index.html', 
-        categories=categories, 
+        categories=active_categories,
+        inactive_categories=inactive_categories,
         category_stats=category_stats)
 
 @production_bp.route('/category/<int:id>')
