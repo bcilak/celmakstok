@@ -86,6 +86,13 @@
                         </div>
 
                         <div class="col-12">
+                            <label class="form-label">Malzeme / Özellik</label>
+                            <input type="text" name="material" class="form-control"
+                                placeholder="Örn: S235, AISI 304, PP, NBR..." value="{{ product.material or '' }}">
+                            <div class="form-text">BOM'dan otomatik gelir, elle düzenlenebilir.</div>
+                        </div>
+
+                        <div class="col-12">
                             <label class="form-label">Notlar</label>
                             <textarea name="notes" class="form-control" rows="3">{{ product.notes or '' }}</textarea>
                         </div>

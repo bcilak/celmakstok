@@ -70,7 +70,7 @@ def index():
         items = all_products[start:end]
         
         # Pagination objesi oluştur
-        from flask import Markup
+        from markupsafe import Markup
         class CustomPagination:
             def __init__(self, items, page, per_page, total):
                 self.items = items
@@ -100,16 +100,23 @@ def index():
         products = query.order_by(Product.name).paginate(page=page, per_page=per_page)
     categories = Category.query.all()
     
-    return render_template('products/index.html', 
-        products=products, 
-        categories=categories,
-        selected_category=category_id,
-        selected_type=selected_type,
-        search=search,
-        status=status,
-        sort_by=sort_by,
-        sort_order=sort_order
-    )
+    from app.models import BomNode
+    root_nodes = BomNode.query.filter_by(level=0).all()
+    product_bom_map = {}
+    for node in root_nodes:
+        if node.item and node.item.product_id:
+            product_bom_map[node.item.product_id] = node.bom_id
+
+    return render_template('products/index.html',
+                         products=products,
+                         categories=categories,
+                         selected_category=category_id,
+                         selected_type=selected_type,
+                         search=search,
+                         status=status,
+                         sort_by=sort_by,
+                         sort_order=sort_order,
+                         product_bom_map=product_bom_map)
 
 @products_bp.route('/add', methods=['GET', 'POST'])
 @login_required
@@ -125,6 +132,7 @@ def add():
         current_stock = request.form.get('current_stock', 0, type=float)
         barcode = request.form.get('barcode', '')
         notes = request.form.get('notes', '')
+        material = request.form.get('material') or None
 
         if Product.query.filter_by(code=code).first():
             flash('Bu ürün kodu zaten kullanılıyor.', 'error')
@@ -138,7 +146,8 @@ def add():
                 minimum_stock=minimum_stock,
                 current_stock=current_stock,
                 barcode=barcode,
-                notes=notes
+                notes=notes,
+                material=material,
             )
             db.session.add(product)
             db.session.commit()
@@ -174,7 +183,19 @@ def view(id):
     movements = StockMovement.query.filter_by(product_id=id).order_by(
         StockMovement.date.desc()
     ).limit(20).all()
-    return render_template('products/view.html', product=product, movements=movements)
+
+    # BOM'larda bu ürünün kullanıldığı düğümleri getir (fireli/firesiz verisi için)
+    from app.models import BomNode, BomItem
+    bom_usages = (
+        BomNode.query
+        .join(BomItem, BomNode.item_id == BomItem.id)
+        .filter(BomItem.product_id == id)
+        .order_by(BomNode.bom_id, BomNode.num)
+        .all()
+    )
+
+    return render_template('products/view.html', product=product,
+                           movements=movements, bom_usages=bom_usages)
 
 @products_bp.route('/<int:id>/edit', methods=['GET', 'POST'])
 @login_required
@@ -190,6 +211,7 @@ def edit(id):
         product.minimum_stock = request.form.get('minimum_stock', 0, type=float)
         product.barcode = request.form.get('barcode', '')
         product.notes = request.form.get('notes', '')
+        product.material = request.form.get('material') or None
         
         db.session.commit()
         flash('Ürün başarıyla güncellendi.', 'success')

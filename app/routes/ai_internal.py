@@ -24,8 +24,9 @@ def serialize_production(p):
     return {
         'id': p.id,
         'date': p.date.isoformat() if p.date else None,
-        'recipe_id': p.recipe_id,
-        'recipe_name': p.recipe.name if getattr(p, 'recipe', None) else None,
+        'bom_id': p.bom_id,
+        'product_id': p.product_id,
+        'product_name': p.product.name if p.product else None,
         'quantity': p.quantity,
         'note': p.note,
     }
@@ -49,7 +50,7 @@ def user_activity(user_id):
     until = request.args.get('until')
 
     qm = StockMovement.query.options(joinedload(StockMovement.product)).filter_by(user_id=user_id)
-    qp = ProductionRecord.query.options(joinedload(ProductionRecord.recipe)).filter_by(user_id=user_id)
+    qp = ProductionRecord.query.filter_by(user_id=user_id)
     qs = CountSession.query.filter_by(user_id=user_id)
 
     if since:

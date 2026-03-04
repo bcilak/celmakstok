@@ -1,398 +1,117 @@
 {% extends "base.html" %}
 
-{% block title %}Üretim Hatları / Kategoriler - ÇELMAK Stok Takip{% endblock %}
-
 {% block content %}
-<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
-    <div>
-        <h1 class="page-title"><i class="bi bi-gear-fill me-2"></i>Üretim Hatları</h1>
-        <p class="page-subtitle">Kategorilere göre ürünleri görüntüle ve yönet</p>
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">
+            <i class="fas fa-industry text-primary me-2"></i>Üretim Hatları
+        </h2>
+        <div>
+            <a href="{{ url_for('production.add_line') }}" class="btn btn-outline-primary shadow-sm me-2">
+                <i class="fas fa-plus"></i> Yeni Hat
+            </a>
+            <a href="{{ url_for('production.bom_import_v2') }}" class="btn btn-success shadow-sm">
+                <i class="fas fa-file-excel"></i> Excel'den Ürün Al
+            </a>
+        </div>
     </div>
-    <div class="d-flex gap-2">
-        {% if current_user.role == 'admin' %}
-        <a href="{{ url_for('production.add_line') }}" class="btn btn-primary">
-            <i class="bi bi-plus-lg me-1"></i>Yeni Hat Ekle
-        </a>
+
+    <!-- Overview Stats -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm bg-primary text-white p-3 h-100">
+                <h5 class="fw-normal opacity-75 mb-1">Toplam Hat Sayısı</h5>
+                <h3>{{ categories|length }}</h3>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for cat in categories %}
+        <div class="col">
+            <div class="card h-100 border-0 shadow-sm category-card" style="transition: all 0.2s;">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center">
+                            <i class="fas {{ cat.icon or 'fa-cogs' }} fa-fw fs-4 text-secondary me-3"></i>
+                            <h5 class="card-title mb-0 fw-bold text-dark">{{ cat.name }}</h5>
+                        </div>
+                        <div class="dropdown">
+                            <button class="btn btn-link text-muted p-0 text-decoration-none" data-bs-toggle="dropdown">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                <li><a class="dropdown-item" href="{{ url_for('production.edit_line', id=cat.id) }}"><i
+                                            class="fas fa-edit fa-fw text-primary"></i> Düzenle</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <p class="text-muted small mb-3">
+                        {{ cat.description or "Açıklama bulunmuyor." }}
+                    </p>
+
+                    <!-- We list the specific Finished Products assigned to this category -->
+                    <h6 class="text-uppercase text-muted fw-bold mb-2 small"><i class="fas fa-box-open me-2"></i>Kayıtlı
+                        Ana Mamuller</h6>
+                    <div class="list-group list-group-flush mb-3">
+                        {% set ns = namespace(found=0) %}
+                        {% for product in cat.products %}
+                        {% if product.bom_items|length > 0 %}
+                        {% set ns.found = ns.found + 1 %}
+                        <a href="{{ url_for('production.bom_list') }}?product={{ product.id }}"
+                            class="list-group-item list-group-item-action d-flex justify-content-between align-items-center px-0 py-2 border-0">
+                            <div class="d-flex flex-column text-truncate" style="max-width: 80%;">
+                                <span class="text-dark fw-medium small mb-1">{{ product.name }}</span>
+                                <span class="text-muted" style="font-size: 0.70rem;"><i class="fas fa-barcode"></i> {{
+                                    product.code }}</span>
+                            </div>
+                            <span class="badge bg-success rounded-pill ms-2" style="font-size: 0.70rem;">BOM</span>
+                        </a>
+                        {% endif %}
+                        {% endfor %}
+
+                        {% if ns.found == 0 %}
+                        <div class="text-muted small py-2 fst-italic">Henüz bu hatta kayıtlı reçeteli mamul yok.</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="card-footer bg-light border-0 py-3 mt-auto">
+                    <div class="d-grid gap-2">
+                        <a href="{{ url_for('production.consume', id=cat.id) }}"
+                            class="btn btn-primary btn-sm rounded fw-medium text-white d-flex justify-content-center align-items-center">
+                            <i class="fas fa-clipboard-list me-2"></i> İş Emri Başlat
+                        </a>
+                        <a href="{{ url_for('products.index') }}?category={{ cat.id }}"
+                            class="btn btn-outline-secondary btn-sm rounded d-flex justify-content-center align-items-center">
+                            <i class="fas fa-list me-2"></i> Tüm Ürünleri Gör ({{ cat.products.all()|length }})
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        {% if categories|length == 0 %}
+        <div class="col-12">
+            <div class="alert alert-info border-0 shadow-sm d-flex align-items-center p-4">
+                <i class="fas fa-info-circle fs-3 me-3"></i>
+                <div>
+                    <h5 class="alert-heading fw-bold mb-1">Kayıtlı Üretim Hattı Yok</h5>
+                    <p class="mb-0">Henüz hiçbir üretim hattı veya kategori tanımlanmamış. Yeni bir hat ekleyerek
+                        başlayabilirsiniz.</p>
+                </div>
+            </div>
+        </div>
         {% endif %}
-        <a href="{{ url_for('production.recipes') }}" class="btn btn-outline-primary">
-            <i class="bi bi-journal-code me-1"></i>Reçeteler
-        </a>
     </div>
 </div>
 
-<!-- Özet Kartları -->
-<div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body py-3">
-                <div class="d-flex align-items-center">
-                    <div class="gradient-icon primary me-3">
-                        <i class="bi bi-folder2"></i>
-                    </div>
-                    <div>
-                        <div class="fs-4 fw-bold text-dark">{{ categories|length }}</div>
-                        <small class="text-muted">Kategori</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body py-3">
-                <div class="d-flex align-items-center">
-                    <div class="gradient-icon success me-3">
-                        <i class="bi bi-box-seam"></i>
-                    </div>
-                    <div>
-                        <div class="fs-4 fw-bold text-success">
-                            {% set total_products = namespace(value=0) %}
-                            {% for cat in categories %}
-                            {% set total_products.value = total_products.value + category_stats[cat.id].product_count %}
-                            {% endfor %}
-                            {{ total_products.value }}
-                        </div>
-                        <small class="text-muted">Toplam Ürün</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body py-3">
-                <div class="d-flex align-items-center">
-                    <div class="gradient-icon warning me-3">
-                        <i class="bi bi-exclamation-triangle"></i>
-                    </div>
-                    <div>
-                        <div class="fs-4 fw-bold text-warning">
-                            {% set total_critical = namespace(value=0) %}
-                            {% for cat in categories %}
-                            {% set total_critical.value = total_critical.value + category_stats[cat.id].critical_count
-                            %}
-                            {% endfor %}
-                            {{ total_critical.value }}
-                        </div>
-                        <small class="text-muted">Kritik Stok</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body py-3">
-                <div class="d-flex align-items-center">
-                    <div class="gradient-icon info me-3">
-                        <i class="bi bi-boxes"></i>
-                    </div>
-                    <div>
-                        <div class="fs-4 fw-bold text-info">
-                            {% set total_stock = namespace(value=0) %}
-                            {% for cat in categories %}
-                            {% set total_stock.value = total_stock.value + category_stats[cat.id].total_stock %}
-                            {% endfor %}
-                            {{ "%.0f"|format(total_stock.value) }}
-                        </div>
-                        <small class="text-muted">Toplam Stok</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Sekmeler -->
-<ul class="nav nav-tabs mb-4" id="linesTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="active-tab" data-bs-toggle="tab" data-bs-target="#activeLines" type="button"
-            role="tab">
-            <i class="bi bi-check-circle me-1 text-success"></i>Aktif Hatlar
-            <span class="badge bg-success ms-1">{{ categories|length }}</span>
-        </button>
-    </li>
-    {% if current_user.role == 'admin' %}
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="inactive-tab" data-bs-toggle="tab" data-bs-target="#inactiveLines" type="button"
-            role="tab">
-            <i class="bi bi-x-circle me-1 text-secondary"></i>Pasif Hatlar
-            <span class="badge bg-secondary ms-1">{{ inactive_categories|length }}</span>
-        </button>
-    </li>
-    {% endif %}
-</ul>
-
-<div class="tab-content" id="linesTabContent">
-    <!-- Aktif Hatlar Sekmesi -->
-    <div class="tab-pane fade show active" id="activeLines" role="tabpanel">
-        <!-- Arama ve Filtre -->
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body">
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-8">
-                        <label class="form-label small text-muted">
-                            <i class="bi bi-search me-1"></i>Kategori Ara
-                        </label>
-                        <div class="search-input-wrapper">
-                            <i class="bi bi-search search-icon"></i>
-                            <input type="text" id="categorySearch" class="form-control"
-                                placeholder="Kategori adı yazın...">
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label small text-muted">
-                            <i class="bi bi-sort-down me-1"></i>Sıralama
-                        </label>
-                        <select id="categorySort" class="form-select">
-                            <option value="name">Ada Göre</option>
-                            <option value="count">Ürün Sayısına Göre</option>
-                            <option value="stock">Stok Miktarına Göre</option>
-                            <option value="critical">Kritik Stoğa Göre</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Aktif Kategori Kartları -->
-        <div class="row g-4" id="categoryList">
-            {% for cat in categories %}
-            <div class="col-md-6 col-xl-4 category-card" data-name="{{ cat.name.lower() }}"
-                data-count="{{ category_stats[cat.id].product_count }}"
-                data-stock="{{ category_stats[cat.id].total_stock }}"
-                data-critical="{{ category_stats[cat.id].critical_count }}">
-                <div class="card border-0 shadow-sm h-100 hover-shadow">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div class="d-flex align-items-center">
-                                <div class="gradient-icon primary me-3">
-                                    <i class="bi bi-folder-fill"></i>
-                                </div>
-                                <div>
-                                    <h5 class="card-title mb-0 fw-bold">{{ cat.name }}</h5>
-                                    {% if cat.description %}
-                                    <small class="text-muted">{{ cat.description }}</small>
-                                    {% endif %}
-                                </div>
-                            </div>
-                            {% if category_stats[cat.id].critical_count > 0 %}
-                            <span class="badge bg-danger bg-opacity-10 text-danger px-2 py-1 pulse-danger">
-                                <i class="bi bi-exclamation-triangle me-1"></i>{{ category_stats[cat.id].critical_count
-                                }}
-                            </span>
-                            {% endif %}
-                        </div>
-
-                        <div class="row text-center g-2 mb-4">
-                            <div class="col-4">
-                                <div class="bg-primary bg-opacity-10 rounded-3 p-3">
-                                    <div class="fw-bold text-primary fs-4">{{ category_stats[cat.id].product_count }}
-                                    </div>
-                                    <small class="text-muted">Ürün</small>
-                                </div>
-                            </div>
-                            <div class="col-4">
-                                <div class="bg-success bg-opacity-10 rounded-3 p-3">
-                                    <div class="fw-bold text-success fs-4">{{
-                                        "%.0f"|format(category_stats[cat.id].total_stock) }}</div>
-                                    <small class="text-muted">Stok</small>
-                                </div>
-                            </div>
-                            <div class="col-4">
-                                <div class="bg-danger bg-opacity-10 rounded-3 p-3">
-                                    <div class="fw-bold text-danger fs-4">{{ category_stats[cat.id].critical_count }}
-                                    </div>
-                                    <small class="text-muted">Kritik</small>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="d-grid gap-2">
-                            <a href="{{ url_for('production.view_category', id=cat.id) }}" class="btn btn-primary">
-                                <i class="bi bi-box-seam me-2"></i>Ürünleri Görüntüle
-                            </a>
-                            {% if current_user.role == 'admin' %}
-                            <div class="btn-group btn-group-sm">
-                                <a href="{{ url_for('production.edit_line', id=cat.id) }}"
-                                    class="btn btn-outline-secondary">
-                                    <i class="bi bi-pencil me-1"></i>Düzenle
-                                </a>
-                                <a href="{{ url_for('production.toggle_line', id=cat.id) }}"
-                                    class="btn btn-outline-danger"
-                                    onclick="return confirm('{{ cat.name }} üretim hattını devre dışı yapmak istediğinizden emin misiniz?')">
-                                    <i class="bi bi-x-circle me-1"></i>Pasife Al
-                                </a>
-                                <button type="button" class="btn btn-outline-danger"
-                                    onclick="if(confirm('{{ cat.name }} üretim hattını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) { document.getElementById('delete-line-{{ cat.id }}').submit(); }">
-                                    <i class="bi bi-trash me-1"></i>Sil
-                                </button>
-                            </div>
-                            <form id="delete-line-{{ cat.id }}"
-                                action="{{ url_for('production.delete_line', id=cat.id) }}" method="POST"
-                                style="display:none;"></form>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% else %}
-            <div class="col-12">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body text-center py-5">
-                        <i class="bi bi-folder-x display-1 text-muted"></i>
-                        <h4 class="mt-3 text-muted">Aktif kategori bulunamadı</h4>
-                        <p class="text-muted">Henüz aktif kategori oluşturulmamış.</p>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <!-- Pasif Hatlar Sekmesi (sadece admin) -->
-    {% if current_user.role == 'admin' %}
-    <div class="tab-pane fade" id="inactiveLines" role="tabpanel">
-        <!-- Arama (pasif) -->
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body">
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-8">
-                        <label class="form-label small text-muted">
-                            <i class="bi bi-search me-1"></i>Pasif Kategori Ara
-                        </label>
-                        <div class="search-input-wrapper">
-                            <i class="bi bi-search search-icon"></i>
-                            <input type="text" id="inactiveCategorySearch" class="form-control"
-                                placeholder="Kategori adı yazın...">
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Pasif Kategori Kartları -->
-        <div class="row g-4" id="inactiveCategoryList">
-            {% for cat in inactive_categories %}
-            <div class="col-md-6 col-xl-4 inactive-category-card" data-name="{{ cat.name.lower() }}">
-                <div class="card border-0 shadow-sm h-100 hover-shadow opacity-75">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div class="d-flex align-items-center">
-                                <div class="gradient-icon secondary me-3">
-                                    <i class="bi bi-folder2"></i>
-                                </div>
-                                <div>
-                                    <h5 class="card-title mb-0 fw-bold text-muted">{{ cat.name }}</h5>
-                                    {% if cat.description %}
-                                    <small class="text-muted">{{ cat.description }}</small>
-                                    {% endif %}
-                                </div>
-                            </div>
-                            <span class="badge bg-secondary bg-opacity-10 text-secondary px-2 py-1">
-                                <i class="bi bi-pause-circle me-1"></i>Pasif
-                            </span>
-                        </div>
-
-                        <div class="row text-center g-2 mb-4">
-                            <div class="col-6">
-                                <div class="bg-secondary bg-opacity-10 rounded-3 p-3">
-                                    <div class="fw-bold text-secondary fs-4">{{ category_stats[cat.id].product_count }}
-                                    </div>
-                                    <small class="text-muted">Ürün</small>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="bg-secondary bg-opacity-10 rounded-3 p-3">
-                                    <div class="fw-bold text-secondary fs-4">{{
-                                        "%.0f"|format(category_stats[cat.id].total_stock) }}</div>
-                                    <small class="text-muted">Stok</small>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="d-grid gap-2">
-                            <a href="{{ url_for('production.view_category', id=cat.id) }}"
-                                class="btn btn-outline-secondary">
-                                <i class="bi bi-box-seam me-2"></i>Ürünleri Görüntüle
-                            </a>
-                            <div class="btn-group btn-group-sm">
-                                <a href="{{ url_for('production.edit_line', id=cat.id) }}"
-                                    class="btn btn-outline-secondary">
-                                    <i class="bi bi-pencil me-1"></i>Düzenle
-                                </a>
-                                <a href="{{ url_for('production.toggle_line', id=cat.id) }}"
-                                    class="btn btn-outline-success"
-                                    onclick="return confirm('{{ cat.name }} üretim hattını aktif yapmak istediğinizden emin misiniz?')">
-                                    <i class="bi bi-check-circle me-1"></i>Aktife Al
-                                </a>
-                                <button type="button" class="btn btn-outline-danger"
-                                    onclick="if(confirm('{{ cat.name }} üretim hattını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) { document.getElementById('delete-inactive-{{ cat.id }}').submit(); }">
-                                    <i class="bi bi-trash me-1"></i>Sil
-                                </button>
-                            </div>
-                            <form id="delete-inactive-{{ cat.id }}"
-                                action="{{ url_for('production.delete_line', id=cat.id) }}" method="POST"
-                                style="display:none;"></form>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% else %}
-            <div class="col-12">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body text-center py-5">
-                        <i class="bi bi-check-circle display-1 text-muted"></i>
-                        <h4 class="mt-3 text-muted">Pasif hat bulunamadı</h4>
-                        <p class="text-muted">Tüm üretim hatları aktif durumda.</p>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-</div>
-
-<script>
-    // Aktif sekme arama
-    document.getElementById('categorySearch').addEventListener('input', function () {
-        const search = this.value.toLowerCase();
-        document.querySelectorAll('.category-card').forEach(card => {
-            const name = card.dataset.name;
-            card.style.display = name.includes(search) ? '' : 'none';
-        });
-    });
-
-    // Aktif sekme sıralama
-    document.getElementById('categorySort').addEventListener('change', function () {
-        const container = document.getElementById('categoryList');
-        const cards = Array.from(container.querySelectorAll('.category-card'));
-
-        cards.sort((a, b) => {
-            if (this.value === 'name') {
-                return a.dataset.name.localeCompare(b.dataset.name, 'tr');
-            } else if (this.value === 'count') {
-                return parseInt(b.dataset.count) - parseInt(a.dataset.count);
-            } else if (this.value === 'critical') {
-                return parseInt(b.dataset.critical) - parseInt(a.dataset.critical);
-            } else {
-                return parseFloat(b.dataset.stock) - parseFloat(a.dataset.stock);
-            }
-        });
-
-        cards.forEach(card => container.appendChild(card));
-    });
-
-    // Pasif sekme arama
-    const inactiveSearch = document.getElementById('inactiveCategorySearch');
-    if (inactiveSearch) {
-        inactiveSearch.addEventListener('input', function () {
-            const search = this.value.toLowerCase();
-            document.querySelectorAll('.inactive-category-card').forEach(card => {
-                card.style.display = card.dataset.name.includes(search) ? '' : 'none';
-            });
-        });
+<style>
+    .category-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .15) !important;
     }
-</script>
+</style>
 {% endblock %}

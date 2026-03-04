@@ -54,6 +54,12 @@
                         <td class="text-muted">Birim</td>
                         <td>{{ product.unit_type }}</td>
                     </tr>
+                    {% if product.material %}
+                    <tr>
+                        <td class="text-muted">Malzeme / Özellik</td>
+                        <td>{{ product.material }}</td>
+                    </tr>
+                    {% endif %}
                     {% if product.dimensions %}
                     <tr>
                         <td class="text-muted">Ölçüler</td>
@@ -182,6 +188,106 @@
         </div>
     </div>
 </div>
+
+<!-- BOM Kullanım Bilgisi -->
+{% if bom_usages %}
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-diagram-3 me-2 text-primary"></i>BOM'larda Kullanım — Fireli / Firesiz Analizi</span>
+        <span class="badge bg-secondary">{{ bom_usages | length }} kayıt</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3">BOM #</th>
+                        <th>Pozisyon</th>
+                        <th>Seviye</th>
+                        <th class="text-end text-primary">Fireli Miktar</th>
+                        <th class="text-end text-success">Firesiz Miktar</th>
+                        <th class="text-end text-warning">Fire %</th>
+                        <th class="text-end" style="color:#6a1b9a;">Birim Ağırlık</th>
+                        <th>İşlem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for node in bom_usages %}
+                    {%- set fireli = node.quantity | float -%}
+                    {%- set firesiz = (node.quantity_net | float) if node.quantity_net else none -%}
+                    {%- set weight = (node.weight_per_unit | float) if node.weight_per_unit else none -%}
+                    {%- set unit = node.unit_type -%}
+                    {%- set is_weight_unit = unit in ('kg', 'gr', 'ton') -%}
+                    {%- set is_length_unit = unit in ('metre', 'cm', 'mm', 'm²', 'm³') -%}
+                    {%- if firesiz and firesiz > 0 and firesiz != fireli -%}
+                    {%- set waste_pct = ((fireli - firesiz) / firesiz * 100) | round(1) -%}
+                    {%- else -%}
+                    {%- set waste_pct = none -%}
+                    {%- endif -%}
+                    <tr>
+                        <td class="ps-3">
+                            <span class="badge bg-primary">BOM #{{ node.bom_id }}</span>
+                        </td>
+                        <td class="fw-medium">{{ node.num }}&nbsp;{{ node.display_name }}
+                            {% if node.item and node.item.code %}
+                            <span class="text-muted small ms-1">[{{ node.item.code }}]</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="badge bg-light text-secondary border">L{{ node.level }}</span></td>
+                        <td class="text-end fw-bold text-primary">
+                            {% if is_weight_unit %}<i class="fas fa-weight-hanging fa-xs me-1 opacity-50"></i>
+                            {% elif is_length_unit %}<i class="fas fa-ruler-horizontal fa-xs me-1 opacity-50"></i>
+                            {% else %}<i class="fas fa-hashtag fa-xs me-1 opacity-50"></i>{% endif %}
+                            {{ "%.4g"|format(fireli) }} {{ unit }}
+                        </td>
+                        <td class="text-end text-success">
+                            {% if firesiz %}
+                            {{ "%.4g"|format(firesiz) }} {{ unit }}
+                            {% else %}<span class="text-muted">—</span>{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if waste_pct is not none and waste_pct > 0 %}
+                            <span class="badge bg-warning text-dark">%{{ waste_pct }}</span>
+                            {% elif firesiz and firesiz == fireli %}
+                            <span class="text-muted small">%0 (fire yok)</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if weight and not is_weight_unit %}
+                            {# Birim ağırlık: kg/birim. Birim 'kg' ise miktar zaten ağırlık, gereksiz #}
+                            {%- set w_suffix = '/m' if is_length_unit else ('/' ~ unit) -%}
+                            <span class="badge" style="background:#f3e5f5;color:#6a1b9a;">
+                                {{ "%.4g"|format(weight) }} {{ node.weight_unit or 'kg' }}{{ w_suffix }}
+                            </span>
+                            {% elif is_weight_unit %}
+                            <span class="text-muted small" title="Miktar zaten ağırlık cinsinden">ağırlık bazlı</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('production.bom_tree', bom_id=node.bom_id) }}"
+                                class="btn btn-outline-primary btn-sm py-0 px-2">
+                                <i class="bi bi-diagram-3 me-1"></i>Ağaca Git
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer bg-transparent text-muted small">
+        <i class="fas fa-hashtag me-1"></i>Adet &nbsp;|&nbsp;
+        <i class="fas fa-ruler-horizontal me-1"></i>Uzunluk (metre/cm/mm) &nbsp;|&nbsp;
+        <i class="fas fa-weight-hanging me-1"></i>Ağırlık (kg/gr/ton) &nbsp;|&nbsp;
+        <strong>Fireli</strong> = fire dahil gerçek kullanım &nbsp;|&nbsp;
+        <strong>Firesiz</strong> = ürüne giren net miktar
+    </div>
+</div>
+{% endif %}
 
 <!-- Son Hareketler -->
 <div class="card mt-4">

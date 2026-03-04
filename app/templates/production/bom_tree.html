@@ -1,0 +1,1221 @@
+{% extends "base.html" %}
+
+
+
+{% block title %}BOM #{{ bom_id }} Ağaç Görünümü - ÇELMAK﻿
+<!-- Edit BOM Node Modal -->
+<div class="modal fade" id="editNodeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Bileşen Düzenle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-node-id">
+                <div class="mb-3">
+                    <label class="form-label">Adlandırma</label>
+                    <input type="text" class="form-control" id="edit-node-name">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Malzeme Cinsi</label>
+                    <input type="text" class="form-control" id="edit-node-material">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">BOM / Bileşen Kodu</label>
+                    <input type="text" class="form-control" id="edit-node-code">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Ürün (Ana Stok) Kodu</label>
+                    <input type="text" class="form-control" id="edit-node-product-code">
+                    <small class="text-muted">Bu kodu değiştirirseniz ürünün sistemdeki stok kodu da güncellenir.</small>
+                </div>
+                <div class="row" id="row-piece-count">
+                    <div class="col-12 mb-3">
+                        <label class="form-label">Parça Adedi</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-piece-count">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label" id="lbl-qty">Miktar / Adet (Fireli)</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-quantity">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" id="lbl-qty-net">Miktar / Adet (Firesiz)</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-quantity-net">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="saveNodeEdit()">Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function openEditNodeModal(nodeId) {
+    fetch('/production/api/bom_node/' + nodeId)
+        .then(res => res.json())
+        .then(data => {
+            if(data.error) {
+                alert(data.error); return;
+            }
+            document.getElementById('edit-node-id').value = data.id;
+            document.getElementById('edit-node-name').value = data.name || '';
+            document.getElementById('edit-node-material').value = data.material || '';
+            document.getElementById('edit-node-code').value = data.code || '';
+            document.getElementById('edit-node-product-code').value = data.product_code || '';
+                        
+
+                        
+
+            document.getElementById('edit-node-piece-count').value = data.piece_count || 1;
+            document.getElementById('edit-node-quantity').value = data.quantity || 0;
+            document.getElementById('edit-node-quantity-net').value = data.quantity_net || 0;
+            
+            var modal = new bootstrap.Modal(document.getElementById('editNodeModal'));
+            modal.show();
+        })
+        .catch(err => alert('Hata: ' + err));
+}
+
+function saveNodeEdit() {
+    const nodeId = document.getElementById('edit-node-id').value;
+    const data = {
+        name: document.getElementById('edit-node-name').value,
+        material: document.getElementById('edit-node-material').value,
+        code: document.getElementById('edit-node-code').value,
+        product_code: document.getElementById('edit-node-product-code').value,
+        quantity: parseFloat(document.getElementById('edit-node-quantity').value) || 0,
+        quantity_net: parseFloat(document.getElementById('edit-node-quantity-net').value) || 0,
+        piece_count: parseFloat(document.getElementById('edit-node-piece-count').value) || 1
+    };
+    
+    fetch('/production/api/bom_node/' + nodeId, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(res => {
+        if(res.success) {
+            location.reload();
+        } else {
+            alert('Kaydedilemedi: ' + (res.error || 'Bilinmeyen hata'));
+        }
+    })
+    .catch(err => alert('Hata: ' + err));
+}
+</script>
+
+{% endblock %}
+
+
+
+{% block extra_css %}
+
+<style>
+    /* -- Split Panel Kapsayıcısı --------------------------- */
+
+    #bom-split {
+
+        display: flex;
+
+        height: calc(100vh - 220px);
+
+        min-height: 420px;
+
+        border: 1px solid #dee2e6;
+
+        border-radius: 8px;
+
+        overflow: hidden;
+
+        background: #fff;
+
+        box-shadow: 0 2px 6px rgba(0, 0, 0, .08);
+
+    }
+
+
+
+    /* -- Sol: Ağaç Paneli --------------------------------- */
+
+    #bom-tree-panel {
+
+        width: 360px;
+
+        flex-shrink: 0;
+
+        border-right: 1px solid #dee2e6;
+
+        overflow-y: auto;
+
+        background: #f8fafc;
+
+        padding: 8px 6px;
+
+    }
+
+    #bom-tree-panel .panel-hdr {
+
+        padding: 6px 8px 8px;
+
+        border-bottom: 1px solid #dee2e6;
+
+        margin-bottom: 6px;
+
+        display: flex;
+
+        align-items: center;
+
+        gap: 8px;
+
+    }
+
+
+
+    /* Ağaç düğümleri */
+
+    .bt-node {
+        margin-bottom: 1px;
+    }
+
+    .bt-row {
+
+        display: flex;
+        align-items: center;
+        gap: 4px;
+
+        padding: 5px 6px;
+        cursor: pointer;
+        border-radius: 4px;
+
+        transition: background .15s;
+        white-space: nowrap;
+        overflow: hidden;
+
+        user-select: none;
+
+    }
+
+    .bt-row:hover {
+        background: #eff6ff;
+    }
+
+    .bt-row.active {
+
+        background: #dbeafe;
+
+        border-left: 3px solid #3b82f6;
+
+        font-weight: 600;
+
+        color: #1e3a8a;
+
+    }
+
+    .bt-toggle {
+
+        width: 18px;
+        text-align: center;
+        font-size: 11px;
+
+        color: #64748b;
+        cursor: pointer;
+        flex-shrink: 0;
+
+    }
+
+    .bt-num {
+        font-weight: 700;
+        color: #2563eb;
+        font-size: .78rem;
+        flex-shrink: 0;
+        margin-right: 2px;
+    }
+
+    .bt-name {
+        font-size: .84rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .bt-children {
+
+        margin-left: 14px;
+
+        border-left: 1px dashed #cbd5e1;
+
+        padding-left: 4px;
+
+        display: none;
+
+    }
+
+    .bt-children.open {
+        display: block;
+    }
+
+
+
+    /* Tür rozetleri */
+
+    .bt-type-badge {
+        font-size: .66rem;
+        padding: 1px 5px;
+        border-radius: 3px;
+        flex-shrink: 0;
+        margin-left: auto;
+    }
+
+    .bt-tb-ym {
+        background: #fff8e1;
+        color: #f57f17;
+        border: 1px solid #ffe082;
+    }
+
+    .bt-tb-ham {
+        background: #fce4ec;
+        color: #880e4f;
+        border: 1px solid #f48fb1;
+    }
+
+    .bt-tb-mm {
+        background: #e3f2fd;
+        color: #0d47a1;
+        border: 1px solid #90caf9;
+    }
+
+
+
+    /* -- Sağ: Detay Paneli -------------------------------- */
+
+    #bom-detail-panel {
+
+        flex: 1;
+
+        overflow-y: auto;
+
+        padding: 16px 20px;
+
+        background: #f8fafc;
+
+    }
+
+    #bom-detail-panel table {
+        font-size: .84rem;
+    }
+
+    #bom-detail-panel th {
+
+        background: #f1f5f9;
+        font-size: .8rem;
+
+        position: sticky;
+        top: 0;
+        z-index: 1;
+
+    }
+
+
+
+    /* Tablo satır renkleri */
+
+    .row-ym {
+        background-color: #fef9c3 !important;
+    }
+
+    .row-ham {
+        color: #64748b;
+        font-style: italic;
+    }
+
+    .row-mamul {
+        background-color: #fef08a !important;
+        font-weight: 500;
+    }
+
+    .text-right {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .col-fireli {
+        background-color: #fff1f2 !important;
+    }
+
+    .col-firesiz {
+        background-color: #f0fdf4 !important;
+    }
+</style>
+
+﻿
+<!-- Edit BOM Node Modal -->
+<div class="modal fade" id="editNodeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Bileşen Düzenle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-node-id">
+                <div class="mb-3">
+                    <label class="form-label">Adlandırma</label>
+                    <input type="text" class="form-control" id="edit-node-name">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Malzeme Cinsi</label>
+                    <input type="text" class="form-control" id="edit-node-material">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">BOM / Bileşen Kodu</label>
+                    <input type="text" class="form-control" id="edit-node-code">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Ürün (Ana Stok) Kodu</label>
+                    <input type="text" class="form-control" id="edit-node-product-code">
+                    <small class="text-muted">Bu kodu değiştirirseniz ürünün sistemdeki stok kodu da güncellenir.</small>
+                </div>
+                <div class="row" id="row-piece-count">
+                    <div class="col-12 mb-3">
+                        <label class="form-label">Parça Adedi</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-piece-count">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label" id="lbl-qty">Miktar / Adet (Fireli)</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-quantity">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" id="lbl-qty-net">Miktar / Adet (Firesiz)</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-quantity-net">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="saveNodeEdit()">Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function openEditNodeModal(nodeId) {
+    fetch('/production/api/bom_node/' + nodeId)
+        .then(res => res.json())
+        .then(data => {
+            if(data.error) {
+                alert(data.error); return;
+            }
+            document.getElementById('edit-node-id').value = data.id;
+            document.getElementById('edit-node-name').value = data.name || '';
+            document.getElementById('edit-node-material').value = data.material || '';
+            document.getElementById('edit-node-code').value = data.code || '';
+            document.getElementById('edit-node-product-code').value = data.product_code || '';
+                        
+            let uStr = data.unit ? data.unit.toLowerCase() : '';
+            let lbl = uStr === 'adet' ? 'Adet' : 'Miktar (' + data.unit + ')';
+            document.getElementById('lbl-qty').textContent = lbl + ' (Fireli)';
+            document.getElementById('lbl-qty-net').textContent = lbl + ' (Firesiz)';
+document.getElementById('edit-node-piece-count').value = data.piece_count || 1;
+            document.getElementById('edit-node-quantity').value = data.quantity || 0;
+            document.getElementById('edit-node-quantity-net').value = data.quantity_net || 0;
+            
+            var modal = new bootstrap.Modal(document.getElementById('editNodeModal'));
+            modal.show();
+        })
+        .catch(err => alert('Hata: ' + err));
+}
+
+function saveNodeEdit() {
+    const nodeId = document.getElementById('edit-node-id').value;
+    const data = {
+        name: document.getElementById('edit-node-name').value,
+        material: document.getElementById('edit-node-material').value,
+        code: document.getElementById('edit-node-code').value,
+        product_code: document.getElementById('edit-node-product-code').value,
+        quantity: parseFloat(document.getElementById('edit-node-quantity').value) || 0,
+        quantity_net: parseFloat(document.getElementById('edit-node-quantity-net').value) || 0,
+        piece_count: parseFloat(document.getElementById('edit-node-piece-count').value) || 1
+    };
+    
+    fetch('/production/api/bom_node/' + nodeId, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(res => {
+        if(res.success) {
+            location.reload();
+        } else {
+            alert('Kaydedilemedi: ' + (res.error || 'Bilinmeyen hata'));
+        }
+    })
+    .catch(err => alert('Hata: ' + err));
+}
+</script>
+
+{% endblock %}
+
+
+
+
+
+{% block content %}
+
+<!-- -- Başlık ve Aksiyon Butonları ------------------------- -->
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+
+    <div>
+
+        <h2 class="h3 fw-bold mb-1">
+
+            <i class="bi bi-diagram-3-fill text-primary me-2"></i>BOM #{{ bom_id }} - Ürün Ağacı
+
+        </h2>
+
+        <p class="text-muted small mb-0">
+
+            <a href="{{ url_for('production.api_bom_tree', bom_id=bom_id) }}" target="_blank"
+                class="text-muted text-decoration-none">
+
+                <i class="fas fa-code me-1"></i>JSON API
+
+            </a>
+
+            &nbsp;|&nbsp; Düğüme tıklayarak alt bileşenleri görüntüleyin.
+
+        </p>
+
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap">
+
+        <button id="btn-expand" class="btn btn-sm btn-outline-primary">
+
+            <i class="bi bi-arrows-angle-expand me-1"></i>Tümünü Aç
+
+        </button>
+
+        <button id="btn-collapse" class="btn btn-sm btn-outline-secondary">
+
+            <i class="bi bi-arrows-angle-contract me-1"></i>Tümünü Kapat
+
+        </button>
+
+        <a href="{{ url_for('production.bom_list') }}" class="btn btn-sm btn-secondary">
+
+            <i class="bi bi-arrow-left me-1"></i>Liste
+
+        </a>
+
+        <a href="{{ url_for('production.bom_import_v2') }}" class="btn btn-sm btn-primary">
+
+            <i class="bi bi-upload me-1"></i>Yeni Import
+
+        </a>
+
+        <form action="{{ url_for('production.bom_delete', bom_id=bom_id) }}" method="POST" class="d-inline"
+            onsubmit="return confirm('BOM #{{ bom_id }} kalıcı olarak silinsin mi?')">
+
+            <button type="submit" class="btn btn-sm btn-outline-danger">
+
+                <i class="bi bi-trash me-1"></i>Sil
+
+            </button>
+
+        </form>
+
+    </div>
+
+</div>
+
+
+
+<!-- -- Split Panel ------------------------------------- -->
+
+<div id="bom-split">
+
+    <!-- Sol Ağaç -->
+
+    <div id="bom-tree-panel">
+
+        <div class="panel-hdr">
+
+            <i class="bi bi-diagram-3-fill text-primary small"></i>
+
+            <strong class="small">Hiyerarşi</strong>
+
+            <span id="bom-root-label" class="text-muted small ms-1 text-truncate"></span>
+
+        </div>
+
+        <div id="bom-tree-root"></div>
+
+    </div>
+
+
+
+    <!-- Sağ Detay -->
+
+    <div id="bom-detail-panel">
+
+        <div id="bom-welcome" class="text-center text-muted mt-5 pt-4">
+
+            <i class="fas fa-hand-point-left fa-2x opacity-40 mb-3 d-block"></i>
+
+            <p>Detay görmek için sol ağaçtan bir öğe seçin.</p>
+
+        </div>
+
+
+
+        <div id="bom-content" style="display:none;">
+
+            <!-- Üst Bilgi Kartı -->
+
+            <div class="card border-0 shadow-sm mb-3">
+
+                <div class="card-body py-2 px-3">
+
+                    <div class="d-flex flex-wrap gap-3 align-items-center">
+
+                        <span class="fw-bold" id="det-name">-</span>
+
+                        <span class="badge bg-primary" id="det-num"></span>
+
+                        <span id="det-type-badge"></span>
+
+                        <span class="text-muted small" id="det-qty-info"></span>
+
+                        <span class="text-muted small" id="det-weight-info"></span>
+
+                        <span id="det-code-info" class="text-muted small font-monospace"></span>
+
+                        <div class="ms-auto d-flex gap-2">
+                            <a id="det-produce-link" href="#" class="btn btn-sm btn-success d-none">
+                                <i class="bi bi-hammer me-1"></i>Üretim
+                            </a>
+                            <a id="det-product-link" href="#" class="btn btn-sm btn-outline-secondary d-none"
+                                target="_blank">
+                                <i class="bi bi-box-seam-fill me-1"></i>Stok Kaydı
+                            </a>
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- Alt Bileşenler Tablosu -->
+
+            <div class="card border-0 shadow-sm">
+
+                <div class="card-header bg-light py-2 px-3">
+
+                    <strong class="small">
+
+                        <i class="bi bi-list-ul me-1 text-primary"></i>Alt Bileşenler
+
+                        <span id="det-child-count" class="badge bg-secondary ms-1">0</span>
+
+                    </strong>
+
+                </div>
+
+                <div class="table-responsive">
+
+                    <table class="table table-hover table-sm mb-0">
+
+                        <thead>
+                            <tr>
+                                <th>Numara</th>
+                                <th>Adlandırma</th>
+                                <th>Malzeme Cinsi</th>
+                                <th>Kod</th>
+                                <th class="text-right">Stok</th>
+                                <th class="text-right col-fireli">Fireli Metre</th>
+                                <th class="text-right col-firesiz">Firesiz Metre</th>
+                                <th class="text-right col-fireli">Fireli Ağırlık</th>
+                                <th class="text-right col-firesiz">Firesiz Ağırlık</th>
+                                <th class="text-right">Adet</th>
+                                <th class="text-right" style="color: #ef4444;">Fire %</th>
+                                <th class="text-right">İşlem</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="det-tbody"></tbody>
+
+                    </table>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+
+<script>
+
+    /* ---------------------------------------------------------
+    
+       Sunucudan gelen ağaç verisi (JSON serileştirilmiş)
+    
+    --------------------------------------------------------- */
+
+    const TREE = {{ tree | tojson }};
+
+
+
+    const nodeById = {};
+
+    function flattenTree(nodes) {
+
+        nodes.forEach(n => {
+
+            nodeById[n.id] = n;
+
+            if (n.children && n.children.length) flattenTree(n.children);
+
+        });
+
+    }
+
+    flattenTree(TREE.roots);
+
+
+
+
+
+    /* ---------------------------------------------------------
+    
+       Tür yardımcıları
+    
+    --------------------------------------------------------- */
+    function typeIcon(t, cinsi, name, hasKids) {
+        let icon = '⚙️';
+        let typeLower = cinsi ? String(cinsi).toLowerCase() : (t ? String(t).toLowerCase() : '');
+
+        if (typeLower.includes('montaj') || typeLower.includes('gövde') || typeLower.includes('kutu') || hasKids) icon = '📦';
+        if (typeLower.includes('hazır')) icon = '🔩';
+        if (typeLower.includes('standart_parca') || typeLower.includes('standart')) icon = '🔧';
+        if (typeLower.includes('standart_parca') || typeLower.includes('standart')) icon = '🔧';
+
+        return icon;
+    }
+
+    function typeBadgeClass(t) {
+
+        if (!t) return '';
+
+        const lc = t.toLowerCase();
+
+        if (lc === 'yarimamul') return 'bt-tb-ym';
+
+        if (lc === 'hammadde') return 'bt-tb-ham';
+
+        if (lc === 'mamul') return 'bt-tb-mm';
+
+        if (lc === 'standart_parca') return 'bg-info text-dark';
+
+        if (lc === 'standart_parca') return 'bg-info text-dark';
+
+        return '';
+
+    }
+
+    function typeBadgeText(t) {
+
+        if (!t) return '';
+
+        const lc = t.toLowerCase();
+
+        if (lc === 'yarimamul') return 'Yarı Mamül';
+
+        if (lc === 'hammadde') return 'Hammadde';
+
+        if (lc === 'mamul') return 'Mamül';
+
+        if (lc === 'standart_parca') return 'Standart Parça';
+
+        if (lc === 'standart_parca') return 'Standart Parça';
+
+        return t;
+
+    }
+
+    function rowClass(t, cinsi) {
+        if (!t) return '';
+        const lc = t.toLowerCase();
+        const cinsLc = cinsi ? String(cinsi).toLowerCase() : '';
+
+        if (cinsLc.includes('montaj') || cinsLc.includes('gövde')) return 'row-mamul';
+        if (cinsLc.includes('hazır')) return 'row-ham';
+
+        if (lc === 'yarimamul') return 'row-ym';
+        if (lc === 'hammadde') return 'row-ham';
+        if (lc === 'mamul') return 'row-mamul';
+        return '';
+    }
+
+    function fmtNum(v) {
+
+        if (v === null || v === undefined) return '-';
+
+        const n = parseFloat(v);
+
+        return isNaN(n) ? '-' : (+n.toPrecision(6)).toString();
+
+    }
+
+
+
+
+
+    /* ---------------------------------------------------------
+    
+       Ağaç Oluşturma
+    
+    --------------------------------------------------------- */
+
+    function buildTree() {
+
+        const container = document.getElementById('bom-tree-root');
+
+        container.innerHTML = '';
+
+
+
+        if (!TREE.roots || !TREE.roots.length) {
+
+            container.innerHTML = '<p class="text-muted small p-3">Veri bulunamadı.</p>';
+
+            return;
+
+        }
+
+
+
+        document.getElementById('bom-root-label').textContent = TREE.roots[0].name;
+
+        TREE.roots.forEach(r => container.appendChild(makeNode(r)));
+
+
+
+        /* İlk düğümü otomatik seç ve aç */
+
+        const firstRow = container.querySelector('.bt-row');
+
+        const firstKids = container.querySelector('.bt-children');
+
+        const firstToggle = container.querySelector('.bt-toggle');
+
+        if (firstKids) { firstKids.classList.add('open'); }
+
+        if (firstToggle && firstToggle.innerHTML.trim() !== '&nbsp;') { firstToggle.innerHTML = '▼'; }
+
+        if (firstRow) { firstRow.classList.add('active'); showDetail(TREE.roots[0]); }
+
+    }
+
+
+
+    function makeNode(node) {
+
+        const hasKids = node.children && node.children.length > 0;
+
+        const wrap = document.createElement('div');
+
+        wrap.className = 'bt-node';
+
+
+
+        const row = document.createElement('div');
+
+        row.className = 'bt-row';
+
+        row.title = `${node.num}  ${node.name}`;
+
+        row.onclick = e => {
+
+            document.querySelectorAll('.bt-row').forEach(r => r.classList.remove('active'));
+
+            row.classList.add('active');
+
+            showDetail(node);
+
+            e.stopPropagation();
+
+        };
+
+
+
+        const toggleEl = document.createElement('span');
+
+        toggleEl.className = 'bt-toggle';
+
+        toggleEl.innerHTML = hasKids ? '▶' : '&nbsp;';
+
+
+
+        const bc = typeBadgeClass(node.item_type);
+
+        const bt2 = typeBadgeText(node.item_type);
+
+        const cinsi = node.material ? node.material : node.item_type;
+        const icon = typeIcon(node.item_type, cinsi, node.name, hasKids);
+
+        row.appendChild(toggleEl);
+
+        row.insertAdjacentHTML('beforeend', `
+
+        <span style="margin-right:3px; font-size:14px;">${icon}</span>
+
+        <span class="bt-num">${node.num}</span>
+
+        <span class="bt-name">${node.name} <small class="text-muted ms-1">(${node.quantity} ${node.unit || ''})</small></span>
+
+        ${bc ? `<span class="bt-type-badge ${bc}">${bt2}</span>` : ''}
+
+    `);
+
+        wrap.appendChild(row);
+
+
+
+        if (hasKids) {
+
+            const kidsDiv = document.createElement('div');
+
+            kidsDiv.className = 'bt-children';
+
+            node.children.forEach(c => kidsDiv.appendChild(makeNode(c)));
+
+            wrap.appendChild(kidsDiv);
+
+
+
+            toggleEl.onclick = e => {
+
+                e.stopPropagation();
+
+                const open = kidsDiv.classList.toggle('open');
+
+                toggleEl.innerHTML = open ? '▼' : '▶';
+
+            };
+
+        }
+
+        return wrap;
+
+    }
+
+
+
+
+
+    /* ---------------------------------------------------------
+    
+       Detay Paneli
+    
+    --------------------------------------------------------- */
+
+    function showDetail(node) {
+
+        document.getElementById('bom-welcome').style.display = 'none';
+
+        document.getElementById('bom-content').style.display = 'block';
+
+
+
+        document.getElementById('det-name').textContent = node.name;
+
+        document.getElementById('det-num').textContent = node.num;
+
+
+
+        /* Tür rozeti */
+        const bc = typeBadgeClass(node.item_type);
+        const bt2 = typeBadgeText(node.item_type);
+        document.getElementById('det-type-badge').innerHTML = bc
+            ? `<span class="badge ${bc} py-1 px-2">${bt2}</span>` : '';
+
+        /* Miktar vs bilgileri - temizledik, artık tabloda sunulacak */
+        document.getElementById('det-qty-info').innerHTML = '';
+        document.getElementById('det-weight-info').innerHTML = '';
+
+        /* Kod */
+        document.getElementById('det-code-info').textContent = node.code ? `[${node.code}]` : '';
+
+
+
+
+        /* Stok linki */
+        const linkEl = document.getElementById('det-product-link');
+        if (node.product_id) {
+            linkEl.href = '/products/' + node.product_id;
+            linkEl.classList.remove('d-none');
+        } else {
+            linkEl.classList.add('d-none');
+        }
+
+        /* Üretim linki */
+        const prodLink = document.getElementById('det-produce-link');
+        // Yarı mamul veya mamulse ve produkt id si varsa üretime izin ver
+        if (node.product_id && (node.item_type === "yarimamul" || node.item_type === "mamul")) {
+            prodLink.href = '/production/bom/' + TREE.bom_id + '/produce/' + node.id;
+            prodLink.classList.remove('d-none');
+        } else {
+            prodLink.classList.add('d-none');
+        }
+
+
+
+
+        /* Alt bileşenler tablosu */
+
+        const tbody = document.getElementById('det-tbody');
+
+        tbody.innerHTML = '';
+
+        const children = node.children || [];
+
+        document.getElementById('det-child-count').textContent = children.length;
+
+
+
+        if (!children.length) {
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">
+            <i class="bi bi-dash me-1"></i>En alt kırılım - alt bileşeni bulunmamaktadır.</td></tr>`;
+            return;
+        }
+
+        children.forEach(c => {
+            const cinsi = c.material ? c.material : (c.item_type || '-');
+            const tr = document.createElement('tr');
+            tr.className = rowClass(c.item_type, cinsi);
+
+            let fMetre = '-', nMetre = '-';
+            let fAgirlik = '-', nAgirlik = '-';
+            let adet = '-';
+
+            let q = parseFloat(c.quantity) || 0;
+            let pc = parseFloat(c.piece_count) || 1;
+            let net = parseFloat(c.quantity_net) || q;
+            let wpu = parseFloat(c.weight_per_unit) || 0;
+            let unit = (c.unit || '').trim().toLowerCase();
+
+            if (unit === 'metre' || unit === 'mt') {
+                fMetre = fmtNum(q);
+                nMetre = fmtNum(net);
+                if (wpu > 0) {
+                    fAgirlik = fmtNum(q * wpu);
+                    nAgirlik = fmtNum(net * wpu);
+                }
+                adet = fmtNum(pc);
+            } else if (unit === 'kg' || unit === 'kilogram') {
+                fAgirlik = fmtNum(q);
+                nAgirlik = fmtNum(net);
+                adet = fmtNum(pc);
+            } else {
+                adet = fmtNum(q);
+                if (wpu > 0) {
+                    fAgirlik = fmtNum(q * wpu);
+                    nAgirlik = fmtNum(net * wpu);
+                }
+            }
+
+            let codeCell = c.code ? `<code>${c.code}</code>` : '-';
+            if (c.product_id) {
+                codeCell += ` <a href="/products/${c.product_id}" target="_blank" class="ms-1 text-muted" title="Stok kaydı">
+                            <i class="fas fa-external-link-alt fa-xs"></i></a>`;
+            }
+
+            tr.innerHTML = `
+            <td><strong class="text-primary">${c.num}</strong></td>
+            <td title="${c.name}">${c.name.length > 30 ? c.name.substring(0, 30) + '...' : c.name}</td>
+            <td>${cinsi}</td>
+            <td>${codeCell}</td>
+                                    <td class="text-right">${c.stock_qty || 0}</td>
+            <td class="text-right col-fireli fw-bold">${fMetre !== '-' ? fMetre + ' m' : '-'}</td>
+            <td class="text-right col-firesiz text-success">${nMetre !== '-' ? nMetre + ' m' : '-'}</td>
+            <td class="text-right col-fireli fw-bold">${fAgirlik !== '-' ? fAgirlik + ' kg' : '-'}</td>
+            <td class="text-right col-firesiz text-success">${nAgirlik !== '-' ? nAgirlik + ' kg' : '-'}</td>
+            <td class="text-right fw-bold">${adet}</td>
+            <td class="text-right fw-bold" style="color: #ef4444;">${c.waste_ratio ? '%' + c.waste_ratio : '-'}</td>
+            <td class="text-right"><button class="btn btn-sm btn-outline-primary" onclick="openEditNodeModal(${c.id})"><i class="bi bi-pencil"></i></button></td>
+        `;
+            tbody.appendChild(tr);
+        });
+
+    }
+
+
+
+
+
+    /* ---------------------------------------------------------
+    
+       Tümünü Aç / Kapat
+    
+    --------------------------------------------------------- */
+
+    document.getElementById('btn-expand').addEventListener('click', () => {
+
+        document.querySelectorAll('.bt-children').forEach(el => el.classList.add('open'));
+
+        document.querySelectorAll('.bt-toggle').forEach(el => {
+
+            if (el.innerHTML.trim() !== '&nbsp;') el.innerHTML = '▼';
+
+        });
+
+    });
+
+    document.getElementById('btn-collapse').addEventListener('click', () => {
+
+        document.querySelectorAll('.bt-children').forEach(el => el.classList.remove('open'));
+
+        document.querySelectorAll('.bt-toggle').forEach(el => {
+
+            if (el.innerHTML.trim() !== '&nbsp;') el.innerHTML = '▶';
+
+        });
+
+    });
+
+
+
+    buildTree();
+
+</script>
+
+﻿
+<!-- Edit BOM Node Modal -->
+<div class="modal fade" id="editNodeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Bileşen Düzenle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-node-id">
+                <div class="mb-3">
+                    <label class="form-label">Adlandırma</label>
+                    <input type="text" class="form-control" id="edit-node-name">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Malzeme Cinsi</label>
+                    <input type="text" class="form-control" id="edit-node-material">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">BOM / Bileşen Kodu</label>
+                    <input type="text" class="form-control" id="edit-node-code">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Ürün (Ana Stok) Kodu</label>
+                    <input type="text" class="form-control" id="edit-node-product-code">
+                    <small class="text-muted">Bu kodu değiştirirseniz ürünün sistemdeki stok kodu da güncellenir.</small>
+                </div>
+                <div class="row" id="row-piece-count">
+                    <div class="col-12 mb-3">
+                        <label class="form-label">Parça Adedi</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-piece-count">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label" id="lbl-qty">Miktar / Adet (Fireli)</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-quantity">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" id="lbl-qty-net">Miktar / Adet (Firesiz)</label>
+                        <input type="number" step="any" class="form-control" id="edit-node-quantity-net">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="saveNodeEdit()">Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function openEditNodeModal(nodeId) {
+    fetch('/production/api/bom_node/' + nodeId)
+        .then(res => res.json())
+        .then(data => {
+            if(data.error) {
+                alert(data.error); return;
+            }
+            document.getElementById('edit-node-id').value = data.id;
+            document.getElementById('edit-node-name').value = data.name || '';
+            document.getElementById('edit-node-material').value = data.material || '';
+            document.getElementById('edit-node-code').value = data.code || '';
+            document.getElementById('edit-node-product-code').value = data.product_code || '';
+                        
+            let uStr = data.unit ? data.unit.toLowerCase() : '';
+            let lbl = uStr === 'adet' ? 'Adet' : 'Miktar (' + data.unit + ')';
+            document.getElementById('lbl-qty').textContent = lbl + ' (Fireli)';
+            document.getElementById('lbl-qty-net').textContent = lbl + ' (Firesiz)';
+document.getElementById('edit-node-piece-count').value = data.piece_count || 1;
+            document.getElementById('edit-node-quantity').value = data.quantity || 0;
+            document.getElementById('edit-node-quantity-net').value = data.quantity_net || 0;
+            
+            var modal = new bootstrap.Modal(document.getElementById('editNodeModal'));
+            modal.show();
+        })
+        .catch(err => alert('Hata: ' + err));
+}
+
+function saveNodeEdit() {
+    const nodeId = document.getElementById('edit-node-id').value;
+    const data = {
+        name: document.getElementById('edit-node-name').value,
+        material: document.getElementById('edit-node-material').value,
+        code: document.getElementById('edit-node-code').value,
+        product_code: document.getElementById('edit-node-product-code').value,
+        quantity: parseFloat(document.getElementById('edit-node-quantity').value) || 0,
+        quantity_net: parseFloat(document.getElementById('edit-node-quantity-net').value) || 0,
+        piece_count: parseFloat(document.getElementById('edit-node-piece-count').value) || 1
+    };
+    
+    fetch('/production/api/bom_node/' + nodeId, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(res => {
+        if(res.success) {
+            location.reload();
+        } else {
+            alert('Kaydedilemedi: ' + (res.error || 'Bilinmeyen hata'));
+        }
+    })
+    .catch(err => alert('Hata: ' + err));
+}
+</script>
+
+{% endblock %}

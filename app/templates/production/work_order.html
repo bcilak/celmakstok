@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}İş Emri / Üretim - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <div>
+        <h1 class="page-title"><i class="bi bi-hammer me-2"></i>Yeni İş Emri Başlat</h1>
+        <p class="page-subtitle">Üretim bandı üzerinden toplu stok düşümü ve üretim gerçekleştirin.</p>
+    </div>
+    <a href="{{ url_for('production.index') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>İptal
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <form method="POST" action="{{ url_for('production.work_order') }}">
+                    <div class="mb-4 text-center">
+                        <div class="bg-primary bg-opacity-10 d-inline-block rounded-circle p-3 mb-3">
+                            <i class="bi bi-gear-wide-connected text-primary fs-1"></i>
+                        </div>
+                        <h4 class="fw-bold">Üretilecek Ürün ve Model</h4>
+                    </div>
+
+                    <!-- Hat / Kategori Seçimi (sadece görsel veya filtre amaçlı) -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Üretim Hattı / Kategori (İsteğe Bağlı)</label>
+                        <select class="form-select form-select-lg mb-2" id="lineSelect">
+                            <option value="">-- Tüm Hatlar / Kategoriler --</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat.id }}">{{ cat.code }} - {{ cat.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Listeyi sadeleştirmek için sadece ilgili hat seçilebilir.</div>
+                    </div>
+
+                    <!-- Üretilecek Ana Mamül (BOM kökü) -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold"><span class="text-danger">*</span> Üretilecek Ürün (Ürün Ağacı Modeli)</label>
+                        <select name="bom_id" id="bomSelect" class="form-select form-select-lg" required>
+                            <option value="">Seçiniz...</option>
+                            {% for node in root_nodes %}
+                            {% set prod = getattr(node.item, 'product', None) %}
+                            <option value="{{ node.bom_id }}" data-category="{% if prod and prod.category_id %}{{ prod.category_id }}{% endif %}">
+                                [Oluşacak Mamül: {{ node.display_name }} ] (BOM ID: {{ node.bom_id }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-semibold"><span class="text-danger">*</span> Üretilecek Miktar</label>
+                            <div class="input-group input-group-lg">
+                                <input type="number" name="quantity" class="form-control" value="1" min="1" step="1" required>
+                                <span class="input-group-text bg-light">Adet</span>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-semibold">Not / Referans Numarası</label>
+                            <input type="text" name="note" class="form-control form-control-lg" placeholder="Sipariş no vb. (İsteğe bağlı)">
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info mt-3 border-0 bg-info bg-opacity-10 d-flex align-items-center mb-4">
+                        <i class="bi bi-info-circle-fill text-info fs-4 me-3"></i>
+                        <div>
+                            <strong class="d-block text-dark">Arka Plan Akışı:</strong>
+                            <small class="text-muted">Bu işlem seçilen modele ait reçetenin en alt kırılımına kadar iner, tüm hammaddelerin stoklarını otomatik düşer ve üretilen mamülü stoğunuza '+' giriş olarak ekler.</small>
+                        </div>
+                    </div>
+
+                    <div class="text-end">
+                        <button type="submit" class="btn btn-primary btn-lg px-5 shadow-sm fw-bold">
+                            <i class="bi bi-play-circle me-2"></i> Üretimi Başlat
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Kategori Filtreleme mantığı
+    const lineSelect = document.getElementById('lineSelect');
+    const bomSelect = document.getElementById('bomSelect');
+    
+    // Orijinal listeyi sakla
+    const allOptions = Array.from(bomSelect.options).slice(1);
+    
+    lineSelect.addEventListener('change', function() {
+        const catId = this.value;
+        
+        // Temizle (ilk option hariç)
+        while(bomSelect.options.length > 1) {
+            bomSelect.remove(1);
+        }
+        
+        // Yeniden doldur
+        allOptions.forEach(opt => {
+            if(!catId || opt.dataset.category === catId) {
+                bomSelect.add(opt.cloneNode(true));
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

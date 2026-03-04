@@ -751,10 +751,10 @@
                 <i class="bi bi-gear-fill"></i>
                 <span>Üretim Hatları</span>
             </a>
-            <a href="{{ url_for('production.recipes') }}"
-                class="nav-link {% if 'recipe' in (request.endpoint or '') %}active{% endif %}">
-                <i class="bi bi-journal-code"></i>
-                <span>Reçeteler</span>
+            <a href="{{ url_for('production.bom_list') }}"
+                class="nav-link {% if 'bom' in (request.endpoint or '') %}active{% endif %}">
+                <i class="bi bi-diagram-3-fill"></i>
+                <span>Ürün Ağaçları (BOM)</span>
             </a>
 
             <div class="nav-section mt-3">Depo</div>
@@ -777,15 +777,11 @@
 
             <div class="nav-section mt-3">Raporlar</div>
             <a href="{{ url_for('reports.index') }}"
-                class="nav-link {% if 'reports' in request.endpoint and request.endpoint != 'reports.guide' %}active{% endif %}">
+                class="nav-link {% if 'reports' in request.endpoint  %}active{% endif %}">
                 <i class="bi bi-bar-chart-fill"></i>
                 <span>Raporlar</span>
             </a>
-            <a href="{{ url_for('reports.guide') }}"
-                class="nav-link {% if request.endpoint == 'reports.guide' %}active{% endif %}">
-                <i class="bi bi-book-fill"></i>
-                <span>Kullanım Kılavuzu</span>
-            </a>
+
 
             {% if current_user.role == 'admin' %}
             <div class="nav-section mt-3">Yönetim</div>

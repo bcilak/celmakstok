@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, Response, current_app, jsonify, session, redirect, url_for
 from flask_login import login_required, current_user
-from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord, Recipe
+from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord
 from app import db
 from sqlalchemy import func, text
 from datetime import datetime, timedelta
@@ -99,62 +99,34 @@ def get_production_info() -> dict:
         
     result = []
     for cat in categories:
-        recipes = Recipe.query.filter_by(category_id=cat.id, is_active=True).all()
-        recipe_names = [r.name for r in recipes] if recipes else ["Bu hatta kayıtlı reçete yok"]
-        result.append(f"Üretim Hattı: {cat.name} (Kod: {cat.code}) -> Üretebildiği Makineler/Reçeteler: {', '.join(recipe_names)}")
-        
+        result.append(f"Üretim Hattı: {cat.name} (Kod: {cat.code})")
+    
     return {"result": result}
 
 def get_product_costs(keyword: str = "") -> dict:
-    """Ürünlerin birim maliyet, KDV oranı ve toplam stok değeri bilgilerini getirir. keyword ile filtreleme yapılabilir."""
+    """Ürünlerin birim maliyetlerini ve KDV bilgilerini getirir. İsteğe bağlı olarak isim veya koda göre filtreler."""
     query = Product.query.filter(Product.is_active == True)
     if keyword:
-        query = query.filter(
-            (Product.name.ilike(f'%{keyword}%')) | (Product.code.ilike(f'%{keyword}%'))
-        )
-    products = query.limit(100).all()
+        query = query.filter((Product.name.ilike(f'%{keyword}%')) | (Product.code.ilike(f'%{keyword}%')))
+    
+    products = query.limit(50).all()
     
     if not products:
-        return {"result": f"'{keyword}' aramasına uygun ürün bulunamadı."}
-    
+        return {"result": "Maliyet bilgisi bulunamadı."}
+        
     result = []
-    total_value = 0
-    no_cost_count = 0
-    
-    # Önce maliyeti olan ürünleri listele
     for p in products:
-        if p.unit_cost and p.unit_cost > 0:
-            vat_str = f"%{int(p.vat_rate)}" if p.vat_rate else "%0"
-            cost_with_vat = round(p.unit_cost * (1 + (p.vat_rate or 0) / 100), 2)
-            stock_value = round(p.current_stock * p.unit_cost, 2)
-            total_value += stock_value
-            result.append(f"Kod: {p.code}, Ad: {p.name}, Birim Maliyet: {p.unit_cost} {p.currency}, KDV: {vat_str}, KDV Dahil: {cost_with_vat} {p.currency}, Stok: {p.current_stock} {p.unit_type}, Stok Değeri: {stock_value} {p.currency}")
-        else:
-            no_cost_count += 1
-    
-    # Özet bilgi
-    cost_count = len(result)
-    if cost_count > 0:
-        result.append(f"ÖZET: {cost_count} üründe maliyet bilgisi mevcut. TOPLAM STOK DEĞERİ (KDV Hariç): {round(total_value, 2)} TRY")
-    if no_cost_count > 0:
-        result.append(f"NOT: {no_cost_count} üründe henüz maliyet bilgisi girilmemiş. Bu ürünlerin fiyatları satın alma uygulamasından senkronize edilmelidir.")
-    if cost_count == 0:
-        result.append("DİKKAT: Hiçbir üründe maliyet bilgisi bulunamadı. Satın alma uygulamasından fiyat senkronizasyonu yapılmalıdır.")
-    
+        cost = f"{p.unit_cost} {p.currency}" if p.unit_cost > 0 else "Bilinmiyor"
+        vat = f"%{int(p.vat_rate)}" if p.vat_rate else "Belirtilmemiş"
+        result.append(f"Kod: {p.code}, Ad: {p.name}, Maliyet: {cost}, KDV: {vat}")
+        
     return {"result": result}
-
-@reports_bp.route('/guide')
-@login_required
-@roles_required('Genel')
-def guide():
-    return render_template('reports/guide.html')
 
 @reports_bp.route('/ai-assistant')
 @login_required
 @roles_required('Genel')
 def ai_assistant():
     return render_template('reports/ai_assistant.html')
-
 
 @reports_bp.route('/ai-assistant/ask', methods=['POST'])
 @login_required
@@ -500,7 +472,7 @@ def production_report():
     query = ProductionRecord.query
     
     if category_id:
-        query = query.join(Recipe).filter(Recipe.category_id == category_id)
+        pass
     
     if start_date:
         start = datetime.strptime(start_date, '%Y-%m-%d')
@@ -515,7 +487,7 @@ def production_report():
     # Kategori bazlı üretim toplamları
     category_totals = {}
     for cat in categories:
-        cat_productions = [p for p in productions if p.recipe and p.recipe.category_id == cat.id]
+        cat_productions = productions
         category_totals[cat.id] = {
             'name': cat.name,
             'count': len(cat_productions),

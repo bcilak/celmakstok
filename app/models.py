@@ -116,6 +116,7 @@ class Product(db.Model):
     # Ek bilgiler
     barcode = db.Column(db.String(100))  # Barkod
     notes = db.Column(db.Text)  # Notlar
+    material = db.Column(db.Text)  # Malzeme özelliği / cinsi (BOM'dan aktarılır)
     
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -257,141 +258,112 @@ class CountItem(db.Model):
 
 
 # Reçete modeli (Ürün için gerekli malzemeler)
-class Recipe(db.Model):
-    __tablename__ = 'recipes'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)  # Reçete adı (örn: "TAMBURLU 135'lik")
-    category_id = db.Column(db.Integer, db.ForeignKey('categories.id'))  # Hangi üretim hattı
-    target_product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True) # Hangi ürünü üretiyor
-    model_variant = db.Column(db.String(50))  # Model varyantı (135'lik, 165'lik, 195'lik vb.)
-    description = db.Column(db.Text)  # Açıklama
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    category = db.relationship('Category', backref='recipes')
-    target_product = db.relationship('Product', foreign_keys=[target_product_id], backref='recipes_as_target')
-    items = db.relationship('RecipeItem', backref='recipe', lazy='dynamic', cascade='all, delete-orphan')
-    
-    @property
-    def total_items(self):
-        return self.items.count()
-    
-    def can_produce(self, quantity=1):
-        """Belirtilen miktar kadar üretim yapılabilir mi kontrol et (Recursive BOM)"""
-        missing = self.get_missing_materials(quantity)
-        if missing:
-            # Sadece örnek olarak ilk eksik malzemeyi dönüyoruz (eski kullanımla uyumlu olmak için)
-            return False, missing[0]['product'], missing[0]['available'], missing[0]['required']
-        return True, None, 0, 0
-    
-    def get_missing_materials(self, quantity=1, _visited=None):
-        """Hammadde bazında eksik malzemeleri listele (Recursive BOM)"""
-        if _visited is None:
-            _visited = set()
-            
-        if self.id in _visited:
-            return []  # Döngü önleme
-        _visited.add(self.id)
-            
-        missing_dict = {}  # {product_id: {'product': p, 'required': qty, 'available': qty, 'shortage': qty}}
-        
-        # 1. Aşama: Bu reçetenin kendi (en alt seviye) hammaddelerini toparla
-        def calculate_requirements(recipe, needed_qty):
-            for item in recipe.items:
-                req_qty = item.quantity * needed_qty
-                
-                # Bu malzeme yarımamül/mamül mü ve bir reçetesi var mı?
-                # Eğer alt reçetesi varsa ve yeterli stoğu yoksa, eksik kalan miktar için ZİNCİRLEME (recursive) hesap yap
-                if item.product.recipes_as_target and len(item.product.recipes_as_target) > 0:
-                    sub_recipe = item.product.recipes_as_target[0] # İlk reçeteyi varsayılan kabul et
-                    available_now = item.product.current_stock
-                    
-                    if available_now >= req_qty:
-                        # Eğer alt yarımamülden elimizde yeterince varsa (stok hazırsa), bunu doğrudan kullanırız, altına inmeyiz.
-                        # (Ancak şu anki istenen yapı hammaddeye kadar inip onu düşmek mi? Kullanıcı hammadde dedi.
-                        # Yani her zaman hammaddeye ineceğiz. Eğer eldeki stok o yarımamül içinse onu kullansın.)
-                        continue  # Elde hazır varsa altına inmeye gerek yok, onu harcayacağız.
-                    else:
-                        # Hazır stok yetmiyorsa, sadece EKSİK kısım için alt malzemeleri topla.
-                        # (Veya basitçe varsa bile hammadde harcansın istenirse `qty_to_build = req_qty` diyebilirdik. 
-                        #  Ancak elde hazır yarımamül varsa onu kullanmak daha mantıklıdır)
-                        shortage_qty = req_qty - available_now
-                        
-                        # Eksik kısım için alt reçetenin bileşenlerini topla
-                        calculate_requirements(sub_recipe, shortage_qty)
-                        
-                        # Mevcut stok kadar olan kısmı için stokta ne kadar eksik var diye bakmaya gerek yok, zira stoğunu tüketecek.
-                        # (Not: Stok düşme logic'inde de aynı ayrımı yapmalıyız)
-                else:
-                    # Normal hammadde
-                    if item.product.id not in missing_dict:
-                        missing_dict[item.product.id] = {
-                            'product': item.product,
-                            'required': 0,
-                            'available': item.product.current_stock,
-                            'shortage': 0
-                        }
-                    missing_dict[item.product.id]['required'] += req_qty
-        
-        calculate_requirements(self, quantity)
-        
-        # 2. Aşama: Toplam gereksinimlere göre eksikleri listele
-        missing = []
-        for pid, data in missing_dict.items():
-            if data['available'] < data['required']:
-                data['shortage'] = data['required'] - data['available']
-                missing.append(data)
-                
-        _visited.remove(self.id)
-        return missing
 
-
-# Reçete Kalemi modeli
-class RecipeItem(db.Model):
-    __tablename__ = 'recipe_items'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    recipe_id = db.Column(db.Integer, db.ForeignKey('recipes.id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
-    quantity = db.Column(db.Float, nullable=False)  # 1 adet üretim için gereken miktar
-    note = db.Column(db.String(200))  # Opsiyonel not
-    
-    product = db.relationship('Product', backref='recipe_usages')
-    
-    __table_args__ = (
-        db.UniqueConstraint('recipe_id', 'product_id', name='unique_recipe_product'),
-    )
-
-
-# Üretim Kaydı modeli (Hangi reçeteden ne kadar üretildi)
 class ProductionRecord(db.Model):
     __tablename__ = 'production_records'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    recipe_id = db.Column(db.Integer, db.ForeignKey('recipes.id'), nullable=False)
-    quantity = db.Column(db.Float, nullable=False)  # Üretilen miktar
+    recipe_id = db.Column(db.Integer, nullable=True) # nullable true for bom
+    bom_id = db.Column(db.Integer, nullable=True)
+    bom_node_id = db.Column(db.Integer, db.ForeignKey('bom_nodes.id'), nullable=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
+    quantity = db.Column(db.Float, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    date = db.Column(db.DateTime, default=datetime.utcnow)
+    date = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     note = db.Column(db.Text)
-    
-    recipe = db.relationship('Recipe', backref='productions')
+
     user = db.relationship('User', backref='productions')
-    consumptions = db.relationship('ProductionConsumption', backref='production', lazy='dynamic')
+    bom_node = db.relationship('BomNode', backref='productions_records')
+    product = db.relationship('Product', backref='productions_records')
 
-
-# Üretim Tüketim Detayı (Hangi malzemeden ne kadar tüketildi)
+    # Since we removed Recipe model, we remove the relationship to it or keep recipe_id as weak link
+    
 class ProductionConsumption(db.Model):
     __tablename__ = 'production_consumptions'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     production_id = db.Column(db.Integer, db.ForeignKey('production_records.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
     quantity = db.Column(db.Float, nullable=False)
-    
-    product = db.relationship('Product', backref='production_consumptions')
 
+    production = db.relationship('ProductionRecord', backref=db.backref('consumptions', lazy='dynamic', cascade='all, delete-orphan'))
+    product = db.relationship('Product', backref='consumptions')
+
+class BomItem(db.Model):
+    """
+    'items' tablosu - Parçaların usta kaydı.
+    Aynı parça kodu farklı BOM'larda tekrar kullanılabilir.
+    """
+    __tablename__ = 'bom_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(100))          # Parça kodu (boş olabilir)
+    name = db.Column(db.String(255), nullable=False)  # Parça adı
+    type = db.Column(db.String(100))          # hammadde, yarimamul, mamul vb.
+    unit_type = db.Column(db.String(20), default='adet')  # adet, kg, metre …
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Ana stok kaydıyla bağlantı (Product Master)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
+    product = db.relationship('Product', backref='bom_items')
+
+    nodes = db.relationship('BomNode', backref='item', lazy='dynamic')
+
+
+class BomNode(db.Model):
+    """
+    'bom_nodes' tablosu - BOM içindeki her satır/düğüm.
+    bom_id ile aynı BOM'a ait düğümler gruplanır.
+    """
+    __tablename__ = 'bom_nodes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    bom_id = db.Column(db.Integer, nullable=False)           # Hangi BOM'a ait
+    num = db.Column(db.String(50), nullable=False)            # Örn: "1.1.2."
+    level = db.Column(db.Integer, nullable=False)             # 1, 2, 3 …
+    item_id = db.Column(db.Integer, db.ForeignKey('bom_items.id'))
+    display_name = db.Column(db.String(255))                  # Görünen isim
+    quantity = db.Column(db.Numeric(12, 4), default=1)        # Fireli (toplam) adet
+    quantity_net = db.Column(db.Numeric(12, 4), nullable=True) # Firesiz (net) adet
+    piece_count = db.Column(db.Numeric(12, 4), default=1)      # Parça adedi
+    weight_per_unit = db.Column(db.Numeric(12, 4), nullable=True)  # Birim ağırlık
+    weight_unit = db.Column(db.String(20), nullable=True)      # Ağırlık birimi (kg…)
+    unit_type = db.Column(db.String(20), default='adet')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # İlişkiler
+    parent_edges = db.relationship(
+        'BomEdge',
+        foreign_keys='BomEdge.child_node_id',
+        backref='child_node',
+        lazy='dynamic',
+        cascade='all, delete-orphan'
+    )
+    child_edges = db.relationship(
+        'BomEdge',
+        foreign_keys='BomEdge.parent_node_id',
+        backref='parent_node',
+        lazy='dynamic',
+        cascade='all, delete-orphan'
+    )
+
+
+class BomEdge(db.Model):
+    """
+    'bom_edges' tablosu - Parent-child ilişkileri.
+    ROOT düğümü için parent_node_id NULL'dır.
+    """
+    __tablename__ = 'bom_edges'
+
+    id = db.Column(db.Integer, primary_key=True)
+    bom_id = db.Column(db.Integer, nullable=False)
+    parent_node_id = db.Column(db.Integer, db.ForeignKey('bom_nodes.id'), nullable=True)
+    child_node_id = db.Column(db.Integer, db.ForeignKey('bom_nodes.id'), nullable=False)
+    quantity = db.Column(db.Numeric(12, 4), default=1)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# ===== YARDIMCI FONKSİYONLAR =====
 
 def generate_category_code(name):
     """Kategori adından kod oluştur"""

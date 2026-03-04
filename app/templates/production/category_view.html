@@ -16,9 +16,7 @@
             <p class="page-subtitle">{{ category.description or 'Kategorideki tüm ürünler' }}</p>
         </div>
         <div class="d-flex gap-2">
-            <a href="{{ url_for('production.category_recipes', id=category.id) }}" class="btn btn-info">
-                <i class="bi bi-journal-code me-1"></i>Reçeteler
-            </a>
+            
             <a href="{{ url_for('production.consume', id=category.id) }}" class="btn btn-danger">
                 <i class="bi bi-dash-circle me-1"></i>Malzeme Tüket
             </a>

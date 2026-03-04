@@ -1,12 +1,18 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
-from app.models import Category, StockMovement, Product, Recipe, RecipeItem, ProductionRecord, ProductionConsumption
+from app.models import Category, StockMovement, Product, ProductionRecord, ProductionConsumption
 from app import db
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from app.utils.decorators import roles_required
 from app.utils.excel_utils import parse_bom_excel
-from app.utils.decorators import roles_required
+from app.utils.bom_utils import (
+    parse_bom_excel_v2,
+    import_bom_to_db,
+    get_bom_tree,
+    list_boms,
+    next_bom_id,
+)
 
 production_bp = Blueprint('production', __name__)
 
@@ -227,10 +233,7 @@ def delete_line(id):
         return redirect(url_for('production.index'))
     
     # Kategoriye bağlı reçete var mı kontrol et
-    recipe_count = Recipe.query.filter_by(category_id=id).count()
-    if recipe_count > 0:
-        flash(f'{category.name} hattında {recipe_count} reçete bulunuyor. Önce reçeteleri silin veya başka bir hatta taşıyın.', 'error')
-        return redirect(url_for('production.index'))
+
     
     name = category.name
     db.session.delete(category)
@@ -239,441 +242,419 @@ def delete_line(id):
     return redirect(url_for('production.index'))
 
 
-# ===== REÇETE YÖNETİMİ =====
+# ===== BOM V2 — NUMARALANDIRMA BAZLI HİYERARŞİ =====
 
-@production_bp.route('/recipes')
+@production_bp.route('/bom')
 @login_required
 @roles_required('Genel', 'Yönetici')
-def recipes():
-    """Tüm reçeteleri listele"""
-    if current_user.is_admin():
-        recipes = Recipe.query.order_by(Recipe.name).all()
-    else:
-        recipes = Recipe.query.filter_by(is_active=True).order_by(Recipe.name).all()
-    return render_template('production/recipes.html', recipes=recipes)
+def bom_list():
+    """Tüm BOM'ları listele."""
+    from app.models import Category
+    boms = list_boms(db)
+    categories = Category.query.order_by(Category.name).all()
+    return render_template('production/bom_list.html', boms=boms, categories=categories)
 
 
-@production_bp.route('/recipes/import_bom', methods=['GET', 'POST'])
+
+@production_bp.route('/bom/<int:bom_id>/assign_category', methods=['POST'])
 @login_required
 @roles_required('Yönetici')
-def import_bom():
-    """Excel'den Ürün Ağacı (BOM) İçe Aktarma"""
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            flash('Dosya seçilmedi', 'error')
-            return redirect(url_for('production.import_bom'))
-            
-        file = request.files['file']
-        if file.filename == '':
-            flash('Dosya seçilmedi', 'error')
-            return redirect(url_for('production.import_bom'))
-            
-        main_product_name = request.form.get('main_product_name', '').strip()
-        category_id = request.form.get('category_id', type=int)
-        
-        if not main_product_name or not category_id:
-            flash('Lütfen Ana Mamül adını ve Kategori/Hattı belirleyin.', 'error')
-            return redirect(url_for('production.import_bom'))
-        
-        if file and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
-            try:
-                # Excel'i ayrıştır
-                success_list, error_list = parse_bom_excel(file, main_product_name)
-                
-                if error_list:
-                    flash(f"Excel okunurken hatalar oluştu: {error_list[0]['error']}", 'error')
-                    return redirect(url_for('production.import_bom'))
-                    
-                if not success_list:
-                    flash("Excel dosyasından geçerli veri çıkarılamadı.", 'warning')
-                    return redirect(url_for('production.import_bom'))
-                
-                # BOM Verisini DB'ye Aktar
-                # 1. Tüm eşsiz bileşenleri topla (Parent veya Child olarak geçenler)
-                all_component_names = set([item['name'] for item in success_list] + [item['parent_name'] for item in success_list])
-                
-                # İsimlere göre kod üret (Basitçe büyük harf yap, boşlukları sil ve benzersiz bir ID ekle)
-                import uuid
-                import re
-                def generate_code(name):
-                    base = name.upper().replace(' ', '')
-                    base = re.sub(r'[^A-Z0-9]', '', base)[:10] 
-                    unique_suffix = str(uuid.uuid4()).split('-')[0][:4].upper()
-                    return f'BOM-{base}-{unique_suffix}'
-                
-                # Veritabanında olanları ve olmayanları bul, olmayanları ekle
-                product_map = {} # name -> Product nesnesi
-                
-                for name in all_component_names:
-                    # Mevcut ürünü veya var olan aynı isimli ürünü ara
-                    comp = Product.query.filter(Product.name.ilike(name)).first()
-                    if not comp:
-                        # Ürün yok, oluştur. Parent olanlar yarımamül, yaprağı olanlar hammadde.
-                        # Hangi ürün parent'tır?
-                        is_parent = any(item['parent_name'] == name for item in success_list)
-                        is_main = name == main_product_name
-                        
-                        p_type = 'mamul' if is_main else ('yarimamul' if is_parent else 'hammadde')
-                        
-                        # Birim tipi bul
-                        unit = 'adet'
-                        for item in success_list:
-                            if item['name'] == name:
-                                unit = item['unit_type']
-                                break
-                                
-                        comp = Product(
-                            code=f"BOM-{generate_code(name)}",
-                            name=name,
-                            category_id=category_id,
-                            type=p_type,
-                            unit_type=unit,
-                            current_stock=0,
-                            minimum_stock=0
-                        )
-                        db.session.add(comp)
-                        db.session.flush() # ID almak için
-                    
-                    product_map[name] = comp
-                
-                db.session.commit()
-                
-                # 2. Reçeteleri Oluştur
-                # Hangi parent'ların reçetesi oluşturulacak?
-                parent_names = set([item['parent_name'] for item in success_list])
-                created_recipes = 0
-                
-                for parent_name in parent_names:
-                    parent_product = product_map[parent_name]
-                    
-                    # Zaten bir reçetesi var mı?
-                    existing_recipe = Recipe.query.filter_by(target_product_id=parent_product.id).first()
-                    if not existing_recipe:
-                        new_recipe = Recipe(
-                            name=f"{parent_name} Üretim",
-                            category_id=category_id,
-                            target_product_id=parent_product.id,
-                            description='Excel İçeri Aktarım (BOM Otomatik)'
-                        )
-                        db.session.add(new_recipe)
-                        db.session.flush()
-                        
-                        # Child'ları recipe_items olarak ekle
-                        for item in success_list:
-                            if item['parent_name'] == parent_name:
-                                child_prod = product_map[item['name']]
-                                # Reçetede var mı kontrolü
-                                existing_item = RecipeItem.query.filter_by(recipe_id=new_recipe.id, product_id=child_prod.id).first()
-                                if not existing_item:
-                                    r_item = RecipeItem(
-                                        recipe_id=new_recipe.id,
-                                        product_id=child_prod.id,
-                                        quantity=item['quantity'],
-                                    )
-                                    db.session.add(r_item)
-                        
-                        created_recipes += 1
-                        
-                db.session.commit()
-                flash(f'BOM başarıyla içe aktarıldı. Toplam {len(product_map)} parça tespit edildi, {created_recipes} alt reçete oluşturuldu.', 'success')
-                return redirect(url_for('production.recipes'))
-                
-            except Exception as e:
-                db.session.rollback()
-                flash(f'Beklenmeyen bir hata oluştu: {str(e)}', 'error')
-                return redirect(url_for('production.import_bom'))
+def bom_assign_category(bom_id):
+    from app.models import BomNode, Product
+    category_id = request.form.get('category_id')
+    
+    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if root_node and root_node.item and root_node.item.product:
+        product = root_node.item.product
+        if category_id:
+            product.category_id = int(category_id)
+            flash('BOM başarıyla üretim hattına atandı.', 'success')
         else:
-            flash('Geçersiz dosya formatı. Lütfen .xlsx veya .xls dosyası yükleyin.', 'error')
-            return redirect(url_for('production.import_bom'))
-            
-    categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
-    return render_template('production/import_bom.html', categories=categories)
-
-
-@production_bp.route('/recipes/add', methods=['GET', 'POST'])
-@login_required
-@roles_required('Yönetici')
-def add_recipe():
-    """Yeni reçete ekle"""
-    if request.method == 'POST':
-        name = request.form.get('name')
-        category_id = request.form.get('category_id', type=int)
-        target_product_id = request.form.get('target_product_id', type=int)
-        model_variant = request.form.get('model_variant', '')
-        description = request.form.get('description', '')
-        
-        if not name:
-            flash('Reçete adı gereklidir.', 'error')
-        elif not target_product_id:
-            flash('Üretilecek hedef ürün seçilmelidir.', 'error')
-        else:
-            recipe = Recipe(
-                name=name,
-                category_id=category_id,
-                target_product_id=target_product_id,
-                model_variant=model_variant if model_variant else None,
-                description=description
-            )
-            db.session.add(recipe)
-            db.session.commit()
-            flash('Reçete başarıyla oluşturuldu. Şimdi malzemeleri ekleyebilirsiniz.', 'success')
-            return redirect(url_for('production.edit_recipe', id=recipe.id))
-    
-    categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
-    target_products = Product.query.filter(Product.type.in_(['mamul', 'yarimamul']), Product.is_active==True).order_by(Product.name).all()
-    return render_template('production/add_recipe.html', categories=categories, target_products=target_products)
-
-
-@production_bp.route('/recipes/<int:id>')
-@login_required
-@roles_required('Genel', 'Yönetici')
-def view_recipe(id):
-    """Reçete detayını görüntüle"""
-    recipe = Recipe.query.get_or_404(id)
-    return render_template('production/view_recipe.html', recipe=recipe)
-
-
-@production_bp.route('/recipes/<int:id>/edit', methods=['GET', 'POST'])
-@login_required
-@roles_required('Yönetici')
-def edit_recipe(id):
-    """Reçete düzenle ve malzeme ekle/çıkar"""
-    recipe = Recipe.query.get_or_404(id)
-    
-    if request.method == 'POST':
-        action = request.form.get('action')
-        
-        if action == 'update_info':
-            recipe.name = request.form.get('name')
-            recipe.category_id = request.form.get('category_id', type=int)
-            recipe.target_product_id = request.form.get('target_product_id', type=int)
-            recipe.model_variant = request.form.get('model_variant', '') or None
-            recipe.description = request.form.get('description', '')
-            db.session.commit()
-            flash('Reçete bilgileri güncellendi.', 'success')
-        
-        elif action == 'add_item':
-            product_id = request.form.get('product_id', type=int)
-            quantity = request.form.get('quantity', type=float)
-            note = request.form.get('item_note', '')
-            
-            if product_id and quantity and quantity > 0:
-                # Zaten ekliyse güncelle
-                existing = RecipeItem.query.filter_by(recipe_id=id, product_id=product_id).first()
-                if existing:
-                    existing.quantity = quantity
-                    existing.note = note
-                    flash('Malzeme miktarı güncellendi.', 'success')
-                else:
-                    item = RecipeItem(
-                        recipe_id=id,
-                        product_id=product_id,
-                        quantity=quantity,
-                        note=note
-                    )
-                    db.session.add(item)
-                    flash('Malzeme reçeteye eklendi.', 'success')
-                db.session.commit()
-            else:
-                flash('Ürün ve miktar seçiniz.', 'error')
-        
-        elif action == 'remove_item':
-            item_id = request.form.get('item_id', type=int)
-            item = RecipeItem.query.get(item_id)
-            if item and item.recipe_id == id:
-                db.session.delete(item)
-                db.session.commit()
-                flash('Malzeme reçeteden çıkarıldı.', 'success')
-        
-        return redirect(url_for('production.edit_recipe', id=id))
-    
-    categories = Category.query.filter_by(is_active=True).order_by(Category.name).all()
-    products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
-    target_products = Product.query.filter(Product.type.in_(['mamul', 'yarimamul']), Product.is_active==True).order_by(Product.name).all()
-    return render_template('production/edit_recipe.html', 
-                          recipe=recipe, 
-                          categories=categories,
-                          products=products,
-                          target_products=target_products)
-
-
-@production_bp.route('/recipes/<int:id>/delete', methods=['POST'])
-@login_required
-@roles_required('Yönetici')
-def delete_recipe(id):
-    """Reçete sil"""
-    recipe = Recipe.query.get_or_404(id)
-    db.session.delete(recipe)
-    db.session.commit()
-    flash('Reçete silindi.', 'success')
-    return redirect(url_for('production.recipes'))
-
-
-@production_bp.route('/recipes/<int:id>/produce', methods=['GET', 'POST'])
-@login_required
-@roles_required('Yönetici')
-def produce_with_recipe(id):
-    """Reçeteye göre üretim yap ve malzemeleri toplu tüket (Recursive)"""
-    recipe = Recipe.query.get_or_404(id)
-    
-    if request.method == 'POST':
-        quantity = request.form.get('quantity', type=float, default=1)
-        note = request.form.get('note', '')
-        
-        if quantity <= 0:
-            flash('Üretim miktarı sıfırdan büyük olmalıdır.', 'error')
-            return redirect(url_for('production.produce_with_recipe', id=id))
-        
-        # Stok kontrolü (İç içe)
-        can_produce, missing_product, available, required = recipe.can_produce(quantity)
-        if not can_produce:
-            flash(f'Yetersiz stok: {missing_product.name} - Mevcut: {available}, Gereken: {required}', 'error')
-            return redirect(url_for('production.produce_with_recipe', id=id))
-        
-        # Üretim kaydı oluştur
-        production = ProductionRecord(
-            recipe_id=id,
-            quantity=quantity,
-            user_id=current_user.id,
-            note=note
-        )
-        db.session.add(production)
-        db.session.flush()  # ID almak için
-        
-        # Malzemeleri recursive olarak tüket
-        def consume_recipe_materials(rec, qty, _visited=None):
-            if _visited is None:
-                _visited = set()
-            if rec.id in _visited:
-                return
-            _visited.add(rec.id)
-            
-            for item in rec.items:
-                req_qty = item.quantity * qty
-                
-                # Bu malzeme yarımamül/mamül mü ve bir reçetesi var mı?
-                if item.product.recipes_as_target and len(item.product.recipes_as_target) > 0:
-                    sub_recipe = item.product.recipes_as_target[0]
-                    available_now = item.product.current_stock
-                    
-                    if available_now >= req_qty:
-                        # Hazır varsa onu tüket
-                        consume_qty = req_qty
-                        item.product.current_stock -= consume_qty
-                        
-                        # Tüketim detayı ve stok hareketi ekle
-                        add_consumption_and_movement(item.product.id, consume_qty, rec)
-                    else:
-                        # Hazır kısmı tüket
-                        consume_qty = available_now
-                        if consume_qty > 0:
-                            item.product.current_stock -= consume_qty
-                            add_consumption_and_movement(item.product.id, consume_qty, rec)
-                        
-                        # Kalan kısmı (eksik) üret
-                        shortage_qty = req_qty - available_now
-                        consume_recipe_materials(sub_recipe, shortage_qty, _visited)
-                else:
-                    # Normal hammadde
-                    consume_qty = req_qty
-                    item.product.current_stock -= consume_qty
-                    add_consumption_and_movement(item.product.id, consume_qty, rec)
-            
-            _visited.remove(rec.id)
-            
-        def add_consumption_and_movement(p_id, c_qty, r):
-            consumption = ProductionConsumption(
-                production_id=production.id,
-                product_id=p_id,
-                quantity=c_qty
-            )
-            db.session.add(consumption)
-            
-            movement = StockMovement(
-                product_id=p_id,
-                movement_type='cikis',
-                quantity=c_qty,
-                source='Depo',
-                destination=f'{r.category.name if r.category else "Üretim"} - {r.name}',
-                note=f'Reçete üretimi: {quantity} adet (Kök: {recipe.name})',
-                user_id=current_user.id
-            )
-            db.session.add(movement)
-            
-        # Recursive tüketimi başlat
-        consume_recipe_materials(recipe, quantity)
-        
-        # Hedef ürünün stoğunu artır
-        if recipe.target_product_id:
-            target_product = recipe.target_product
-            target_product.current_stock += quantity
-            
-            # Stok hareketi (Giriş)
-            movement_in = StockMovement(
-                product_id=target_product.id,
-                movement_type='giris',
-                quantity=quantity,
-                source=f'{recipe.category.name if recipe.category else "Üretim Hattı"}',
-                destination='Depo',
-                note=f'Reçete üretimi: {recipe.name}',
-                user_id=current_user.id
-            )
-            db.session.add(movement_in)
-
+            product.category_id = None
+            flash('BOM üretim hattı ataması kaldırıldı.', 'success')
         db.session.commit()
-        flash(f'{recipe.name} reçetesinden {quantity} adet üretim yapıldı. Alt malzemeler stoktan düşüldü.', 'success')
+    else:
+        flash('Ana ürün bulunamadı!', 'error')
         
-        if recipe.category:
-            return redirect(url_for('production.view_category', id=recipe.category_id))
-        return redirect(url_for('production.recipes'))
-    
-    # Eksik malzemeleri kontrol et
-    missing_materials = recipe.get_missing_materials(1)
-    
-    return render_template('production/produce_with_recipe.html', 
-                          recipe=recipe,
-                          missing_materials=missing_materials)
+    return redirect(url_for('production.bom_list'))
 
 
-@production_bp.route('/category/<int:id>/recipes')
-@login_required
-@roles_required('Genel', 'Yönetici')
-def category_recipes(id):
-    """Kategoriye ait reçeteleri listele"""
-    category = Category.query.get_or_404(id)
-    recipes = Recipe.query.filter_by(category_id=id, is_active=True).order_by(Recipe.name).all()
-    return render_template('production/category_recipes.html', category=category, recipes=recipes)
-
-
-@production_bp.route('/api/check-stock/<int:recipe_id>')
+@production_bp.route('/bom/import', methods=['GET', 'POST'])
 @login_required
 @roles_required('Yönetici')
-def api_check_stock(recipe_id):
-    """Reçete için stok durumunu kontrol et (AJAX)"""
-    recipe = Recipe.query.get_or_404(recipe_id)
-    quantity = request.args.get('quantity', 1, type=float)
-    
-    items = []
-    can_produce = True
-    
-    for item in recipe.items:
-        required = item.quantity * quantity
-        available = item.product.current_stock
-        sufficient = available >= required
-        
-        if not sufficient:
-            can_produce = False
-        
-        items.append({
-            'product_id': item.product_id,
-            'product_name': item.product.name,
-            'required': required,
-            'available': available,
-            'sufficient': sufficient,
-            'shortage': max(0, required - available)
+def bom_import_v2():
+    """Numaralandırma bazlı Excel'den BOM içe aktar."""
+    from app.models import Category
+    categories = Category.query.order_by(Category.name).all()
+    if request.method == 'POST':
+        if 'file' not in request.files or request.files['file'].filename == '':
+            flash('Dosya seçilmedi.', 'error')
+            return redirect(url_for('production.bom_import_v2'))
+
+        file = request.files['file']
+        if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+            flash('Geçersiz dosya formatı. Lütfen .xlsx veya .xls yükleyin.', 'error')
+            return redirect(url_for('production.bom_import_v2'))
+
+        try:
+            bom_name = request.form.get('bom_name', '').strip()
+            rows, errors = parse_bom_excel_v2(file, override_root_name=bom_name or None)
+
+            if errors and not rows:
+                flash(f'Excel parse hatası: {errors[0]["error"]}', 'error')
+                return redirect(url_for('production.bom_import_v2'))
+
+            bom_id = next_bom_id(db)
+            category_id = request.form.get('category_id')
+            cat_id_int = int(category_id) if category_id else None
+            stats = import_bom_to_db(rows, bom_id, db, category_id=cat_id_int)
+
+            warn_msg = ''
+            if errors:
+                warn_msg = f' ({len(errors)} satır atlandı, log’a bakın.)'
+
+            flash(
+                f'BOM #{bom_id} başarıyla içe aktarıldı. '
+                f'{stats["nodes"]} düğüm | {stats["items"]} parça | '
+                f'{stats.get("products", 0)} yeni ürün | '
+                f'{stats["edges"]} ilişki oluşturuldu.{warn_msg}',
+                'success'
+            )
+            return redirect(url_for('production.bom_tree', bom_id=bom_id))
+
+        except Exception as exc:
+            db.session.rollback()
+            flash(f'Beklenmeyen hata: {exc}', 'error')
+            return redirect(url_for('production.bom_import_v2'))
+
+    return render_template('production/bom_import_v2.html')
+
+
+@production_bp.route('/bom/<int:bom_id>')
+@login_required
+@roles_required('Genel', 'Yönetici')
+def bom_tree(bom_id):
+    """BOM ağacını görüntüle."""
+    tree = get_bom_tree(bom_id, db)
+    if not tree['roots']:
+        flash(f'BOM #{bom_id} bulunamadı veya boş.', 'error')
+        return redirect(url_for('production.bom_list'))
+    return render_template('production/bom_tree.html', tree=tree, bom_id=bom_id)
+
+
+
+@production_bp.route('/api/bom_node/<int:node_id>', methods=['GET', 'POST'])
+@login_required
+@roles_required('Yönetici', 'Genel')
+def api_bom_node(node_id):
+    from app.models import BomNode, Product, BomItem
+    node = BomNode.query.get_or_404(node_id)
+    item = node.item
+    product = item.product if item else None
+
+    if request.method == 'GET':
+        return jsonify({
+            'id': node.id,
+            'name': node.display_name,
+            'code': item.code if item else '',
+            'material': product.material if product else '',
+            'quantity': float(node.quantity) if node.quantity else 0,
+            'quantity_net': float(node.quantity_net) if node.quantity_net else 0,
+            'piece_count': float(node.piece_count) if getattr(node, 'piece_count', None) is not None else 1,
+            'product_code': product.code if product else '',
+            'unit': node.unit_type
         })
+    elif request.method == 'POST':
+        data = request.json
+        if not data:
+            return jsonify({'success': False, 'error': 'Veri alınamadı'})
+        
+        try:
+            if 'name' in data and data['name']:
+                node.display_name = data['name']
+            if 'quantity' in data:
+                node.quantity = data['quantity']
+            if 'quantity_net' in data:
+                node.quantity_net = data['quantity_net']
+            if 'piece_count' in data:
+                node.piece_count = data['piece_count']
+            
+            if item:
+                if 'name' in data and data['name']:
+                    item.name = data['name']
+                if 'code' in data:
+                    item.code = data['code']
+                    
+            if product:
+                if 'name' in data and data['name']:
+                    product.name = data['name']
+                if 'material' in data:
+                    product.material = data['material']
+                if 'product_code' in data and data['product_code']:
+                    existing = Product.query.filter(Product.code == data['product_code'], Product.id != product.id).first()
+                    if not existing:
+                        product.code = data['product_code']
+                    else:
+                        return jsonify({'success': False, 'error': 'Belirtilen ürün kodu başka bir üründe kullanılıyor!'})
+                        
+            from app import db
+            db.session.commit()
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+
+
+@production_bp.route('/api/bom_tree/<int:bom_id>')
+
+@login_required
+def api_bom_tree(bom_id):
+    """BOM ağacını JSON olarak döndür."""
+    tree = get_bom_tree(bom_id, db)
+    return jsonify(tree)
+
+
+@production_bp.route('/bom/<int:bom_id>/delete', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def bom_delete(bom_id):
+    """Bir BOM'un tüm düğüm ve edge'lerini sil."""
+    from app.models import BomNode, BomEdge
+    BomEdge.query.filter_by(bom_id=bom_id).delete()
+    BomNode.query.filter_by(bom_id=bom_id).delete()
+    db.session.commit()
+    flash(f'BOM #{bom_id} silindi.', 'success')
+    return redirect(url_for('production.bom_list'))
+
+@production_bp.route('/bom/<int:bom_id>/produce/<int:node_id>', methods=['GET', 'POST'])
+@login_required
+@roles_required('Yönetici')
+def bom_produce(bom_id, node_id):
+    from app.models import BomNode, BomEdge
+    bom_node = BomNode.query.filter_by(id=node_id, bom_id=bom_id).first_or_404()
     
-    return jsonify({
-        'can_produce': can_produce,
-        'items': items
-    })
+    # Kendi ürünü (üretilecek hedef)
+    target_product = bom_node.item.product if bom_node.item else None
+    if not target_product:
+        flash('Bu düğümün bağlı olduğu bir ana ürün(Product) yok. Üretim yapılamaz.', 'error')
+        return redirect(url_for('production.bom_tree', bom_id=bom_id))
+
+    # Alt bileşenleri bul (Sadece 1 alt kademe)
+    edges = BomEdge.query.filter_by(parent_node_id=node_id, bom_id=bom_id).all()
+    
+    # Kullanıcı sadece "Üret" dediğinde doğrudan üretim formu açılacak.
+    # GET: Gerekli malzemeleri göster
+    if request.method == 'GET':
+        materials = []
+        for edge in edges:
+            child = edge.child
+            c_product = child.item.product if child.item else None
+            # brüt miktar (varsa edge.quantity, yoksa node.quantity)
+            req_q = edge.quantity
+            materials.append({
+                'child_node': child,
+                'product': c_product,
+                'req_qty_per_unit': req_q,
+                'stock': c_product.current_stock if c_product else 0
+            })
+        return render_template('production/bom_produce.html', 
+                               bom_node=bom_node, 
+                               target_product=target_product,
+                               materials=materials)
+
+    # POST: Üretimi gerçekleştir
+    quantity = request.form.get('quantity', type=float, default=1.0)
+    note = request.form.get('note', '')
+
+    if quantity <= 0:
+        flash('Üretim miktarı sıfırdan büyük olmalıdır.', 'error')
+        return redirect(url_for('production.bom_produce', bom_id=bom_id, node_id=node_id))
+
+    # 1. Stok yetiyor mu kontrolü
+    insufficient = []
+    required_consumptions = [] # [(product, total_req_qty, child_node)]
+    for edge in edges:
+        child = edge.child
+        c_product = child.item.product if child and child.item else None
+        if not c_product:
+            continue
+        
+        total_req = float(edge.quantity) * quantity
+        if c_product.current_stock < total_req:
+            insufficient.append(f"{c_product.name} (Gereken: {total_req}, Mevcut: {c_product.current_stock})")
+        else:
+            required_consumptions.append((c_product, total_req, child))
+
+    if insufficient:
+        flash('Yetersiz stok: ' + ' | '.join(insufficient), 'error')
+        return redirect(url_for('production.bom_produce', bom_id=bom_id, node_id=node_id))
+
+    # 2. Üretim kaydı oluştur
+    production = ProductionRecord(
+        bom_id=bom_id,
+        bom_node_id=node_id,
+        product_id=target_product.id,
+        quantity=quantity,
+        user_id=current_user.id,
+        note=note
+    )
+    db.session.add(production)
+    db.session.flush()
+
+    # 3. Stoğu Düş ve Tüketim Kaydı oluştur (Kullanılan Alt Bileşenler İçin)
+    for c_product, total_req, child_node in required_consumptions:
+        # Stoğu düş
+        c_product.current_stock -= total_req
+        
+        # Tüketim detayı (Üretim emri ile ilişkilendirme)
+        consumption = ProductionConsumption(
+            production_id=production.id,
+            product_id=c_product.id,
+            quantity=total_req
+        )
+        db.session.add(consumption)
+        
+        # Stok hareketi (Çıkış)
+        movement_out = StockMovement(
+            product_id=c_product.id,
+            movement_type='cikis',
+            quantity=total_req,
+            source='Depo',
+            destination=f'Üretim - {bom_node.display_name}',
+            note=f'Yarı Mamul/Mamul Üretimi için harcandı. Üretilen: {bom_node.display_name} ({quantity} adet)',
+            user_id=current_user.id
+        )
+        db.session.add(movement_out)
+
+    # 4. Stoğu Artır (Üretilen Yarı Mamul/Mamul İçin)
+    target_product.current_stock += quantity
+    movement_in = StockMovement(
+        product_id=target_product.id,
+        movement_type='giris',
+        quantity=quantity,
+        source=f'Üretim Hattı - {bom_node.display_name}',
+        destination='Depo',
+        note=f'Üretim Tamamlandı. Giren Miktar: {quantity}',
+        user_id=current_user.id
+    )
+    db.session.add(movement_in)
+
+    db.session.commit()
+    flash(f'Başarıyla {quantity} adet {bom_node.display_name} üretildi ve stoka girdi.', 'success')
+    return redirect(url_for('production.bom_tree', bom_id=bom_id))
+
+
+
+@production_bp.route('/work_order', methods=['GET', 'POST'])
+@login_required
+def work_order():
+    from app.models import Category, Product, BomNode, BomEdge, ProductionRecord, ProductionConsumption, StockMovement
+    from flask_login import current_user
+    
+    root_nodes = BomNode.query.filter_by(level=0).all()
+    categories = Category.query.all()
+    
+    if request.method == 'GET':
+        return render_template('production/work_order.html', 
+                               root_nodes=root_nodes, 
+                               categories=categories)
+                               
+    bom_id = request.form.get('bom_id', type=int)
+    quantity = request.form.get('quantity', type=float, default=1.0)
+    note = request.form.get('note', '')
+    
+    if quantity <= 0:
+        flash('Miktar pozitif olmalı.', 'error')
+        return redirect(url_for('production.work_order'))
+        
+    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root_node:
+        flash('Geçersiz BOM ID', 'error')
+        return redirect(url_for('production.work_order'))
+        
+    target_product = root_node.item.product if root_node.item else None
+    
+    if not target_product:
+        flash('Bu BOM ağacında bir ana ürün (Product) eşleşmesi yok.', 'error')
+        return redirect(url_for('production.work_order'))
+        
+    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
+    child_edges = {}
+    for e in edges:
+        child_edges.setdefault(e.parent_node_id, []).append(e)
+        
+    required_materials = {}
+    
+    def explode(node_id, current_qty):
+        subs = child_edges.get(node_id, [])
+        if not subs:
+            # Leave node -> Hammadde
+            n = BomNode.query.get(node_id)
+            p = n.item.product if n.item else None
+            # If no product linked, we just ignore it for stock (or should we raise error?)
+            if p:
+                required_materials[p.id] = required_materials.get(p.id, 0.0) + current_qty
+        else:
+            for sub in subs:
+                try:    eq = float(sub.quantity)
+                except: eq = 1.0
+                explode(sub.child_node_id, current_qty * eq)
+                
+    explode(root_node.id, quantity)
+    
+    insufficient = []
+    consume_list = []
+    for pid, req in required_materials.items():
+        p = Product.query.get(pid)
+        if p.current_stock < req:
+            insufficient.append(f"{p.name} (Eksik: {req - p.current_stock:.2f})")
+        else:
+            consume_list.append((p, req))
+            
+    if insufficient:
+        flash('Yetersiz stoklar: ' + ', '.join(insufficient), 'error')
+        return redirect(url_for('production.work_order'))
+        
+    # 1. Deduct Materials
+    for p, req in consume_list:
+        p.current_stock -= float(req)
+        movement = StockMovement(
+            product_id=p.id,
+            movement_type='out',
+            quantity=req,
+            reason=f'Üretim Sarfiyatı (BOM #{bom_id}, Miktar: {quantity})'
+        )
+        db.session.add(movement)
+        
+    # 2. Add Target Product
+    target_product.current_stock += quantity
+    mov_in = StockMovement(
+        product_id=target_product.id,
+        movement_type='in',
+        quantity=quantity,
+        reason=f"Üretimden Giriş (BOM #{bom_id})"
+    )
+    db.session.add(mov_in)
+    
+    # 3. Production Record
+    pr = ProductionRecord(
+        bom_id=bom_id,
+        bom_node_id=root_node.id,
+        product_id=target_product.id,
+        quantity=quantity,
+        note=note,
+        user_id=current_user.id
+    )
+    db.session.add(pr)
+    db.session.flush()
+    
+    for p, req in consume_list:
+        pc = ProductionConsumption(
+            production_id=pr.id,
+            product_id=p.id,
+            quantity=float(req)
+        )
+        db.session.add(pc)
+        
+    db.session.commit()
+    flash(f"{target_product.name} için {quantity} adet üretim başarıyla tamamlandı.", 'success')
+    return redirect(url_for('production.index'))

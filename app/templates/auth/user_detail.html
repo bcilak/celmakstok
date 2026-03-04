@@ -555,7 +555,7 @@
                                             <span class="fw-bold text-dark">{{ p.date.strftime('%d.%m.%Y') }}</span>
                                             <span class="ms-1 small text-muted">{{ p.date.strftime('%H:%M') }}</span>
                                         </td>
-                                        <td class="fw-bold text-primary">{{ p.recipe.name if p.recipe else '—' }}</td>
+                                        <td class="fw-bold text-primary">{{ p.bom_node.product.name if p.bom_node and p.bom_node.product else '—' }}</td>
                                         <td>
                                             <span class="badge bg-success rounded-pill px-3 py-2 fs-6">
                                                 {{ ('%g'|format(p.quantity)) }} Adet

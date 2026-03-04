@@ -85,6 +85,34 @@
     </div>
 </div>
 
+<!-- Tip Filtreleme Sekmeleri -->
+<ul class="nav nav-pills mb-4 d-flex gap-2 custom-type-tabs">
+    <li class="nav-item">
+        <a class="nav-link px-4 py-2 fw-semibold {% if not selected_type %}active{% endif %}"
+            href="{{ url_for('products.index', category=selected_category, search=search, status=status) }}">
+            <i class="bi bi-boxes me-2"></i>Tüm Ürünler
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link px-4 py-2 fw-semibold text-primary bg-primary bg-opacity-10 border border-primary border-opacity-10 {% if selected_type == 'mamul' %}active text-white{% endif %}"
+            href="{{ url_for('products.index', type='mamul', category=selected_category, search=search, status=status) }}">
+            <i class="bi bi-truck me-2"></i>Mamuller (Makineler)
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link px-4 py-2 fw-semibold text-warning bg-warning bg-opacity-10 border border-warning border-opacity-10 {% if selected_type == 'yarimamul' %}active text-white{% endif %}"
+            href="{{ url_for('products.index', type='yarimamul', category=selected_category, search=search, status=status) }}">
+            <i class="bi bi-tools me-2"></i>Yarı Mamuller
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link px-4 py-2 fw-semibold text-success bg-success bg-opacity-10 border border-success border-opacity-10 {% if selected_type == 'hammadde' %}active text-white{% endif %}"
+            href="{{ url_for('products.index', type='hammadde', category=selected_category, search=search, status=status) }}">
+            <i class="bi bi-nut me-2"></i>Hammaddeler
+        </a>
+    </li>
+</ul>
+
 <!-- Filters -->
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-body">
@@ -171,6 +199,7 @@
                         </a>
                     </th>
                     <th>Kategori / Tip</th>
+                    <th>Malzeme / Özellik</th>
                     <th class="text-end">Mevcut Stok</th>
                     <th class="text-end">Min. Stok</th>
                     <th class="text-center">Durum</th>
@@ -191,7 +220,15 @@
                                     class="text-decoration-none text-dark fw-semibold d-block">
                                     {{ product.name }}
                                 </a>
-                                <code class="item-code">{{ product.code }}</code>
+                                <div class="d-flex align-items-center mt-1">
+                                    <small class="text-muted d-block me-2">#{{ product.code }}</small>
+                                    {% if product.id in product_bom_map %}
+                                    <a href="{{ url_for('production.bom_tree', bom_id=product_bom_map[product.id]) }}"
+                                        class="badge bg-success text-decoration-none shadow-sm">
+                                        <i class="bi bi-diagram-3-fill me-1"></i>Ürün Ağacı
+                                    </a>
+                                    {% endif %}
+                                </div>
                             </div>
                         </div>
                     </td>
@@ -217,6 +254,11 @@
                             class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25"><i
                                 class="bi bi-check-circle me-1"></i>Mamül</span>
                         {% endif %}
+                    </td>
+
+                    <td>
+                        <small class="text-muted">{% if product.material %}{{ product.material }}{% else %}-{% endif
+                            %}</small>
                     </td>
                     <td class="text-end">
                         <span

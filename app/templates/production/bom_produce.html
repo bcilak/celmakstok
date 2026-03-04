@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Üretim Yap - {{ bom_node.display_name }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h2><i class="fas fa-hammer text-primary"></i> Üretim Emri</h2>
+        <h5 class="text-muted">{{ bom_node.num }} - {{ bom_node.display_name }}</h5>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{{ url_for('production.bom_tree', bom_id=bom_node.bom_id) }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Ağaca Dön
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Üretim Formu -->
+    <div class="col-md-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white">
+                <h5 class="card-title mb-0">Üretim Bilgileri</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">Üretilecek Yarı Mamul / Mamul</label>
+                        <input type="text" class="form-control" value="{{ bom_node.display_name }}" readonly>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label text-success fw-bold">Stoka Girecek Ürün Kaydı</label>
+                        <input type="text" class="form-control text-success fw-bold bg-light" value="{{ target_product.name if target_product else 'Bilinmiyor' }}" readonly>
+                        <small class="text-muted">Mevcut Stok: {{ target_product.current_stock if target_product else 0 }} {{ target_product.unit_type if target_product else '' }}</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="quantity" class="form-label">Üretilecek Miktar</label>
+                        <input type="number" step="0.01" min="0.01" class="form-control form-control-lg text-primary fw-bold" id="quantity" name="quantity" value="1" required oninput="calcTotal()">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="note" class="form-label">Not / Açıklama</label>
+                        <textarea class="form-control" id="note" name="note" rows="2" placeholder="Vardiya, sipariş notu vb."></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-success w-100 btn-lg" onclick="return confirm('Üretimi onaylıyor musunuz? Seçilen alt bileşenler stoktan düşülecektir.')">
+                        <i class="fas fa-check-circle"></i> Üretimi Başlat
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tüketilecek Malzemeler -->
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white">
+                <h5 class="card-title mb-0">Tüketilecek Alt Bileşenler (Stoktan Düşülecek)</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Tip</th>
+                                <th>Numara</th>
+                                <th>Parça / Malzeme</th>
+                                <th class="text-center">Birimi</th>
+                                <th class="text-end">1 Adet İçin</th>
+                                <th class="text-end text-danger fw-bold">Toplam Düşülecek</th>
+                                <th class="text-end">Mevcut Stok</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for mat in materials %}
+                            <tr>
+                                <td>
+                                    {% if mat.child_node.item and mat.child_node.item.type == 'hammadde' %}
+                                        <span class="badge bg-secondary">Hammadde</span>
+                                    {% else %}
+                                        <span class="badge bg-warning text-dark">Yarı Mamul</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ mat.child_node.num }}</td>
+                                <td>
+                                    <strong>{{ mat.child_node.display_name }}</strong><br>
+                                    <small class="text-muted">{{ mat.product.code if mat.product and mat.product.code else '' }}</small>
+                                </td>
+                                <td class="text-center">{{ mat.product.unit_type if mat.product else 'adet' }}</td>
+                                <td class="text-end">
+                                    <span class="req_val" data-val="{{ mat.req_qty_per_unit }}">{{ "%.2f"|format(mat.req_qty_per_unit) }}</span>
+                                </td>
+                                <td class="text-end text-danger fw-bold calc_total_val">
+                                    {{ "%.2f"|format(mat.req_qty_per_unit) }}
+                                </td>
+                                <td class="text-end fw-bold">
+                                    {{ "%.2f"|format(mat.stock) }}
+                                </td>
+                                <td class="status_col">
+                                    {% if mat.stock >= mat.req_qty_per_unit %}
+                                        <span class="text-success"><i class="fas fa-check"></i> Yeterli</span>
+                                    {% else %}
+                                        <span class="text-danger fw-bold"><i class="fas fa-times"></i> Yetersiz</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="8" class="text-center text-muted py-4">Bu düğümün alt bileşeni görünmüyor. Herhangi bir stok düşümü yapılmayacak.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer bg-light text-muted small">
+                <i class="fas fa-info-circle"></i> Sadece doğrudan bir alt seviyedeki malzemeler veya yarı mamuller düşülür.
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function calcTotal() {
+        const qtyInput = document.getElementById('quantity');
+        const qty = parseFloat(qtyInput.value) || 0;
+        
+        const reqRows = document.querySelectorAll('.req_val');
+        const totalRows = document.querySelectorAll('.calc_total_val');
+        const statusCols = document.querySelectorAll('.status_col');
+        const stocks = {{ materials|map(attribute='stock')|list|tojson }};
+        
+        reqRows.forEach((el, index) => {
+            const reqPerUnit = parseFloat(el.getAttribute('data-val'));
+            const total = reqPerUnit * qty;
+            totalRows[index].innerText = total.toFixed(2);
+            
+            const curStock = stocks[index];
+            if(curStock >= total) {
+                statusCols[index].innerHTML = '<span class="text-success"><i class="fas fa-check"></i> Yeterli</span>';
+            } else {
+                statusCols[index].innerHTML = '<span class="text-danger fw-bold"><i class="fas fa-times"></i> Yetersiz</span>';
+            }
+        });
+    }
+</script>
+{% endblock %}
