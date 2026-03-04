@@ -374,6 +374,9 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             qty_fireli  = qty_raw if qty_raw is not None else 1.0
             qty_firesiz = qty_fireli
             unit = _unit_str(unit_raw)
+            pc_val = 1.0  # Default piece count
+            w_val = 0.0
+            w_unit = ''
 
         if not name:
             errors.append({'row': row_idx, 'error': f'{num} için ad bulunamadı — atlandı'})
@@ -676,6 +679,7 @@ def _parse_format_c(ws, override_root_name=None) -> tuple[list[dict], list[dict]
                 # Birim ağırlık = toplam ağırlık / metre
                 w_val  = round(g_val / e_val, 4) if g_val > 0 and e_val > 0 else 0.0
                 w_unit = 'kg'
+                pc_val = i_val
             elif g_val > 0:
                 # Ağırlık bazlı ölçüm (sac, levha vb.)
                 qty_fireli  = g_val
