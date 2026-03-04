@@ -33,13 +33,23 @@
                         <tr>
                             <td><strong>#{{ bom.bom_id }}</strong></td>
                             <td>
-                                {% if bom.product_id %}
-                                <a href="{{ url_for('products.view', id=bom.product_id) }}" class="text-decoration-none fw-semibold">
-                                    {{ bom.root_name }}
-                                </a>
-                                {% else %}
-                                <span class="fw-semibold">{{ bom.root_name }}</span>
-                                {% endif %}
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        {% if bom.product_id %}
+                                        <a href="{{ url_for('products.view', id=bom.product_id) }}" class="text-decoration-none fw-semibold">
+                                            {{ bom.root_name }}
+                                        </a>
+                                        {% else %}
+                                        <span class="fw-semibold">{{ bom.root_name }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <button class="btn btn-sm btn-link text-muted p-0 ms-2" 
+                                            data-bs-toggle="modal" 
+                                            data-bs-target="#editNameModal{{ bom.bom_id }}" 
+                                            title="İsmi Düzenle">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </button>
+                                </div>
                             </td>
                             <td>
                                 {% if bom.category_name %}
@@ -60,6 +70,7 @@
                             </td>
                             <td class="text-end">
                                 
+                        <!-- Üretim Hattı Atama Modalı -->
                         <div class="modal fade" id="assignModal{{ bom.bom_id }}" tabindex="-1" aria-hidden="true">
                             <div class="modal-dialog modal-sm">
                                 <div class="modal-content">
@@ -76,6 +87,28 @@
                                                 <option value="{{ cat.id }}" {% if bom.category_name == cat.name %}selected{% endif %}>{{ cat.name }}</option>
                                                 {% endfor %}
                                             </select>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">İptal</button>
+                                            <button type="submit" class="btn btn-sm btn-primary">Kaydet</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Ana Ürün İsmi Düzenleme Modalı -->
+                        <div class="modal fade" id="editNameModal{{ bom.bom_id }}" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog modal-sm">
+                                <div class="modal-content">
+                                    <form action="{{ url_for('production.bom_update_name', bom_id=bom.bom_id) }}" method="POST">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title fs-6">Ana Ürün İsmi Düzenle</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <label class="form-label small">Ürün İsmi</label>
+                                            <input type="text" name="root_name" class="form-control" value="{{ bom.root_name }}" required>
                                         </div>
                                         <div class="modal-footer">
                                             <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">İptal</button>

@@ -279,6 +279,39 @@ def bom_assign_category(bom_id):
     return redirect(url_for('production.bom_list'))
 
 
+@production_bp.route('/bom/<int:bom_id>/update-name', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def bom_update_name(bom_id):
+    from app.models import BomNode, BomItem, Product
+    
+    new_name = request.form.get('root_name', '').strip()
+    if not new_name:
+        flash('Ürün ismi boş olamaz!', 'error')
+        return redirect(url_for('production.bom_list'))
+    
+    # Root node'u bul
+    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root_node:
+        flash('BOM bulunamadı!', 'error')
+        return redirect(url_for('production.bom_list'))
+    
+    # Display name'i güncelle
+    root_node.display_name = new_name
+    
+    # Eğer BomItem varsa onun adını da güncelle
+    if root_node.item:
+        root_node.item.name = new_name
+        
+        # Ürünle bağlantılıysa ürünün adını da güncelle
+        if root_node.item.product:
+            root_node.item.product.name = new_name
+    
+    db.session.commit()
+    flash('Ana ürün ismi başarıyla güncellendi.', 'success')
+    return redirect(url_for('production.bom_list'))
+
+
 @production_bp.route('/bom/import', methods=['GET', 'POST'])
 @login_required
 @roles_required('Yönetici')
