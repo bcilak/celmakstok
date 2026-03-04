@@ -111,6 +111,12 @@
             <i class="bi bi-nut me-2"></i>Hammaddeler
         </a>
     </li>
+    <li class="nav-item">
+        <a class="nav-link px-4 py-2 fw-semibold text-info bg-info bg-opacity-10 border border-info border-opacity-10 {% if selected_type == 'standart' %}active text-white{% endif %}"
+            href="{{ url_for('products.index', type='standart', category=selected_category, search=search, status=status) }}">
+            <i class="bi bi-gear me-2"></i>Standart Parçalar
+        </a>
+    </li>
 </ul>
 
 <!-- Filters -->
