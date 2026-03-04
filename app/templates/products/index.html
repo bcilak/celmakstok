@@ -218,13 +218,16 @@
                     class="item-row {% if product.stock_status == 'empty' %}table-danger{% elif product.stock_status == 'critical' %}table-warning{% endif %}">
                     <td class="ps-4">
                         <div class="d-flex align-items-center">
-                            <div class="bg-light rounded p-2 me-3" style="width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                            <div class="product-image-wrapper bg-light rounded p-1 me-3">
                                 {% if product.image %}
-                                <img src="{{ url_for('static', filename=product.image) }}" 
-                                     alt="{{ product.name }}" 
-                                     style="max-width: 100%; max-height: 100%; object-fit: cover;">
+                                <img data-src="{{ url_for('static', filename=product.image) }}" 
+                                     alt="{{ product.name }}"
+                                     class="product-thumbnail lazy-load"
+                                     loading="lazy">
                                 {% else %}
-                                <i class="bi bi-box text-secondary"></i>
+                                <div class="product-placeholder">
+                                    <i class="bi bi-box text-secondary"></i>
+                                </div>
                                 {% endif %}
                             </div>
                             <div>
@@ -381,4 +384,108 @@
     </div>
     {% endif %}
 </div>
+
+<style>
+/* Ürün resim container */
+.product-image-wrapper {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #f8f9fa;
+    position: relative;
+}
+
+/* Ürün thumbnail */
+.product-thumbnail {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+}
+
+.product-thumbnail.loaded {
+    opacity: 1;
+}
+
+/* Placeholder */
+.product-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+/* Loading spinner */
+.product-image-wrapper.loading::after {
+    content: "";
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #e9ecef;
+    border-top-color: #6c757d;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+</style>
+
+<script>
+// Lazy loading için Intersection Observer
+document.addEventListener('DOMContentLoaded', function() {
+    const lazyImages = document.querySelectorAll('img.lazy-load');
+    
+    if ('IntersectionObserver' in window) {
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    const wrapper = img.closest('.product-image-wrapper');
+                    
+                    // Loading state ekle
+                    if (wrapper) wrapper.classList.add('loading');
+                    
+                    // Resmi yükle
+                    img.src = img.dataset.src;
+                    
+                    img.onload = function() {
+                        img.classList.add('loaded');
+                        if (wrapper) wrapper.classList.remove('loading');
+                    };
+                    
+                    img.onerror = function() {
+                        // Hata durumunda placeholder göster
+                        img.style.display = 'none';
+                        if (wrapper) {
+                            wrapper.classList.remove('loading');
+                            wrapper.innerHTML = '<div class="product-placeholder"><i class="bi bi-image text-muted"></i></div>';
+                        }
+                    };
+                    
+                    observer.unobserve(img);
+                }
+            });
+        }, {
+            rootMargin: '50px' // Viewport'a 50px yaklaşınca yükle
+        });
+        
+        lazyImages.forEach(img => imageObserver.observe(img));
+    } else {
+        // Eski tarayıcılar için fallback
+        lazyImages.forEach(img => {
+            img.src = img.dataset.src;
+            img.classList.add('loaded');
+        });
+    }
+});
+</script>
+
 {% endblock %}

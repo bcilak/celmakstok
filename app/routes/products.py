@@ -219,27 +219,72 @@ def edit(id):
         if 'image' in request.files:
             file = request.files['image']
             if file and file.filename:
-                # Güvenli dosya adı oluştur
+                from PIL import Image
+                
+                # Dosya formatı kontrolü
+                allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
                 filename = secure_filename(file.filename)
+                ext = os.path.splitext(filename)[1].lower()
+                
+                if ext not in allowed_extensions:
+                    flash('Sadece JPG, PNG, GIF veya WEBP formatları desteklenir.', 'error')
+                    return redirect(url_for('products.edit', id=product.id))
+                
+                # Dosya boyutu kontrolü (5MB max)
+                file.seek(0, os.SEEK_END)
+                file_size = file.tell()
+                file.seek(0)
+                
+                if file_size > 5 * 1024 * 1024:  # 5MB
+                    flash('Resim boyutu 5MB\'dan küçük olmalıdır.', 'error')
+                    return redirect(url_for('products.edit', id=product.id))
+                
                 # Timestamp ile benzersiz dosya adı
                 timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-                ext = os.path.splitext(filename)[1]
                 unique_filename = f"product_{product.id}_{timestamp}{ext}"
                 
                 # Upload klasörü oluştur
                 upload_folder = os.path.join(current_app.root_path, 'static', 'images', 'products')
                 os.makedirs(upload_folder, exist_ok=True)
                 
-                # Eski resmi sil
-                if product.image:
-                    old_image_path = os.path.join(current_app.root_path, 'static', product.image)
-                    if os.path.exists(old_image_path):
-                        os.remove(old_image_path)
-                
-                # Yeni resmi kaydet
-                file_path = os.path.join(upload_folder, unique_filename)
-                file.save(file_path)
-                product.image = f"images/products/{unique_filename}"
+                # Resmi yükle ve boyutlandır
+                try:
+                    img = Image.open(file)
+                    
+                    # EXIF yönlendirmesini düzelt
+                    try:
+                        from PIL import ImageOps
+                        img = ImageOps.exif_transpose(img)
+                    except:
+                        pass
+                    
+                    # RGB'ye dönüştür (PNG transparency için)
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        background = Image.new('RGB', img.size, (255, 255, 255))
+                        if img.mode == 'P':
+                            img = img.convert('RGBA')
+                        background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                        img = background
+                    elif img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    
+                    # Maksimum boyut: 800x800 (aspect ratio korunur)
+                    img.thumbnail((800, 800), Image.Resampling.LANCZOS)
+                    
+                    # Eski resmi sil
+                    if product.image:
+                        old_image_path = os.path.join(current_app.root_path, 'static', product.image)
+                        if os.path.exists(old_image_path):
+                            os.remove(old_image_path)
+                    
+                    # Yeni resmi kaydet (quality=85 ile optimize)
+                    file_path = os.path.join(upload_folder, unique_filename)
+                    img.save(file_path, 'JPEG', quality=85, optimize=True)
+                    product.image = f"images/products/{unique_filename}"
+                    
+                except Exception as e:
+                    flash(f'Resim yüklenirken hata oluştu: {str(e)}', 'error')
+                    return redirect(url_for('products.edit', id=product.id))
         
         db.session.commit()
         flash('Ürün başarıyla güncellendi.', 'success')
