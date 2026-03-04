@@ -35,13 +35,9 @@
                             <td>
                                 <div class="d-flex align-items-center justify-content-between">
                                     <div>
-                                        {% if bom.product_id %}
-                                        <a href="{{ url_for('products.view', id=bom.product_id) }}" class="text-decoration-none fw-semibold">
+                                        <a href="{{ url_for('production.bom_tree', bom_id=bom.bom_id) }}" class="text-decoration-none fw-semibold" title="BOM Ağacını Görüntüle">
                                             {{ bom.root_name }}
                                         </a>
-                                        {% else %}
-                                        <span class="fw-semibold">{{ bom.root_name }}</span>
-                                        {% endif %}
                                     </div>
                                     <button class="btn btn-sm btn-link text-muted p-0 ms-2" 
                                             data-bs-toggle="modal" 
@@ -118,9 +114,15 @@
                                 </div>
                             </div>
                         </div>
-                                <a href="{{ url_for('production.bom_tree', bom_id=bom.bom_id) }}" class="btn btn-sm btn-outline-primary" title="Ağacı Görüntüle">
+                                {% if bom.product_id %}
+                                <a href="{{ url_for('products.view', id=bom.product_id) }}" class="btn btn-sm btn-outline-primary" title="Ürün Detayları">
                                     <i class="bi bi-eye"></i> İncele
                                 </a>
+                                {% else %}
+                                <a href="{{ url_for('production.bom_tree', bom_id=bom.bom_id) }}" class="btn btn-sm btn-outline-primary" title="BOM Ağacını Görüntüle">
+                                    <i class="bi bi-diagram-3"></i> Ağaç
+                                </a>
+                                {% endif %}
                                 <form action="{{ url_for('production.bom_delete', bom_id=bom.bom_id) }}" method="POST" class="d-inline" onsubmit="return confirm('Bu BOM ağacını ve tüm alt öğelerini silmek istediğinizden emin misiniz?');">
                                     <button type="submit" class="btn btn-sm btn-outline-danger" title="Sil">
                                         <i class="bi bi-trash"></i>
