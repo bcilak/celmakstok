@@ -358,6 +358,7 @@ def api_bom_node(node_id):
             'name': node.display_name,
             'code': item.code if item else '',
             'material': product.material if product else '',
+            'type': product.type if product else 'hammadde',
             'quantity': float(node.quantity) if node.quantity else 0,
             'quantity_net': float(node.quantity_net) if node.quantity_net else 0,
             'piece_count': float(node.piece_count) if getattr(node, 'piece_count', None) is not None else 1,
@@ -390,6 +391,8 @@ def api_bom_node(node_id):
                     product.name = data['name']
                 if 'material' in data:
                     product.material = data['material']
+                if 'type' in data and data['type'] in ['hammadde', 'yarimamul', 'mamul', 'standart']:
+                    product.type = data['type']
                 if 'product_code' in data and data['product_code']:
                     existing = Product.query.filter(Product.code == data['product_code'], Product.id != product.id).first()
                     if not existing:

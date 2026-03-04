@@ -218,8 +218,14 @@
                     class="item-row {% if product.stock_status == 'empty' %}table-danger{% elif product.stock_status == 'critical' %}table-warning{% endif %}">
                     <td class="ps-4">
                         <div class="d-flex align-items-center">
-                            <div class="bg-light rounded p-2 me-3">
+                            <div class="bg-light rounded p-2 me-3" style="width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                                {% if product.image %}
+                                <img src="{{ url_for('static', filename=product.image) }}" 
+                                     alt="{{ product.name }}" 
+                                     style="max-width: 100%; max-height: 100%; object-fit: cover;">
+                                {% else %}
                                 <i class="bi bi-box text-secondary"></i>
+                                {% endif %}
                             </div>
                             <div>
                                 <a href="{{ url_for('products.view', id=product.id) }}"

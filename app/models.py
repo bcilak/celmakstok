@@ -117,6 +117,7 @@ class Product(db.Model):
     barcode = db.Column(db.String(100))  # Barkod
     notes = db.Column(db.Text)  # Notlar
     material = db.Column(db.Text)  # Malzeme özelliği / cinsi (BOM'dan aktarılır)
+    image = db.Column(db.String(255))  # Ürün resmi dosya yolu
     
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

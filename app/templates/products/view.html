@@ -41,6 +41,15 @@
                 <i class="bi bi-box me-2"></i>Ürün Bilgileri
             </div>
             <div class="card-body">
+                {% if product.image %}
+                <div class="mb-3 text-center">
+                    <img src="{{ url_for('static', filename=product.image) }}" 
+                         alt="{{ product.name }}" 
+                         class="img-fluid rounded border" 
+                         style="max-height: 250px; object-fit: contain;">
+                </div>
+                <hr>
+                {% endif %}
                 <table class="table table-sm table-borderless">
                     <tr>
                         <td class="text-muted" style="width: 40%;">Ürün Kodu</td>

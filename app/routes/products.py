@@ -11,7 +11,9 @@ from app.utils.excel_utils import (
 )
 from app.utils.decorators import roles_required
 from datetime import datetime
+from werkzeug.utils import secure_filename
 import io
+import os
 import zipfile
 import re
 
@@ -212,6 +214,32 @@ def edit(id):
         product.barcode = request.form.get('barcode', '')
         product.notes = request.form.get('notes', '')
         product.material = request.form.get('material') or None
+        
+        # Resim upload işlemi
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and file.filename:
+                # Güvenli dosya adı oluştur
+                filename = secure_filename(file.filename)
+                # Timestamp ile benzersiz dosya adı
+                timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                ext = os.path.splitext(filename)[1]
+                unique_filename = f"product_{product.id}_{timestamp}{ext}"
+                
+                # Upload klasörü oluştur
+                upload_folder = os.path.join(current_app.root_path, 'static', 'images', 'products')
+                os.makedirs(upload_folder, exist_ok=True)
+                
+                # Eski resmi sil
+                if product.image:
+                    old_image_path = os.path.join(current_app.root_path, 'static', product.image)
+                    if os.path.exists(old_image_path):
+                        os.remove(old_image_path)
+                
+                # Yeni resmi kaydet
+                file_path = os.path.join(upload_folder, unique_filename)
+                file.save(file_path)
+                product.image = f"images/products/{unique_filename}"
         
         db.session.commit()
         flash('Ürün başarıyla güncellendi.', 'success')
