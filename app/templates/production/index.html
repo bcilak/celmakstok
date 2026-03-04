@@ -54,6 +54,20 @@
                     <!-- We list the specific Finished Products assigned to this category -->
                     <h6 class="text-uppercase text-muted fw-bold mb-2 small"><i class="fas fa-box-open me-2"></i>Kayıtlı
                         Ana Mamuller</h6>
+                    
+                    <!-- Arama kutusu -->
+                    <div class="mb-2">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-white border-end-0">
+                                <i class="fas fa-search text-muted"></i>
+                            </span>
+                            <input type="text" class="form-control border-start-0 ps-0" 
+                                   placeholder="Ürün ara..." 
+                                   onkeyup="searchProducts(this)"
+                                   style="font-size: 0.85rem;">
+                        </div>
+                    </div>
+
                     <div class="product-list-container" style="max-height: 300px; overflow-y: auto;">
                         <div class="list-group list-group-flush mb-3">
                             {% set ns = namespace(found=0) %}
@@ -64,7 +78,8 @@
                                 class="list-group-item list-group-item-action d-flex justify-content-between align-items-center px-0 py-2 border-0">
                                 <div class="d-flex flex-column text-truncate" style="max-width: 80%;">
                                     <span class="text-dark fw-medium small mb-1">{{ product.name }}</span>
-                                    <span class="text-muted" style="font-size: 0.70rem;"><i class="fas fa-barcode"></i> {{
+                                    <span class="text-muted" style="font-size: 0.70rem;"><i class="fas fa-barcode"></i>
+                                        {{
                                         product.code }}</span>
                                 </div>
                                 <span class="badge bg-success rounded-pill ms-2" style="font-size: 0.70rem;">BOM</span>
@@ -73,7 +88,8 @@
                             {% endfor %}
 
                             {% if ns.found == 0 %}
-                            <div class="text-muted small py-2 fst-italic">Henüz bu hatta kayıtlı reçeteli mamul yok.</div>
+                            <div class="text-muted small py-2 fst-italic">Henüz bu hatta kayıtlı reçeteli mamul yok.
+                            </div>
                             {% endif %}
                         </div>
                     </div>
@@ -116,18 +132,18 @@
         display: flex;
         flex-direction: column;
     }
-    
+
     .category-card:hover {
         transform: translateY(-3px);
         box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .15) !important;
     }
-    
+
     .category-card .card-body {
         flex: 1;
         display: flex;
         flex-direction: column;
     }
-    
+
     /* Ürün listesi scroll container */
     .product-list-container {
         max-height: 300px;
@@ -135,26 +151,26 @@
         overflow-x: hidden;
         margin-bottom: 1rem;
     }
-    
+
     /* Custom scrollbar */
     .product-list-container::-webkit-scrollbar {
         width: 6px;
     }
-    
+
     .product-list-container::-webkit-scrollbar-track {
         background: #f1f1f1;
         border-radius: 10px;
     }
-    
+
     .product-list-container::-webkit-scrollbar-thumb {
         background: #888;
         border-radius: 10px;
     }
-    
+
     .product-list-container::-webkit-scrollbar-thumb:hover {
         background: #555;
     }
-    
+
     /* Fade effect at bottom when scrollable */
     .product-list-container::after {
         content: "";
@@ -167,22 +183,66 @@
         pointer-events: none;
         display: none;
     }
-    
+
     .product-list-container.has-scroll::after {
         display: block;
+    }
+
+    /* Arama kutusu stili */
+    .input-group .form-control:focus {
+        box-shadow: none;
+        border-color: #dee2e6;
+    }
+
+    .input-group-text {
+        border-color: #dee2e6;
     }
 </style>
 
 <script>
-// Scroll olup olmadığını kontrol et ve fade effect ekle
-document.addEventListener('DOMContentLoaded', function() {
-    const containers = document.querySelectorAll('.product-list-container');
-    containers.forEach(container => {
-        if (container.scrollHeight > container.clientHeight) {
-            container.classList.add('has-scroll');
-        }
+    // Scroll olup olmadığını kontrol et ve fade effect ekle
+    document.addEventListener('DOMContentLoaded', function () {
+        const containers = document.querySelectorAll('.product-list-container');
+        containers.forEach(container => {
+            if (container.scrollHeight > container.clientHeight) {
+                container.classList.add('has-scroll');
+            }
+        });
     });
-});
+
+    // Ürün arama fonksiyonu
+    function searchProducts(input) {
+        const searchText = input.value.toLowerCase().trim();
+        const card = input.closest('.category-card');
+        const productItems = card.querySelectorAll('.list-group-item');
+        const emptyMessage = card.querySelector('.fst-italic');
+        let visibleCount = 0;
+
+        productItems.forEach(item => {
+            const productName = item.querySelector('.text-dark')?.textContent.toLowerCase() || '';
+            const productCode = item.querySelector('.text-muted')?.textContent.toLowerCase() || '';
+            
+            if (productName.includes(searchText) || productCode.includes(searchText)) {
+                item.style.display = '';
+                visibleCount++;
+            } else {
+                item.style.display = 'none';
+            }
+        });
+
+        // Eğer hiçbir sonuç yoksa mesaj göster
+        if (emptyMessage) {
+            if (visibleCount === 0 && searchText !== '') {
+                emptyMessage.textContent = 'Arama sonucu bulunamadı.';
+                emptyMessage.style.display = '';
+            } else if (visibleCount === 0 && searchText === '') {
+                emptyMessage.textContent = 'Henüz bu hatta kayıtlı reçeteli mamul yok.';
+                emptyMessage.style.display = '';
+            } else {
+                emptyMessage.style.display = 'none';
+            }
+        }
+    }
 </script>
 
 {% endblock %}
