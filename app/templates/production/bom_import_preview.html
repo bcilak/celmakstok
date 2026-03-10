@@ -1,0 +1,415 @@
+{% extends "base.html" %}
+
+{% block title %}BOM Önizleme - ÇELMAK{% endblock %}
+
+{% block extra_css %}
+<style>
+    .preview-card {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+    }
+
+    .card-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px 8px 0 0;
+        font-weight: 600;
+    }
+
+    .card-body {
+        padding: 20px;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .stat-box {
+        text-align: center;
+        padding: 15px;
+        border-radius: 6px;
+        background: #f8f9fa;
+    }
+
+    .stat-box.success {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .stat-box.warning {
+        background: #fff3cd;
+        color: #856404;
+    }
+
+    .stat-box.danger {
+        background: #f8d7da;
+        color: #721c24;
+    }
+
+    .stat-number {
+        font-size: 2em;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+
+    .stat-label {
+        font-size: 0.9em;
+        opacity: 0.8;
+    }
+
+    .product-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
+
+    .product-table th {
+        background: #f8f9fa;
+        padding: 10px;
+        text-align: left;
+        border-bottom: 2px solid #dee2e6;
+        font-size: 0.9em;
+    }
+
+    .product-table td {
+        padding: 10px;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .product-table tr:hover {
+        background: #f8f9fa;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 0.25em 0.6em;
+        font-size: 0.85em;
+        font-weight: 600;
+        border-radius: 0.25rem;
+    }
+
+    .badge-success {
+        background-color: #28a745;
+        color: white;
+    }
+
+    .badge-info {
+        background-color: #17a2b8;
+        color: white;
+    }
+
+    .badge-warning {
+        background-color: #ffc107;
+        color: #212529;
+    }
+
+    .badge-danger {
+        background-color: #dc3545;
+        color: white;
+    }
+
+    .conflict-item {
+        background: #fff3cd;
+        border-left: 4px solid #ffc107;
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 4px;
+    }
+
+    .conflict-option {
+        margin: 10px 0 10px 20px;
+    }
+
+    .btn-action {
+        padding: 12px 30px;
+        font-size: 1.1em;
+        font-weight: 600;
+        border-radius: 6px;
+        margin: 10px 5px;
+    }
+
+    .btn-primary-action {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        color: white;
+    }
+
+    .btn-primary-action:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .collapsible {
+        background-color: #f1f1f1;
+        cursor: pointer;
+        padding: 10px;
+        width: 100%;
+        border: none;
+        text-align: left;
+        outline: none;
+        font-size: 0.95em;
+        border-radius: 4px;
+        margin-top: 5px;
+    }
+
+    .collapsible:hover {
+        background-color: #ddd;
+    }
+
+    .collapsible-content {
+        padding: 0 18px;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.2s ease-out;
+        background-color: #f9f9f9;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h2>📋 BOM İçe Aktarma Önizlemesi</h2>
+    <p class="text-muted">Excel dosyanız analiz edildi. Lütfen değişiklikleri gözden geçirin ve onaylayın.</p>
+
+    {% if warn_msg %}
+    <div class="alert alert-warning">
+        <i class="fas fa-exclamation-triangle"></i> {{ warn_msg }}
+    </div>
+    {% endif %}
+
+    <!-- İstatistikler -->
+    <div class="preview-card">
+        <div class="card-header">
+            📊 Özet İstatistikler
+        </div>
+        <div class="card-body">
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-number">{{ analysis.stats.total }}</div>
+                    <div class="stat-label">Toplam Ürün</div>
+                </div>
+                <div class="stat-box success">
+                    <div class="stat-number">{{ analysis.stats.new }}</div>
+                    <div class="stat-label">Yeni Eklenecek</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">{{ analysis.stats.existing }}</div>
+                    <div class="stat-label">Zaten Mevcut</div>
+                </div>
+                {% if analysis.stats.conflicts > 0 %}
+                <div class="stat-box warning">
+                    <div class="stat-number">{{ analysis.stats.conflicts }}</div>
+                    <div class="stat-label">⚠️ Dikkat Gerekiyor</div>
+                </div>
+                {% endif %}
+                {% if analysis.stats.will_update > 0 %}
+                <div class="stat-box">
+                    <div class="stat-number">{{ analysis.stats.will_update }}</div>
+                    <div class="stat-label">Güncellenecek</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('production.bom_import_v2') }}" id="confirmForm">
+        <input type="hidden" name="action" value="confirm_import">
+
+        <!-- Çakışmalar / Uyarılar -->
+        {% if analysis.conflicts %}
+        <div class="preview-card">
+            <div class="card-header" style="background: linear-gradient(135deg, #ffa500 0%, #ff6347 100%);">
+                ⚠️ Dikkat Gereken Durumlar ({{ analysis.conflicts|length }})
+            </div>
+            <div class="card-body">
+                <p><strong>Aşağıdaki ürünlerde çakışma tespit edildi. Nasıl işlem yapılacağını seçin:</strong></p>
+
+                {% for product in analysis.conflicts %}
+                <div class="conflict-item">
+                    <h5 style="margin: 0 0 10px 0;">
+                        {{ product.name }}
+                        <span class="badge badge-info">{{ product.item_type }}</span>
+                    </h5>
+
+                    <table class="table table-sm">
+                        <tr>
+                            <th style="width: 150px;">Alan</th>
+                            <th>Mevcut Değer</th>
+                            <th>Excel Değeri</th>
+                        </tr>
+                        <tr>
+                            <td>Kod</td>
+                            <td>{{ product.existing_code }}</td>
+                            <td>{{ product.code or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <td>Malzeme</td>
+                            <td>{{ product.existing_material or '-' }}</td>
+                            <td>{{ product.material or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <td>Birim</td>
+                            <td>{{ product.existing_unit_type }}</td>
+                            <td>{{ product.unit_type }}</td>
+                        </tr>
+                        <tr>
+                            <td>Tip</td>
+                            <td>{{ product.existing_type }}</td>
+                            <td>{{ product.item_type }}</td>
+                        </tr>
+                    </table>
+
+                    <div style="margin-top: 15px;">
+                        <strong>Sorunlar:</strong>
+                        <ul>
+                            {% for issue in product.issues %}
+                            <li><span class="badge badge-warning">{{ issue.type }}</span> {{ issue.message }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+
+                    <div class="conflict-option">
+                        <label><strong>Bu ürün için işlem:</strong></label><br>
+                        <input type="radio" name="conflict_{{ product.name }}" value="use_existing" checked>
+                        Mevcut ürün bilgilerini koru (önerilir)<br>
+
+                        {% if product.issues %}
+                        <input type="radio" name="conflict_{{ product.name }}" value="update">
+                        Excel'deki değerlerle güncelle<br>
+
+                        {% for issue in product.issues %}
+                        {% if 'material' in issue.type %}
+                        <div style="margin-left: 25px;">
+                            <input type="checkbox" name="update_material_{{ product.name }}"> Malzeme bilgisini güncelle
+                        </div>
+                        {% endif %}
+                        {% if 'type' in issue.type %}
+                        <div style="margin-left: 25px;">
+                            <input type="checkbox" name="update_type_{{ product.name }}"> Ürün tipini güncelle
+                        </div>
+                        {% endif %}
+                        {% if 'unit' in issue.type %}
+                        <div style="margin-left: 25px;">
+                            <input type="checkbox" name="update_unit_{{ product.name }}"> Birim tipini güncelle
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Yeni Ürünler -->
+        {% if analysis.new_products %}
+        <div class="preview-card">
+            <div class="card-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                ✅ Yeni Eklenecek Ürünler ({{ analysis.new_products|length }})
+            </div>
+            <div class="card-body">
+                <button type="button" class="collapsible">Detayları Göster/Gizle</button>
+                <div class="collapsible-content">
+                    <table class="product-table">
+                        <thead>
+                            <tr>
+                                <th>Ürün Adı</th>
+                                <th>Oluşturulacak Kod</th>
+                                <th>Malzeme</th>
+                                <th>Birim</th>
+                                <th>Tip</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in analysis.new_products %}
+                            <tr>
+                                <td>{{ product.name }}</td>
+                                <td><code>{{ product.generated_code }}</code></td>
+                                <td>{{ product.material or '-' }}</td>
+                                <td>{{ product.unit_type }}</td>
+                                <td><span class="badge badge-success">{{ product.item_type }}</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Mevcut Ürünler -->
+        {% if analysis.existing_products %}
+        <div class="preview-card">
+            <div class="card-header">
+                ℹ️ Zaten Mevcut Ürünler ({{ analysis.existing_products|length }})
+            </div>
+            <div class="card-body">
+                <button type="button" class="collapsible">Detayları Göster/Gizle</button>
+                <div class="collapsible-content">
+                    <table class="product-table">
+                        <thead>
+                            <tr>
+                                <th>Ürün Adı</th>
+                                <th>Kod</th>
+                                <th>Mevcut Stok</th>
+                                <th>Güncellemeler</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in analysis.existing_products %}
+                            <tr>
+                                <td>{{ product.name }}</td>
+                                <td><code>{{ product.existing_code }}</code></td>
+                                <td>{{ product.current_stock }}</td>
+                                <td>
+                                    {% if product.updates %}
+                                    {% for update in product.updates %}
+                                    <span class="badge badge-info">{{ update.field }}: +{{ update.value }}</span>
+                                    {% endfor %}
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Aksiyon Butonları -->
+        <div class="text-center" style="margin: 30px 0;">
+            <a href="{{ url_for('production.bom_import_v2') }}" class="btn btn-secondary btn-action">
+                <i class="fas fa-times"></i> İptal
+            </a>
+            <button type="submit" class="btn btn-primary-action btn-action">
+                <i class="fas fa-check"></i> Onayla ve İçe Aktar
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    // Collapsible sections
+    document.querySelectorAll('.collapsible').forEach(button => {
+        button.addEventListener('click', function () {
+            this.classList.toggle('active');
+            const content = this.nextElementSibling;
+            if (content.style.maxHeight) {
+                content.style.maxHeight = null;
+            } else {
+                content.style.maxHeight = content.scrollHeight + "px";
+            }
+        });
+    });
+</script>
+{% endblock %}

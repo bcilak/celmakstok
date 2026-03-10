@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
+from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, session
 from flask_login import login_required, current_user
 from app.models import Category, StockMovement, Product, ProductionRecord, ProductionConsumption
 from app import db
@@ -12,9 +12,44 @@ from app.utils.bom_utils import (
     get_bom_tree,
     list_boms,
     next_bom_id,
+    analyze_bom_for_import,
 )
+import pickle
+import os
+import uuid
 
 production_bp = Blueprint('production', __name__)
+
+# BOM import için geçici dosya yönetimi
+def _save_bom_temp_data(data):
+    """BOM verisini geçici dosyaya kaydet ve ID döndür"""
+    temp_id = str(uuid.uuid4())
+    temp_dir = os.path.join('instance', 'temp_bom')
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_file = os.path.join(temp_dir, f'{temp_id}.pkl')
+    
+    with open(temp_file, 'wb') as f:
+        pickle.dump(data, f)
+    
+    return temp_id
+
+def _load_bom_temp_data(temp_id):
+    """Geçici dosyadan BOM verisini yükle"""
+    temp_file = os.path.join('instance', 'temp_bom', f'{temp_id}.pkl')
+    if not os.path.exists(temp_file):
+        return None
+    
+    with open(temp_file, 'rb') as f:
+        data = pickle.load(f)
+    
+    return data
+
+def _delete_bom_temp_data(temp_id):
+    """Geçici BOM dosyasını sil"""
+    temp_file = os.path.join('instance', 'temp_bom', f'{temp_id}.pkl')
+    if os.path.exists(temp_file):
+        os.remove(temp_file)
+
 
 @production_bp.route('/')
 @login_required
@@ -316,10 +351,70 @@ def bom_update_name(bom_id):
 @login_required
 @roles_required('Yönetici')
 def bom_import_v2():
-    """Numaralandırma bazlı Excel'den BOM içe aktar."""
+    """İki aşamalı BOM içe aktarma: 1) Analiz ve önizleme 2) Onay ve import"""
     from app.models import Category
     categories = Category.query.order_by(Category.name).all()
+    
     if request.method == 'POST':
+        # AŞAMA 2: Kullanıcı onayladı, import yap
+        if request.form.get('action') == 'confirm_import':
+            try:
+                # Geçici dosyadan verileri al
+                temp_id = session.get('bom_temp_id')
+                if not temp_id:
+                    flash('Oturum süresi doldu. Lütfen dosyayı tekrar yükleyin.', 'error')
+                    return redirect(url_for('production.bom_import_v2'))
+                
+                bom_data = _load_bom_temp_data(temp_id)
+                if not bom_data:
+                    flash('Geçici veri bulunamadı. Lütfen dosyayı tekrar yükleyin.', 'error')
+                    return redirect(url_for('production.bom_import_v2'))
+                
+                rows = bom_data['rows']
+                bom_name = bom_data['bom_name']
+                category_id = bom_data['category_id']
+                
+                # Kullanıcı kararlarını al
+                conflict_resolutions = {}
+                for key in request.form:
+                    if key.startswith('conflict_'):
+                        product_name = key.replace('conflict_', '')
+                        action = request.form.get(key)
+                        conflict_resolutions[product_name] = {
+                            'action': action,
+                            'update_material': request.form.get(f'update_material_{product_name}') == 'on',
+                            'update_type': request.form.get(f'update_type_{product_name}') == 'on',
+                            'update_unit': request.form.get(f'update_unit_{product_name}') == 'on',
+                        }
+                
+                bom_id = next_bom_id(db)
+                stats = import_bom_to_db(rows, bom_id, db, category_id=category_id, 
+                                        conflict_resolutions=conflict_resolutions)
+                
+                # Geçici dosyayı temizle
+                _delete_bom_temp_data(temp_id)
+                session.pop('bom_temp_id', None)
+                
+                flash(
+                    f'✅ BOM #{bom_id} başarıyla içe aktarıldı! '
+                    f'{stats["nodes"]} düğüm | {stats["items"]} parça | '
+                    f'{stats["products"]} yeni ürün | {stats["updated"]} güncelleme | '
+                    f'{stats["edges"]} ilişki oluşturuldu.',
+                    'success'
+                )
+                return redirect(url_for('production.bom_tree', bom_id=bom_id))
+                
+            except Exception as exc:
+                db.session.rollback()
+                # Hata durumunda da geçici dosyayı temizle
+                temp_id = session.get('bom_temp_id')
+                if temp_id:
+                    _delete_bom_temp_data(temp_id)
+                    session.pop('bom_temp_id', None)
+                flash(f'Import hatası: {exc}', 'error')
+                return redirect(url_for('production.bom_import_v2'))
+        
+        # AŞAMA 1: Dosya yüklendi, analiz yap ve önizleme göster
         if 'file' not in request.files or request.files['file'].filename == '':
             flash('Dosya seçilmedi.', 'error')
             return redirect(url_for('production.bom_import_v2'))
@@ -337,30 +432,40 @@ def bom_import_v2():
                 flash(f'Excel parse hatası: {errors[0]["error"]}', 'error')
                 return redirect(url_for('production.bom_import_v2'))
 
-            bom_id = next_bom_id(db)
             category_id = request.form.get('category_id')
             cat_id_int = int(category_id) if category_id else None
-            stats = import_bom_to_db(rows, bom_id, db, category_id=cat_id_int)
-
+            
+            # Analiz yap
+            analysis = analyze_bom_for_import(rows, category_id=cat_id_int)
+            
+            # Geçici dosyaya kaydet (import için)
+            temp_id = _save_bom_temp_data({
+                'rows': rows,
+                'bom_name': bom_name,
+                'category_id': cat_id_int,
+            })
+            session['bom_temp_id'] = temp_id
+            
+            # Uyarı mesajları varsa ekle
             warn_msg = ''
             if errors:
-                warn_msg = f' ({len(errors)} satır atlandı, log’a bakın.)'
+                warn_msg = f'{len(errors)} satır atlandı.'
+            
+            return render_template('production/bom_import_preview.html',
+                                 analysis=analysis,
+                                 categories=categories,
+                                 selected_category_id=cat_id_int,
+                                 bom_name=bom_name,
+                                 errors=errors,
+                                 warn_msg=warn_msg)
 
-            flash(
-                f'BOM #{bom_id} başarıyla içe aktarıldı. '
-                f'{stats["nodes"]} düğüm | {stats["items"]} parça | '
-                f'{stats.get("products", 0)} yeni ürün | '
-                f'{stats["edges"]} ilişki oluşturuldu.{warn_msg}',
-                'success'
-            )
-            return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
         except Exception as exc:
             db.session.rollback()
             flash(f'Beklenmeyen hata: {exc}', 'error')
             return redirect(url_for('production.bom_import_v2'))
 
-    return render_template('production/bom_import_v2.html')
+    return render_template('production/bom_import_v2.html', categories=categories)
 
 
 @production_bp.route('/bom/<int:bom_id>')

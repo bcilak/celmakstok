@@ -746,16 +746,137 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
 
 
 # ---------------------------------------------------------------------------
+# BOM Analiz ve Önizleme
+# ---------------------------------------------------------------------------
+
+def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> dict:
+    """
+    Excel'den parse edilmiş BOM satırlarını analiz eder.
+    
+    Returns:
+        {
+            'new_products': [...],      # Yeni eklenecek ürünler
+            'existing_products': [...],  # Zaten mevcut ürünler
+            'conflicts': [...],          # Çakışma/uyarı gerektiren durumlar
+            'stats': {...}               # Özet istatistikler
+        }
+    """
+    from app.models import Product, BomItem
+    
+    new_products = []
+    existing_products = []
+    conflicts = []
+    
+    standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', 
+                        '210', '211', '212', '213', '214', '216', '217', '219'}
+    
+    for row in parsed_rows:
+        code_prefix = str(row.get('code') or '')[:3]
+        if code_prefix in standard_prefixes:
+            item_type = 'standart_parca'
+        else:
+            item_type = ('mamul' if row['level'] == 0
+                         else 'yarimamul' if row['level'] <= 2
+                         else 'hammadde')
+        
+        # Mevcut ürünü kontrol et
+        product = Product.query.filter_by(name=row['name']).first()
+        item = BomItem.query.filter_by(name=row['name']).first()
+        
+        entry = {
+            'name': row['name'],
+            'code': row.get('code') or '',
+            'material': row.get('material') or '',
+            'unit_type': row['unit_type'],
+            'quantity': row['quantity'],
+            'item_type': item_type,
+            'level': row['level']
+        }
+        
+        if not product:
+            # Yeni ürün
+            base_code = _make_product_code(row['name'], row.get('code') or '')
+            entry['generated_code'] = _unique_product_code(base_code)
+            new_products.append(entry)
+        else:
+            # Mevcut ürün - çakışma kontrolü
+            entry['existing_code'] = product.code
+            entry['existing_material'] = product.material or ''
+            entry['existing_unit_type'] = product.unit_type
+            entry['existing_type'] = product.type
+            entry['current_stock'] = product.current_stock
+            
+            # Çakışma tespiti
+            issues = []
+            updates = []
+            
+            # Birim tipi farklıysa UYARI
+            if product.unit_type != row['unit_type']:
+                issues.append({
+                    'type': 'unit_mismatch',
+                    'message': f"Birim tipi farklı: Mevcut '{product.unit_type}' vs Excel '{row['unit_type']}'"
+                })
+            
+            # Tip farklıysa UYARI
+            if product.type != item_type:
+                issues.append({
+                    'type': 'type_mismatch',
+                    'message': f"Ürün tipi farklı: Mevcut '{product.type}' vs Excel '{item_type}'"
+                })
+            
+            # Malzeme bilgisi yoksa eklenecek
+            if row.get('material') and not product.material:
+                updates.append({
+                    'field': 'material',
+                    'value': row['material']
+                })
+            elif row.get('material') and product.material and product.material != row['material']:
+                issues.append({
+                    'type': 'material_mismatch',
+                    'message': f"Malzeme farklı: Mevcut '{product.material}' vs Excel '{row['material']}'"
+                })
+            
+            entry['issues'] = issues
+            entry['updates'] = updates
+            
+            if issues:
+                conflicts.append(entry)
+            else:
+                existing_products.append(entry)
+    
+    stats = {
+        'total': len(parsed_rows),
+        'new': len(new_products),
+        'existing': len(existing_products),
+        'conflicts': len(conflicts),
+        'will_update': sum(1 for p in existing_products if p.get('updates'))
+    }
+    
+    return {
+        'new_products': new_products,
+        'existing_products': existing_products,
+        'conflicts': conflicts,
+        'stats': stats
+    }
+
+
+# ---------------------------------------------------------------------------
 # DB'ye Yükleme
 # ---------------------------------------------------------------------------
 
-def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int = None) -> dict:
+def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int = None, conflict_resolutions: dict = None) -> dict:
     from app.models import BomItem, BomNode, BomEdge, Product
 
     num_to_node_id: dict[str, int] = {}
     items_c = nodes_c = edges_c = products_c = 0
 
     standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213', '214', '216', '217', '219'}
+    
+    # Çakışma çözümlerini hazırla (kullanıcı kararları yoksa default)
+    if conflict_resolutions is None:
+        conflict_resolutions = {}
+
+    updated_products_c = 0
 
     for row in parsed_rows:
         code_prefix = str(row.get('code') or '')[:3]
@@ -786,6 +907,9 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
 
         # --- Product Master eşleştirme / oluşturma ---
         product = Product.query.filter_by(name=row['name']).first()
+        
+        # Kullanıcı bu ürün için karar verdiyse kontrol et
+        resolution = conflict_resolutions.get(row['name'], {})
 
         if not product:
             base_code = _make_product_code(row['name'], row.get('code') or '')
@@ -803,11 +927,32 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
             db.session.flush()
             products_c += 1
         else:
-            # Malzeme ve not bilgisi varsa güncelle (boşsa doldur)
-            if row.get('material') and not product.material:
-                product.material = row['material']
+            # Mevcut ürün - kullanıcı kararlarına göre güncelle
+            product_updated = False
+            
+            # Malzeme güncellemesi
+            if resolution.get('update_material', False) or (row.get('material') and not product.material):
+                if row.get('material'):
+                    product.material = row['material']
+                    product_updated = True
+            
+            # Tip güncellemesi
+            if resolution.get('update_type', False):
+                product.type = item_type
+                product_updated = True
+            
+            # Birim tipi güncellemesi
+            if resolution.get('update_unit', False):
+                product.unit_type = row['unit_type']
+                product_updated = True
+            
+            # Not bilgisi
             if product_notes and not product.notes:
                 product.notes = product_notes
+                product_updated = True
+            
+            if product_updated:
+                updated_products_c += 1
 
         # --- BomItem — name bazlı unique ---
         item = BomItem.query.filter_by(name=row['name']).first()
@@ -860,7 +1005,13 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         edges_c += 1
 
     db.session.commit()
-    return {'nodes': nodes_c, 'edges': edges_c, 'items': items_c, 'products': products_c}
+    return {
+        'nodes': nodes_c, 
+        'edges': edges_c, 
+        'items': items_c, 
+        'products': products_c,
+        'updated': updated_products_c
+    }
 
 
 # ---------------------------------------------------------------------------

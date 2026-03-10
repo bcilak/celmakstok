@@ -54,17 +54,15 @@
                     <!-- We list the specific Finished Products assigned to this category -->
                     <h6 class="text-uppercase text-muted fw-bold mb-2 small"><i class="fas fa-box-open me-2"></i>Kayıtlı
                         Ana Mamuller</h6>
-                    
+
                     <!-- Arama kutusu -->
                     <div class="mb-2">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0">
                                 <i class="fas fa-search text-muted"></i>
                             </span>
-                            <input type="text" class="form-control border-start-0 ps-0" 
-                                   placeholder="Ürün ara..." 
-                                   onkeyup="searchProducts(this)"
-                                   style="font-size: 0.85rem;">
+                            <input type="text" class="form-control border-start-0 ps-0" placeholder="Ürün ara..."
+                                onkeyup="searchProducts(this)" style="font-size: 0.85rem;">
                         </div>
                     </div>
 
@@ -221,7 +219,7 @@
         productItems.forEach(item => {
             const productName = item.querySelector('.text-dark')?.textContent.toLowerCase() || '';
             const productCode = item.querySelector('.text-muted')?.textContent.toLowerCase() || '';
-            
+
             if (productName.includes(searchText) || productCode.includes(searchText)) {
                 item.style.display = '';
                 visibleCount++;

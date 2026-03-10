@@ -220,10 +220,8 @@
                         <div class="d-flex align-items-center">
                             <div class="product-image-wrapper bg-light rounded p-1 me-3">
                                 {% if product.image %}
-                                <img data-src="{{ url_for('static', filename=product.image) }}" 
-                                     alt="{{ product.name }}"
-                                     class="product-thumbnail lazy-load"
-                                     loading="lazy">
+                                <img data-src="{{ url_for('static', filename=product.image) }}" alt="{{ product.name }}"
+                                    class="product-thumbnail lazy-load" loading="lazy">
                                 {% else %}
                                 <div class="product-placeholder">
                                     <i class="bi bi-box text-secondary"></i>
@@ -386,106 +384,108 @@
 </div>
 
 <style>
-/* Ürün resim container */
-.product-image-wrapper {
-    width: 60px;
-    height: 60px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    background: #f8f9fa;
-    position: relative;
-}
+    /* Ürün resim container */
+    .product-image-wrapper {
+        width: 60px;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: #f8f9fa;
+        position: relative;
+    }
 
-/* Ürün thumbnail */
-.product-thumbnail {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0;
-    transition: opacity 0.3s ease-in-out;
-}
+    /* Ürün thumbnail */
+    .product-thumbnail {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+    }
 
-.product-thumbnail.loaded {
-    opacity: 1;
-}
+    .product-thumbnail.loaded {
+        opacity: 1;
+    }
 
-/* Placeholder */
-.product-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.5rem;
-}
+    /* Placeholder */
+    .product-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
 
-/* Loading spinner */
-.product-image-wrapper.loading::after {
-    content: "";
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    border: 2px solid #e9ecef;
-    border-top-color: #6c757d;
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-}
+    /* Loading spinner */
+    .product-image-wrapper.loading::after {
+        content: "";
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #e9ecef;
+        border-top-color: #6c757d;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+    }
 
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
 </style>
 
 <script>
-// Lazy loading için Intersection Observer
-document.addEventListener('DOMContentLoaded', function() {
-    const lazyImages = document.querySelectorAll('img.lazy-load');
-    
-    if ('IntersectionObserver' in window) {
-        const imageObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const img = entry.target;
-                    const wrapper = img.closest('.product-image-wrapper');
-                    
-                    // Loading state ekle
-                    if (wrapper) wrapper.classList.add('loading');
-                    
-                    // Resmi yükle
-                    img.src = img.dataset.src;
-                    
-                    img.onload = function() {
-                        img.classList.add('loaded');
-                        if (wrapper) wrapper.classList.remove('loading');
-                    };
-                    
-                    img.onerror = function() {
-                        // Hata durumunda placeholder göster
-                        img.style.display = 'none';
-                        if (wrapper) {
-                            wrapper.classList.remove('loading');
-                            wrapper.innerHTML = '<div class="product-placeholder"><i class="bi bi-image text-muted"></i></div>';
-                        }
-                    };
-                    
-                    observer.unobserve(img);
-                }
+    // Lazy loading için Intersection Observer
+    document.addEventListener('DOMContentLoaded', function () {
+        const lazyImages = document.querySelectorAll('img.lazy-load');
+
+        if ('IntersectionObserver' in window) {
+            const imageObserver = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const img = entry.target;
+                        const wrapper = img.closest('.product-image-wrapper');
+
+                        // Loading state ekle
+                        if (wrapper) wrapper.classList.add('loading');
+
+                        // Resmi yükle
+                        img.src = img.dataset.src;
+
+                        img.onload = function () {
+                            img.classList.add('loaded');
+                            if (wrapper) wrapper.classList.remove('loading');
+                        };
+
+                        img.onerror = function () {
+                            // Hata durumunda placeholder göster
+                            img.style.display = 'none';
+                            if (wrapper) {
+                                wrapper.classList.remove('loading');
+                                wrapper.innerHTML = '<div class="product-placeholder"><i class="bi bi-image text-muted"></i></div>';
+                            }
+                        };
+
+                        observer.unobserve(img);
+                    }
+                });
+            }, {
+                rootMargin: '50px' // Viewport'a 50px yaklaşınca yükle
             });
-        }, {
-            rootMargin: '50px' // Viewport'a 50px yaklaşınca yükle
-        });
-        
-        lazyImages.forEach(img => imageObserver.observe(img));
-    } else {
-        // Eski tarayıcılar için fallback
-        lazyImages.forEach(img => {
-            img.src = img.dataset.src;
-            img.classList.add('loaded');
-        });
-    }
-});
+
+            lazyImages.forEach(img => imageObserver.observe(img));
+        } else {
+            // Eski tarayıcılar için fallback
+            lazyImages.forEach(img => {
+                img.src = img.dataset.src;
+                img.classList.add('loaded');
+            });
+        }
+    });
 </script>
 
 {% endblock %}

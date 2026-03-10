@@ -96,18 +96,15 @@
                             <label class="form-label">Ürün Resmi</label>
                             {% if product.image %}
                             <div class="mb-2">
-                                <img src="{{ url_for('static', filename=product.image) }}" 
-                                     alt="{{ product.name }}"
-                                     id="current-image"
-                                     class="img-thumbnail" 
-                                     style="max-height: 200px;">
+                                <img src="{{ url_for('static', filename=product.image) }}" alt="{{ product.name }}"
+                                    id="current-image" class="img-thumbnail" style="max-height: 200px;">
                                 <div class="form-text text-warning">
                                     <i class="bi bi-exclamation-triangle me-1"></i>
                                     Yeni resim seçerseniz eski resim silinecek
                                 </div>
                             </div>
                             {% endif %}
-                            
+
                             <div id="image-preview" class="mb-2" style="display: none;">
                                 <img id="preview-img" class="img-thumbnail" style="max-height: 200px;">
                                 <div class="form-text">
@@ -115,16 +112,13 @@
                                     <span id="file-info"></span>
                                 </div>
                             </div>
-                            
-                            <input type="file" 
-                                   name="image" 
-                                   id="image-input"
-                                   class="form-control" 
-                                   accept="image/jpeg,image/png,image/gif,image/webp">
+
+                            <input type="file" name="image" id="image-input" class="form-control"
+                                accept="image/jpeg,image/png,image/gif,image/webp">
                             <div class="form-text">
                                 <i class="bi bi-info-circle me-1"></i>
-                                <strong>Maksimum boyut:</strong> 5MB | 
-                                <strong>Format:</strong> JPG, PNG, GIF, WEBP | 
+                                <strong>Maksimum boyut:</strong> 5MB |
+                                <strong>Format:</strong> JPG, PNG, GIF, WEBP |
                                 <strong>Otomatik boyutlandırma:</strong> 800x800px
                             </div>
                         </div>
@@ -174,56 +168,56 @@
 </div>
 
 <script>
-// Resim dosyası seçildiğinde önizleme göster
-document.getElementById('image-input').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    const preview = document.getElementById('image-preview');
-    const previewImg = document.getElementById('preview-img');
-    const fileInfo = document.getElementById('file-info');
-    const currentImage = document.getElementById('current-image');
-    
-    if (file) {
-        // Dosya boyutu kontrolü
-        const maxSize = 5 * 1024 * 1024; // 5MB
-        if (file.size > maxSize) {
-            alert('Resim boyutu 5MB\'dan büyük olamaz!');
-            e.target.value = '';
-            preview.style.display = 'none';
-            return;
-        }
-        
-        // Format kontrolü
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-        if (!allowedTypes.includes(file.type)) {
-            alert('Sadece JPG, PNG, GIF veya WEBP formatları desteklenir!');
-            e.target.value = '';
-            preview.style.display = 'none';
-            return;
-        }
-        
-        // Dosya bilgileri
-        const fileSizeKB = (file.size / 1024).toFixed(2);
-        fileInfo.textContent = `${file.name} - ${fileSizeKB} KB`;
-        
-        // Önizleme göster
-        const reader = new FileReader();
-        reader.onload = function(event) {
-            previewImg.src = event.target.result;
-            preview.style.display = 'block';
-            
-            // Mevcut resmi gizle
-            if (currentImage) {
-                currentImage.style.opacity = '0.5';
+    // Resim dosyası seçildiğinde önizleme göster
+    document.getElementById('image-input').addEventListener('change', function (e) {
+        const file = e.target.files[0];
+        const preview = document.getElementById('image-preview');
+        const previewImg = document.getElementById('preview-img');
+        const fileInfo = document.getElementById('file-info');
+        const currentImage = document.getElementById('current-image');
+
+        if (file) {
+            // Dosya boyutu kontrolü
+            const maxSize = 5 * 1024 * 1024; // 5MB
+            if (file.size > maxSize) {
+                alert('Resim boyutu 5MB\'dan büyük olamaz!');
+                e.target.value = '';
+                preview.style.display = 'none';
+                return;
             }
-        };
-        reader.readAsDataURL(file);
-    } else {
-        preview.style.display = 'none';
-        if (currentImage) {
-            currentImage.style.opacity = '1';
+
+            // Format kontrolü
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            if (!allowedTypes.includes(file.type)) {
+                alert('Sadece JPG, PNG, GIF veya WEBP formatları desteklenir!');
+                e.target.value = '';
+                preview.style.display = 'none';
+                return;
+            }
+
+            // Dosya bilgileri
+            const fileSizeKB = (file.size / 1024).toFixed(2);
+            fileInfo.textContent = `${file.name} - ${fileSizeKB} KB`;
+
+            // Önizleme göster
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                previewImg.src = event.target.result;
+                preview.style.display = 'block';
+
+                // Mevcut resmi gizle
+                if (currentImage) {
+                    currentImage.style.opacity = '0.5';
+                }
+            };
+            reader.readAsDataURL(file);
+        } else {
+            preview.style.display = 'none';
+            if (currentImage) {
+                currentImage.style.opacity = '1';
+            }
         }
-    }
-});
+    });
 </script>
 
 {% endblock %}
