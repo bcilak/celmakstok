@@ -112,8 +112,8 @@
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link px-4 py-2 fw-semibold text-info bg-info bg-opacity-10 border border-info border-opacity-10 {% if selected_type == 'standart' %}active text-white{% endif %}"
-            href="{{ url_for('products.index', type='standart', category=selected_category, search=search, status=status) }}">
+        <a class="nav-link px-4 py-2 fw-semibold text-info bg-info bg-opacity-10 border border-info border-opacity-10 {% if selected_type == 'standart_parca' %}active text-white{% endif %}"
+            href="{{ url_for('products.index', type='standart_parca', category=selected_category, search=search, status=status) }}">
             <i class="bi bi-gear me-2"></i>Standart Parçalar
         </a>
     </li>
@@ -155,6 +155,7 @@
                     <option value="hammadde" {% if selected_type=='hammadde' %}selected{% endif %}>Hammadde</option>
                     <option value="yarimamul" {% if selected_type=='yarimamul' %}selected{% endif %}>Yarı Mamül</option>
                     <option value="mamul" {% if selected_type=='mamul' %}selected{% endif %}>Mamül</option>
+                    <option value="standart_parca" {% if selected_type=='standart_parca' %}selected{% endif %}>Standart Parça</option>
                 </select>
             </div>
             <div class="col-md-2">

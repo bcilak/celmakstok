@@ -337,12 +337,12 @@
                     <small class="text-muted">Bu kodu değiştirirseniz ürünün sistemdeki stok kodu da güncellenir.</small>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Kategori</label>
-                    <select class="form-select" id="edit-node-category">
-                        <option value="">-- Kategori Seçiniz --</option>
-                        {% for cat in categories %}
-                        <option value="{{ cat.id }}">{{ cat.name }}</option>
-                        {% endfor %}
+                    <label class="form-label">Ürün Tipi</label>
+                    <select class="form-select" id="edit-node-type">
+                        <option value="hammadde">Hammadde</option>
+                        <option value="yarimamul">Yarı Mamül</option>
+                        <option value="mamul">Mamül</option>
+                        <option value="standart_parca">Standart Parça</option>
                     </select>
                 </div>
                 <div class="row" id="row-piece-count">
@@ -737,7 +737,7 @@
                 document.getElementById('edit-node-material').value = data.material || '';
                 document.getElementById('edit-node-code').value = data.code || '';
                 document.getElementById('edit-node-product-code').value = data.product_code || '';
-                document.getElementById('edit-node-category').value = data.category_id || '';
+                document.getElementById('edit-node-type').value = data.type || 'hammadde';
                 
                 let uStr = data.unit ? data.unit.toLowerCase() : '';
                 let lbl = uStr === 'adet' ? 'Adet' : 'Miktar (' + data.unit + ')';
@@ -761,7 +761,7 @@
             material: document.getElementById('edit-node-material').value,
             code: document.getElementById('edit-node-code').value,
             product_code: document.getElementById('edit-node-product-code').value,
-            category_id: document.getElementById('edit-node-category').value,
+            type: document.getElementById('edit-node-type').value,
             quantity: parseFloat(document.getElementById('edit-node-quantity').value) || 0,
             quantity_net: parseFloat(document.getElementById('edit-node-quantity-net').value) || 0,
             piece_count: parseFloat(document.getElementById('edit-node-piece-count').value) || 1
