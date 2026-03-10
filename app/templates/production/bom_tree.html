@@ -117,6 +117,23 @@
         margin-left: auto;
     }
 
+    /* Malzeme/Ölçü rozeti */
+    .bt-material-badge {
+        font-size: .7rem;
+        padding: 2px 6px;
+        border-radius: 3px;
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fbbf24;
+        flex-shrink: 0;
+        margin-left: 4px;
+        font-weight: 500;
+        max-width: 100px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     /* Excel indirme ikonu */
     .bt-download-icon {
         flex-shrink: 0;
@@ -285,6 +302,7 @@
                     <div class="d-flex flex-wrap gap-3 align-items-center">
                         <span class="fw-bold" id="det-name">-</span>
                         <span class="badge bg-primary" id="det-num"></span>
+                        <span id="det-material-info" class="badge bg-warning text-dark" style="display:none;"></span>
                         <span id="det-type-badge"></span>
                         <span class="text-muted small" id="det-qty-info"></span>
                         <span class="text-muted small" id="det-weight-info"></span>
@@ -521,14 +539,21 @@
         // Ürün adına link ekleme
         let nameHtml = `<span class="bt-num">${node.num}</span>`;
         if (node.product_id) {
-            nameHtml += `<a href="/products/${node.product_id}" class="bt-name bt-name-link" onclick="event.stopPropagation();" target="_blank">${node.name} <small class="text-muted ms-1">(${node.quantity} ${node.unit || ''})</small></a>`;
+            nameHtml += `<a href="/products/${node.product_id}" class="bt-name bt-name-link" onclick="event.stopPropagation();" target="_blank">${node.name}</a>`;
         } else {
-            nameHtml += `<span class="bt-name">${node.name} <small class="text-muted ms-1">(${node.quantity} ${node.unit || ''})</small></span>`;
+            nameHtml += `<span class="bt-name">${node.name}</span>`;
+        }
+
+        // Malzeme/Ölçü bilgisi (varsa)
+        let materialBadge = '';
+        if (node.material && node.material.trim() !== '') {
+            materialBadge = `<span class="bt-material-badge" title="Malzeme Cinsi: ${node.material}">${node.material}</span>`;
         }
 
         row.insertAdjacentHTML('beforeend', `
             <span style="margin-right:3px; font-size:14px;">${icon}</span>
             ${nameHtml}
+            ${materialBadge}
             ${bc ? `<span class="bt-type-badge ${bc}">${bt2}</span>` : ''}
             <i class="bi bi-file-earmark-excel bt-download-icon" 
                title="Bu kısmı Excel olarak indir" 
@@ -541,26 +566,27 @@
             downloadIcon.onclick = e => {
                 e.stopPropagation();
                 const nodeId = node.id;
-                const bomId = {{ bom_id }};
-                window.location.href = `/production/bom/${bomId}/download_excel/${nodeId}`;
+                const bomId = {{ bom_id }
             };
-        }
+            window.location.href = `/production/bom/${bomId}/download_excel/${nodeId}`;
+        };
+    }
 
-        wrap.appendChild(row);
+    wrap.appendChild(row);
 
-        if (hasKids) {
-            const kidsDiv = document.createElement('div');
-            kidsDiv.className = 'bt-children';
-            node.children.forEach(c => kidsDiv.appendChild(makeNode(c)));
-            wrap.appendChild(kidsDiv);
+    if (hasKids) {
+        const kidsDiv = document.createElement('div');
+        kidsDiv.className = 'bt-children';
+        node.children.forEach(c => kidsDiv.appendChild(makeNode(c)));
+        wrap.appendChild(kidsDiv);
 
-            toggleEl.onclick = e => {
-                e.stopPropagation();
-                const open = kidsDiv.classList.toggle('open');
-                toggleEl.innerHTML = open ? '▼' : '▶';
-            };
-        }
-        return wrap;
+        toggleEl.onclick = e => {
+            e.stopPropagation();
+            const open = kidsDiv.classList.toggle('open');
+            toggleEl.innerHTML = open ? '▼' : '▶';
+        };
+    }
+    return wrap;
     }
 
     /* ---------------------------------------------------------
@@ -573,6 +599,15 @@
         document.getElementById('det-name').textContent = node.name;
         document.getElementById('det-num').textContent = node.num;
 
+        /* Malzeme/Ölçü bilgisi */
+        const materialInfoEl = document.getElementById('det-material-info');
+        if (node.material && node.material.trim() !== '') {
+            materialInfoEl.innerHTML = `<i class="bi bi-rulers me-1"></i>${node.material}`;
+            materialInfoEl.style.display = '';
+        } else {
+            materialInfoEl.style.display = 'none';
+        }
+
         /* Tür rozeti */
         const bc = typeBadgeClass(node.item_type);
         const bt2 = typeBadgeText(node.item_type);
@@ -582,12 +617,12 @@
         /* Miktar bilgisi - Seçilen düğümün kendi bilgileri */
         let qtyInfoHtml = '';
         let weightInfoHtml = '';
-        
+
         let q = parseFloat(node.quantity) || 0;
         let net = parseFloat(node.quantity_net) || 0;
         let wpu = parseFloat(node.weight_per_unit) || 0;
         let unit = (node.unit || '').trim().toLowerCase();
-        
+
         // Miktar bilgisi
         if (q > 0) {
             qtyInfoHtml = `<i class="bi bi-boxes me-1"></i>${fmtNum(q)} ${node.unit || 'adet'}`;
@@ -595,7 +630,7 @@
                 qtyInfoHtml += ` <span class="text-success">(Firesiz: ${fmtNum(net)})</span>`;
             }
         }
-        
+
         // Uzunluk bilgisi (sadece metre biriminde)
         if (unit === 'metre' || unit === 'mt') {
             qtyInfoHtml += ` <i class="fas fa-ruler-horizontal ms-2 me-1 text-warning"></i><span class="text-warning">${fmtNum(q)} m</span>`;
@@ -603,7 +638,7 @@
                 qtyInfoHtml += ` <span class="text-success">(${fmtNum(net)} m firesiz)</span>`;
             }
         }
-        
+
         // Ağırlık bilgisi
         if (unit === 'kg' || unit === 'kilogram') {
             weightInfoHtml = `<i class="fas fa-weight-hanging me-1 text-info"></i><span class="text-info">${fmtNum(q)} kg</span>`;
@@ -621,7 +656,7 @@
                 weightInfoHtml += ` <small class="text-muted">(${fmtNum(wpu)} ${node.weight_unit}/birim)</small>`;
             }
         }
-        
+
         document.getElementById('det-qty-info').innerHTML = qtyInfoHtml;
         document.getElementById('det-weight-info').innerHTML = weightInfoHtml;
 
