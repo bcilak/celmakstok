@@ -85,6 +85,8 @@
         font-size: .84rem;
         overflow: hidden;
         text-overflow: ellipsis;
+        flex: 1;
+        min-width: 0;
     }
 
     .bt-name-link {
@@ -127,8 +129,8 @@
         border: 1px solid #fbbf24;
         flex-shrink: 0;
         margin-left: 4px;
-        font-weight: 500;
-        max-width: 100px;
+        font-weight: 600;
+        max-width: 150px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -544,10 +546,10 @@
             nameHtml += `<span class="bt-name">${node.name}</span>`;
         }
 
-        // Malzeme/Ölçü bilgisi (varsa)
+        // Malzeme/Ölçü bilgisi (sadece hammadde için)
         let materialBadge = '';
-        if (node.material && node.material.trim() !== '') {
-            materialBadge = `<span class="bt-material-badge" title="Malzeme Cinsi: ${node.material}">${node.material}</span>`;
+        if (node.item_type === 'hammadde' && node.material && node.material.trim() !== '') {
+            materialBadge = `<span class="bt-material-badge" title="Malzeme: ${node.material}">${node.material}</span>`;
         }
 
         row.insertAdjacentHTML('beforeend', `
@@ -566,10 +568,11 @@
             downloadIcon.onclick = e => {
                 e.stopPropagation();
                 const nodeId = node.id;
-                const bomId = {{ bom_id }};
-                window.location.href = `/production/bom/${bomId}/download_excel/${nodeId}`;
+                const bomId = {{ bom_id }
             };
-        }
+            window.location.href = `/production/bom/${bomId}/download_excel/${nodeId}`;
+        };
+    }
 
     wrap.appendChild(row);
 
@@ -598,9 +601,9 @@
         document.getElementById('det-name').textContent = node.name;
         document.getElementById('det-num').textContent = node.num;
 
-        /* Malzeme/Ölçü bilgisi */
+        /* Malzeme/Ölçü bilgisi (sadece hammadde için) */
         const materialInfoEl = document.getElementById('det-material-info');
-        if (node.material && node.material.trim() !== '') {
+        if (node.item_type === 'hammadde' && node.material && node.material.trim() !== '') {
             materialInfoEl.innerHTML = `<i class="bi bi-rulers me-1"></i>${node.material}`;
             materialInfoEl.style.display = '';
         } else {
