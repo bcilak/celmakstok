@@ -130,6 +130,7 @@ def stock_out():
         movement_type = request.form.get('movement_type', 'cikis')
         category_id = request.form.get('category_id', type=int)
         location_id = request.form.get('location_id', type=int)
+        notes = request.form.get('notes', '')
         
         product = Product.query.get_or_404(product_id)
         
@@ -187,11 +188,15 @@ def stock_out():
         ('fire', 'Fire'),
     ]
     
+    from app.models import Location
+    locations = Location.query.filter_by(is_active=True).all()
+    
     return render_template('stock/stock_out.html', 
         products=products, 
         categories=categories,
         movement_types=movement_types,
-        selected_product=selected_product
+        selected_product=selected_product,
+        locations=locations
     )
 
 @stock_bp.route('/transfer', methods=['GET', 'POST'])

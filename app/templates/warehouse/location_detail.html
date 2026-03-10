@@ -200,17 +200,13 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if mv.movement_type == 'in' %}
+                            {% if mv.movement_type == 'giris' %}
                             <span class="badge bg-success bg-opacity-10 text-success">
                                 <i class="bi bi-arrow-down-circle me-1"></i>Giriş
                             </span>
-                            {% elif mv.movement_type == 'out' %}
+                            {% elif mv.movement_type in ['cikis', 'fire', 'transfer'] %}
                             <span class="badge bg-danger bg-opacity-10 text-danger">
                                 <i class="bi bi-arrow-up-circle me-1"></i>Çıkış
-                            </span>
-                            {% elif mv.movement_type == 'transfer' %}
-                            <span class="badge bg-info bg-opacity-10 text-info">
-                                <i class="bi bi-arrow-left-right me-1"></i>Transfer
                             </span>
                             {% else %}
                             <span class="badge bg-secondary">{{ mv.movement_type }}</span>
