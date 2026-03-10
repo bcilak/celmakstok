@@ -477,7 +477,8 @@ def bom_tree(bom_id):
     if not tree['roots']:
         flash(f'BOM #{bom_id} bulunamadı veya boş.', 'error')
         return redirect(url_for('production.bom_list'))
-    return render_template('production/bom_tree.html', tree=tree, bom_id=bom_id)
+    categories = Category.query.order_by(Category.name).all()
+    return render_template('production/bom_tree.html', tree=tree, bom_id=bom_id, categories=categories)
 
 
 
@@ -501,6 +502,7 @@ def api_bom_node(node_id):
             'quantity_net': float(node.quantity_net) if node.quantity_net else 0,
             'piece_count': float(node.piece_count) if getattr(node, 'piece_count', None) is not None else 1,
             'product_code': product.code if product else '',
+            'category_id': product.category_id if product else None,
             'unit': node.unit_type
         })
     elif request.method == 'POST':
@@ -531,6 +533,12 @@ def api_bom_node(node_id):
                     product.material = data['material']
                 if 'type' in data and data['type'] in ['hammadde', 'yarimamul', 'mamul', 'standart']:
                     product.type = data['type']
+                if 'category_id' in data:
+                    # Kategori ID'si None veya geçerli bir ID olmalı
+                    if data['category_id'] is None or data['category_id'] == '':
+                        product.category_id = None
+                    else:
+                        product.category_id = int(data['category_id'])
                 if 'product_code' in data and data['product_code']:
                     existing = Product.query.filter(Product.code == data['product_code'], Product.id != product.id).first()
                     if not existing:
