@@ -117,6 +117,29 @@
         margin-left: auto;
     }
 
+    /* Excel indirme ikonu */
+    .bt-download-icon {
+        flex-shrink: 0;
+        margin-left: 4px;
+        color: #16a34a;
+        font-size: 13px;
+        cursor: pointer;
+        padding: 2px 4px;
+        border-radius: 3px;
+        transition: all .15s;
+        opacity: 0;
+    }
+
+    .bt-row:hover .bt-download-icon {
+        opacity: 1;
+    }
+
+    .bt-download-icon:hover {
+        background: #dcfce7;
+        color: #15803d;
+        transform: scale(1.1);
+    }
+
     .bt-tb-ym {
         background: #fff8e1;
         color: #f57f17;
@@ -507,7 +530,21 @@
             <span style="margin-right:3px; font-size:14px;">${icon}</span>
             ${nameHtml}
             ${bc ? `<span class="bt-type-badge ${bc}">${bt2}</span>` : ''}
+            <i class="bi bi-file-earmark-excel bt-download-icon" 
+               title="Bu kısmı Excel olarak indir" 
+               data-node-id="${node.id}"></i>
         `);
+
+        // Excel indirme ikonuna tıklama olayı ekle
+        const downloadIcon = row.querySelector('.bt-download-icon');
+        if (downloadIcon) {
+            downloadIcon.onclick = e => {
+                e.stopPropagation();
+                const nodeId = node.id;
+                const bomId = {{ bom_id }};
+                window.location.href = `/production/bom/${bomId}/download_excel/${nodeId}`;
+            };
+        }
 
         wrap.appendChild(row);
 

@@ -10,6 +10,7 @@ from app.utils.bom_utils import (
     parse_bom_excel_v2,
     import_bom_to_db,
     get_bom_tree,
+    get_bom_subtree,
     list_boms,
     next_bom_id,
     analyze_bom_for_import,
@@ -555,19 +556,46 @@ def api_bom_tree(bom_id):
 
 
 @production_bp.route('/bom/<int:bom_id>/download_excel')
+@production_bp.route('/bom/<int:bom_id>/download_excel/<int:node_id>')
 @login_required
 @roles_required('Genel', 'Yönetici')
-def bom_download_excel(bom_id):
-    """BOM ağacını Excel dosyası olarak indir."""
-    tree = get_bom_tree(bom_id, db)
+def bom_download_excel(bom_id, node_id=None):
+    """
+    BOM ağacını veya belirli bir alt ağacı Excel dosyası olarak indir.
     
-    if not tree.get('roots'):
-        flash(f'BOM #{bom_id} bulunamadı veya boş.', 'error')
-        return redirect(url_for('production.bom_list'))
-    
+    Args:
+        bom_id: BOM ID
+        node_id: (Opsiyonel) Belirli bir düğüm ID'si - verilirse sadece o alt ağaç indirilir
+    """
     try:
-        excel_file = create_bom_tree_excel(tree, bom_id)
-        filename = f'BOM_{bom_id}_Agac_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        if node_id:
+            # Belirli bir düğümden başlayan alt ağacı al
+            subtree = get_bom_subtree(bom_id, node_id, db)
+            
+            if not subtree.get('node'):
+                flash(f'Düğüm #{node_id} bulunamadı.', 'error')
+                return redirect(url_for('production.bom_tree', bom_id=bom_id))
+            
+            node_info = {
+                'id': subtree['node']['id'],
+                'num': subtree['node']['num'],
+                'name': subtree['node']['name']
+            }
+            
+            excel_file = create_bom_tree_excel(subtree, bom_id, node_info=node_info)
+            # Dosya adını düğüm numarasına göre oluştur
+            safe_name = subtree['node']['num'].replace('.', '_')
+            filename = f'BOM_{bom_id}_{safe_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        else:
+            # Tüm ağacı al
+            tree = get_bom_tree(bom_id, db)
+            
+            if not tree.get('roots'):
+                flash(f'BOM #{bom_id} bulunamadı veya boş.', 'error')
+                return redirect(url_for('production.bom_list'))
+            
+            excel_file = create_bom_tree_excel(tree, bom_id)
+            filename = f'BOM_{bom_id}_Agac_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
         
         return send_file(
             excel_file,

@@ -547,13 +547,14 @@ def parse_bom_excel(file_stream, main_product_name):
         return [], [{'row': 0, 'error': f'Beklenmeyen hata: {str(e)}'}]
 
 
-def create_bom_tree_excel(tree_data: dict, bom_id: int) -> BytesIO:
+def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) -> BytesIO:
     """
     BOM ağaç yapısını Excel dosyası olarak oluşturur.
     
     Args:
-        tree_data: get_bom_tree() fonksiyonundan dönen ağaç verisi
+        tree_data: get_bom_tree() fonksiyonundan dönen ağaç verisi veya tek bir node
         bom_id: BOM ID numarası
+        node_info: Belirli bir düğüm seçilmişse {'id': node_id, 'num': num, 'name': name}
     
     Returns:
         BytesIO: Excel dosyası içeren BytesIO nesnesi
@@ -565,7 +566,10 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int) -> BytesIO:
     # Başlık satırları
     ws.merge_cells('A1:K1')
     title_cell = ws['A1']
-    title_cell.value = f'BOM #{bom_id} - Ürün Ağacı'
+    if node_info:
+        title_cell.value = f'BOM #{bom_id} - {node_info.get("num", "")} {node_info.get("name", "Alt Ağaç")}'
+    else:
+        title_cell.value = f'BOM #{bom_id} - Ürün Ağacı'
     title_cell.font = Font(bold=True, size=14, color="FFFFFF")
     title_cell.fill = PatternFill(start_color="2563eb", end_color="2563eb", fill_type="solid")
     title_cell.alignment = Alignment(horizontal="center", vertical="center")

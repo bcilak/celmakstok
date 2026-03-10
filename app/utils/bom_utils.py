@@ -1107,6 +1107,47 @@ def get_bom_tree(bom_id: int, db) -> dict:
     return {'bom_id': bom_id, 'roots': roots}
 
 
+def get_bom_subtree(bom_id: int, node_id: int, db) -> dict:
+    """
+    Belirli bir düğümden başlayan alt ağacı döndür.
+    
+    Args:
+        bom_id: BOM ID
+        node_id: Başlangıç düğüm ID'si
+        db: Database session
+    
+    Returns:
+        dict: Tek bir node içeren ağaç yapısı
+    """
+    # Önce tüm ağacı al
+    full_tree = get_bom_tree(bom_id, db)
+    
+    if not full_tree.get('roots'):
+        return {'bom_id': bom_id, 'node': None, 'error': 'BOM bulunamadı'}
+    
+    # Belirli node'u bul (recursive arama)
+    def find_node(nodes, target_id):
+        for node in nodes:
+            if node['id'] == target_id:
+                return node
+            if node.get('children'):
+                result = find_node(node['children'], target_id)
+                if result:
+                    return result
+        return None
+    
+    target_node = find_node(full_tree['roots'], node_id)
+    
+    if not target_node:
+        return {'bom_id': bom_id, 'node': None, 'error': 'Düğüm bulunamadı'}
+    
+    return {
+        'bom_id': bom_id,
+        'node': target_node,
+        'roots': [target_node]  # Excel fonksiyonu için roots formatında
+    }
+
+
 # ---------------------------------------------------------------------------
 # Yardımcı Sorgular
 # ---------------------------------------------------------------------------
