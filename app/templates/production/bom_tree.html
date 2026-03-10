@@ -182,6 +182,17 @@
     .col-firesiz {
         background-color: #f0fdf4 !important;
     }
+    
+    .table-product-name {
+        cursor: pointer;
+        color: #2563eb;
+        text-decoration: none;
+    }
+    
+    .table-product-name:hover {
+        text-decoration: underline;
+        color: #1d4ed8;
+    }
 </style>
 {% endblock %}
 
@@ -459,6 +470,7 @@
 
         const row = document.createElement('div');
         row.className = 'bt-row';
+        row.setAttribute('data-node-id', node.id);
         row.title = `${node.num}  ${node.name}`;
         row.onclick = e => {
             document.querySelectorAll('.bt-row').forEach(r => r.classList.remove('active'));
@@ -602,10 +614,14 @@
                 codeCell += ` <a href="/products/${c.product_id}" target="_blank" class="ms-1 text-muted" title="Stok kaydı">
                             <i class="fas fa-external-link-alt fa-xs"></i></a>`;
             }
+            
+            // Ürün adı tıklanabilir yap - ağaçta navigasyon için
+            let displayName = c.name.length > 30 ? c.name.substring(0, 30) + '...' : c.name;
+            let nameCell = `<span class="table-product-name" onclick="navigateToNode(${c.id})" title="${c.name} detaylarını görüntüle">${displayName}</span>`;
 
             tr.innerHTML = `
             <td><strong class="text-primary">${c.num}</strong></td>
-            <td title="${c.name}">${c.name.length > 30 ? c.name.substring(0, 30) + '...' : c.name}</td>
+            <td title="${c.name}">${nameCell}</td>
             <td>${cinsi}</td>
             <td>${codeCell}</td>
             <td class="text-right">${c.stock_qty || 0}</td>
@@ -637,6 +653,73 @@
             if (el.innerHTML.trim() !== '&nbsp;') el.innerHTML = '▶';
         });
     });
+
+    /* ---------------------------------------------------------
+       Ağaçta Navigasyon
+    --------------------------------------------------------- */
+    function navigateToNode(nodeId) {
+        const node = nodeById[nodeId];
+        if (!node) {
+            alert('Node bulunamadı!');
+            return;
+        }
+        
+        // Sol ağaçtaki tüm active class'ları kaldır
+        document.querySelectorAll('.bt-row').forEach(r => r.classList.remove('active'));
+        
+        // Bu node'a kadar tüm parent'ları aç
+        openParentNodes(nodeId);
+        
+        // Node'u active yap ve detayını göster
+        const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
+        if (nodeElement) {
+            nodeElement.classList.add('active');
+            nodeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
+        showDetail(node);
+    }
+    
+    function openParentNodes(nodeId) {
+        // Parent node'ları bul ve aç
+        function findParent(targetId, nodes) {
+            for (let node of nodes) {
+                if (node.id === targetId) return [];
+                if (node.children && node.children.length) {
+                    for (let child of node.children) {
+                        if (child.id === targetId) {
+                            return [node.id];
+                        }
+                        const path = findParent(targetId, [child]);
+                        if (path.length > 0) {
+                            return [node.id, ...path];
+                        }
+                    }
+                }
+            }
+            return [];
+        }
+        
+        const parentPath = findParent(nodeId, TREE.roots);
+        
+        // Tüm parent'ların children div'lerini aç
+        parentPath.forEach(parentId => {
+            const parentElement = document.querySelector(`[data-node-id="${parentId}"]`);
+            if (parentElement) {
+                const parentWrap = parentElement.closest('.bt-node');
+                if (parentWrap) {
+                    const childrenDiv = parentWrap.querySelector('.bt-children');
+                    const toggle = parentWrap.querySelector('.bt-toggle');
+                    if (childrenDiv) {
+                        childrenDiv.classList.add('open');
+                    }
+                    if (toggle && toggle.innerHTML.trim() !== '&nbsp;') {
+                        toggle.innerHTML = '▼';
+                    }
+                }
+            }
+        });
+    }
 
     /* ---------------------------------------------------------
        Modal Functions
