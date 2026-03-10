@@ -83,7 +83,6 @@ class LocationStock(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     location = db.relationship('Location', backref=db.backref('stocks', lazy='dynamic'))
-    product = db.relationship('Product', backref=db.backref('location_stocks', lazy='dynamic'))
 
     __table_args__ = (
         db.UniqueConstraint('location_id', 'product_id', name='uq_location_product'),
@@ -125,7 +124,7 @@ class Product(db.Model):
     
     # İlişkiler
     stock_movements = db.relationship('StockMovement', backref='product', lazy='dynamic')
-    location_stocks = db.relationship('LocationStock', backref='product_ref', lazy='dynamic')
+    location_stocks = db.relationship('LocationStock', backref='product', lazy='dynamic')
     
     @property
     def stock_status(self):
@@ -197,7 +196,6 @@ class StockMovement(db.Model):
     
     # Relationships
     user = db.relationship('User', backref='movements')
-    product = db.relationship('Product', backref='stock_movements')
     
     # Eski alan adları için uyumluluk
     @property
