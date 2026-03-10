@@ -568,11 +568,10 @@
             downloadIcon.onclick = e => {
                 e.stopPropagation();
                 const nodeId = node.id;
-                const bomId = {{ bom_id }
+                const bomId = {{ bom_id }};
+                window.location.href = `/production/bom/${bomId}/download_excel/${nodeId}`;
             };
-            window.location.href = `/production/bom/${bomId}/download_excel/${nodeId}`;
-        };
-    }
+        }
 
     wrap.appendChild(row);
 
