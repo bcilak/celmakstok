@@ -213,8 +213,11 @@
                             {% endif %}
                         </td>
                         <td class="text-end">
-                            <span class="fw-medium">{{ mv.quantity }} {{ mv.product.unit_type if mv.product else ''
-                                }}</span>
+                            {% if mv.product %}
+                            <span class="fw-medium">{{ mv.quantity }} {{ mv.product.unit_type }}</span>
+                            {% else %}
+                            <span class="fw-medium">{{ mv.quantity }}</span>
+                            {% endif %}
                         </td>
                         <td class="text-end pe-4">
                             {% if mv.user %}
