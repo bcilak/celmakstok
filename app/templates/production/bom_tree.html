@@ -579,9 +579,51 @@
         document.getElementById('det-type-badge').innerHTML = bc
             ? `<span class="badge ${bc} py-1 px-2">${bt2}</span>` : '';
 
-        /* Miktar vs bilgileri - temizledik, artık tabloda sunulacak */
-        document.getElementById('det-qty-info').innerHTML = '';
-        document.getElementById('det-weight-info').innerHTML = '';
+        /* Miktar bilgisi - Seçilen düğümün kendi bilgileri */
+        let qtyInfoHtml = '';
+        let weightInfoHtml = '';
+        
+        let q = parseFloat(node.quantity) || 0;
+        let net = parseFloat(node.quantity_net) || 0;
+        let wpu = parseFloat(node.weight_per_unit) || 0;
+        let unit = (node.unit || '').trim().toLowerCase();
+        
+        // Miktar bilgisi
+        if (q > 0) {
+            qtyInfoHtml = `<i class="bi bi-boxes me-1"></i>${fmtNum(q)} ${node.unit || 'adet'}`;
+            if (net > 0 && net !== q) {
+                qtyInfoHtml += ` <span class="text-success">(Firesiz: ${fmtNum(net)})</span>`;
+            }
+        }
+        
+        // Uzunluk bilgisi (sadece metre biriminde)
+        if (unit === 'metre' || unit === 'mt') {
+            qtyInfoHtml += ` <i class="fas fa-ruler-horizontal ms-2 me-1 text-warning"></i><span class="text-warning">${fmtNum(q)} m</span>`;
+            if (net > 0 && net !== q) {
+                qtyInfoHtml += ` <span class="text-success">(${fmtNum(net)} m firesiz)</span>`;
+            }
+        }
+        
+        // Ağırlık bilgisi
+        if (unit === 'kg' || unit === 'kilogram') {
+            weightInfoHtml = `<i class="fas fa-weight-hanging me-1 text-info"></i><span class="text-info">${fmtNum(q)} kg</span>`;
+            if (net > 0 && net !== q) {
+                weightInfoHtml += ` <span class="text-success">(${fmtNum(net)} kg firesiz)</span>`;
+            }
+        } else if (wpu > 0) {
+            let totalWeight = q * wpu;
+            let netWeight = net * wpu;
+            weightInfoHtml = `<i class="fas fa-weight-hanging me-1 text-info"></i><span class="text-info">${fmtNum(totalWeight)} kg</span>`;
+            if (netWeight > 0 && netWeight !== totalWeight) {
+                weightInfoHtml += ` <span class="text-success">(${fmtNum(netWeight)} kg firesiz)</span>`;
+            }
+            if (node.weight_unit && node.weight_unit !== 'kg') {
+                weightInfoHtml += ` <small class="text-muted">(${fmtNum(wpu)} ${node.weight_unit}/birim)</small>`;
+            }
+        }
+        
+        document.getElementById('det-qty-info').innerHTML = qtyInfoHtml;
+        document.getElementById('det-weight-info').innerHTML = weightInfoHtml;
 
         /* Kod */
         document.getElementById('det-code-info').textContent = node.code ? `[${node.code}]` : '';
