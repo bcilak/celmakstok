@@ -247,6 +247,3 @@ def location_detail(id):
         total_value=total_value,
         recent_movements=recent_movements
     )
-    ).order_by(Product.current_stock).all()
-    
-    return render_template('warehouse/critical.html', products=products)

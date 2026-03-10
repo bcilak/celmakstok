@@ -72,8 +72,7 @@
                                     data-location-id="{{ data.location.id }}"
                                     data-location-name="{{ data.location.name }}"
                                     data-location-description="{{ data.location.description or '' }}"
-                                    onclick="editLocation(this)"
-                                    title="Düzenle">
+                                    onclick="editLocation(this)" title="Düzenle">
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <form action="{{ url_for('warehouse.location_toggle', id=data.location.id) }}"
@@ -226,7 +225,7 @@
         const id = button.dataset.locationId;
         const name = button.dataset.locationName;
         const description = button.dataset.locationDescription;
-        
+
         document.getElementById('editLocationForm').action = '/warehouse/locations/' + id + '/edit';
         document.getElementById('edit-name').value = name;
         document.getElementById('edit-description').value = description;

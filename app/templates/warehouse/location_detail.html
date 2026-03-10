@@ -192,8 +192,7 @@
                         </td>
                         <td>
                             {% if mv.product %}
-                            <a href="{{ url_for('products.view', id=mv.product.id) }}"
-                                class="text-decoration-none">
+                            <a href="{{ url_for('products.view', id=mv.product.id) }}" class="text-decoration-none">
                                 {{ mv.product.name }}
                             </a>
                             {% else %}
@@ -218,7 +217,8 @@
                             {% endif %}
                         </td>
                         <td class="text-end">
-                            <span class="fw-medium">{{ mv.quantity }} {{ mv.product.unit_type if mv.product else '' }}</span>
+                            <span class="fw-medium">{{ mv.quantity }} {{ mv.product.unit_type if mv.product else ''
+                                }}</span>
                         </td>
                         <td class="text-end pe-4">
                             {% if mv.user %}
