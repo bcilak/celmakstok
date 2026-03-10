@@ -237,7 +237,7 @@ def location_detail(id):
     recent_movements = StockMovement.query.filter(
         (StockMovement.from_location_id == id) | 
         (StockMovement.to_location_id == id)
-    ).order_by(StockMovement.created_at.desc()).limit(20).all()
+    ).order_by(StockMovement.date.desc()).limit(20).all()
     
     return render_template('warehouse/location_detail.html',
         location=location,
