@@ -6,7 +6,8 @@ Excel/CSV Import/Export Utility Fonksiyonları
 import pandas as pd
 from io import BytesIO
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 from datetime import datetime
 
 
@@ -544,4 +545,279 @@ def parse_bom_excel(file_stream, main_product_name):
         return success_list, error_list
     except Exception as e:
         return [], [{'row': 0, 'error': f'Beklenmeyen hata: {str(e)}'}]
+
+
+def create_bom_tree_excel(tree_data: dict, bom_id: int) -> BytesIO:
+    """
+    BOM ağaç yapısını Excel dosyası olarak oluşturur.
+    
+    Args:
+        tree_data: get_bom_tree() fonksiyonundan dönen ağaç verisi
+        bom_id: BOM ID numarası
+    
+    Returns:
+        BytesIO: Excel dosyası içeren BytesIO nesnesi
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"BOM #{bom_id}"
+    
+    # Başlık satırları
+    ws.merge_cells('A1:K1')
+    title_cell = ws['A1']
+    title_cell.value = f'BOM #{bom_id} - Ürün Ağacı'
+    title_cell.font = Font(bold=True, size=14, color="FFFFFF")
+    title_cell.fill = PatternFill(start_color="2563eb", end_color="2563eb", fill_type="solid")
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    ws.merge_cells('A2:K2')
+    date_cell = ws['A2']
+    date_cell.value = f'Oluşturma Tarihi: {datetime.now().strftime("%d.%m.%Y %H:%M")}'
+    date_cell.font = Font(size=10, italic=True)
+    date_cell.alignment = Alignment(horizontal="center")
+    
+    # Kolon başlıkları
+    headers = [
+        'No',
+        'Seviye',
+        'Ürün Adı',
+        'Ürün Kodu',
+        'Malzeme',
+        'Tür',
+        'Miktar (Fireli)',
+        'Miktar (Firesiz)',
+        'Fire %',
+        'Birim',
+        'Stok'
+    ]
+    
+    header_row = 4
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=header_row, column=col_num)
+        cell.value = header
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Kenarlıklar
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        cell.border = thin_border
+    
+    # Kolon genişlikleri
+    column_widths = [8, 8, 35, 15, 20, 15, 15, 15, 10, 10, 12]
+    for col_num, width in enumerate(column_widths, 1):
+        ws.column_dimensions[get_column_letter(col_num)].width = width
+    
+    # Satır yüksekliği
+    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[4].height = 20
+    
+    # Ağaç verisini düzleştir ve Excel'e yaz
+    current_row = header_row + 1
+    
+    def flatten_and_write(node: dict, indent_level: int = 0):
+        """
+        Ağaç düğümünü düzleştirip Excel'e yaz (recursive)
+        """
+        nonlocal current_row
+        
+        # Hücre kenarlıkları
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # No (sıra numarası)
+        num_cell = ws.cell(row=current_row, column=1)
+        num_cell.value = node.get('num', '')
+        num_cell.alignment = Alignment(horizontal="center")
+        num_cell.border = thin_border
+        num_cell.font = Font(bold=True, color="2563eb")
+        
+        # Seviye
+        level_cell = ws.cell(row=current_row, column=2)
+        level_cell.value = indent_level
+        level_cell.alignment = Alignment(horizontal="center")
+        level_cell.border = thin_border
+        
+        # Ürün Adı (girintili)
+        name_cell = ws.cell(row=current_row, column=3)
+        indent = "  " * indent_level  # Her seviye için 2 boşluk
+        name_cell.value = f"{indent}{node.get('name', '')}"
+        name_cell.border = thin_border
+        
+        # Seviye bazlı renklendirme
+        if indent_level == 0:
+            # Ana ürün - Koyu sarı
+            name_cell.fill = PatternFill(start_color="fef08a", end_color="fef08a", fill_type="solid")
+            name_cell.font = Font(bold=True)
+        elif indent_level == 1:
+            # 1. seviye - Açık mavi
+            name_cell.fill = PatternFill(start_color="dbeafe", end_color="dbeafe", fill_type="solid")
+        elif indent_level == 2:
+            # 2. seviye - Açık yeşil
+            name_cell.fill = PatternFill(start_color="d1fae5", end_color="d1fae5", fill_type="solid")
+        
+        # Ürün Kodu
+        code_cell = ws.cell(row=current_row, column=4)
+        code_cell.value = node.get('code', '')
+        code_cell.border = thin_border
+        
+        # Malzeme
+        material_cell = ws.cell(row=current_row, column=5)
+        material_cell.value = node.get('material', '')
+        material_cell.border = thin_border
+        
+        # Tür
+        type_cell = ws.cell(row=current_row, column=6)
+        item_type = node.get('item_type', '')
+        
+        # Türkçe karşılıklar
+        type_map = {
+            'yarimamul': 'Yarı Mamul',
+            'hammadde': 'Hammadde',
+            'mamul': 'Mamul',
+            'standart_parca': 'Standart Parça'
+        }
+        type_cell.value = type_map.get(item_type, item_type)
+        type_cell.border = thin_border
+        
+        # Tür bazlı renklendirme
+        if item_type == 'yarimamul':
+            type_cell.fill = PatternFill(start_color="fff8e1", end_color="fff8e1", fill_type="solid")
+            type_cell.font = Font(color="f57f17")
+        elif item_type == 'hammadde':
+            type_cell.fill = PatternFill(start_color="fce4ec", end_color="fce4ec", fill_type="solid")
+            type_cell.font = Font(color="880e4f")
+        elif item_type == 'standart_parca':
+            type_cell.fill = PatternFill(start_color="e3f2fd", end_color="e3f2fd", fill_type="solid")
+            type_cell.font = Font(color="0d47a1")
+        
+        # Miktar (Fireli)
+        qty_fireli_cell = ws.cell(row=current_row, column=7)
+        qty_fireli = node.get('quantity', '')
+        if qty_fireli and qty_fireli != '':
+            try:
+                qty_fireli_cell.value = float(qty_fireli)
+                qty_fireli_cell.number_format = '0.####'
+            except:
+                qty_fireli_cell.value = qty_fireli
+        qty_fireli_cell.alignment = Alignment(horizontal="right")
+        qty_fireli_cell.border = thin_border
+        qty_fireli_cell.fill = PatternFill(start_color="fff1f2", end_color="fff1f2", fill_type="solid")
+        
+        # Miktar (Firesiz)
+        qty_firesiz_cell = ws.cell(row=current_row, column=8)
+        qty_firesiz = node.get('quantity_net', '')
+        if qty_firesiz and qty_firesiz != '':
+            try:
+                qty_firesiz_cell.value = float(qty_firesiz)
+                qty_firesiz_cell.number_format = '0.####'
+            except:
+                qty_firesiz_cell.value = qty_firesiz
+        qty_firesiz_cell.alignment = Alignment(horizontal="right")
+        qty_firesiz_cell.border = thin_border
+        qty_firesiz_cell.fill = PatternFill(start_color="f0fdf4", end_color="f0fdf4", fill_type="solid")
+        
+        # Fire %
+        waste_cell = ws.cell(row=current_row, column=9)
+        waste_ratio = node.get('waste_ratio', '')
+        if waste_ratio and waste_ratio != '':
+            try:
+                waste_cell.value = float(waste_ratio)
+                waste_cell.number_format = '0.#"%"'
+            except:
+                waste_cell.value = waste_ratio
+        waste_cell.alignment = Alignment(horizontal="right")
+        waste_cell.border = thin_border
+        
+        # Birim
+        unit_cell = ws.cell(row=current_row, column=10)
+        unit_cell.value = node.get('unit', '')
+        unit_cell.alignment = Alignment(horizontal="center")
+        unit_cell.border = thin_border
+        
+        # Stok
+        stock_cell = ws.cell(row=current_row, column=11)
+        stock_qty = node.get('stock_qty', 0)
+        try:
+            stock_cell.value = float(stock_qty)
+            stock_cell.number_format = '0.####'
+        except:
+            stock_cell.value = stock_qty
+        stock_cell.alignment = Alignment(horizontal="right")
+        stock_cell.border = thin_border
+        
+        current_row += 1
+        
+        # Alt düğümleri işle
+        for child in node.get('children', []):
+            flatten_and_write(child, indent_level + 1)
+    
+    # Tüm kök düğümleri işle
+    roots = tree_data.get('roots', [])
+    for root in roots:
+        flatten_and_write(root, 0)
+    
+    # Alt bilgi
+    info_row = current_row + 2
+    ws.merge_cells(f'A{info_row}:K{info_row}')
+    info_cell = ws[f'A{info_row}']
+    info_cell.value = '© ÇELMAK Stok Takip Sistemi - BOM Ağaç Raporu'
+    info_cell.font = Font(size=9, italic=True, color="64748b")
+    info_cell.alignment = Alignment(horizontal="center")
+    
+    # Özet Sayfa Ekle
+    ws_summary = wb.create_sheet("Özet")
+    ws_summary.column_dimensions['A'].width = 25
+    ws_summary.column_dimensions['B'].width = 40
+    
+    summary_data = [
+        ["BOM ÖZET BİLGİLERİ", ""],
+        ["", ""],
+        ["BOM ID:", bom_id],
+        ["Oluşturma Tarihi:", datetime.now().strftime("%d.%m.%Y %H:%M:%S")],
+        ["Toplam Kök Sayısı:", len(roots)],
+        ["", ""],
+        ["AÇIKLAMALAR:", ""],
+        ["Seviye:", "Ürünün ağaçtaki derinlik seviyesi (0=ana ürün)"],
+        ["Fireli Miktar:", "Fire dahil gerekli miktar"],
+        ["Firesiz Miktar:", "Net (fire hariç) miktar"],
+        ["Fire %:", "Fire oranı (Fireli - Firesiz) / Firesiz * 100"],
+        ["Tür:", "Ürün tipi (Hammadde, Yarı Mamul, Mamul, Standart Parça)"],
+        ["", ""],
+        ["RENK KODLARI:", ""],
+        ["Ana Ürün:", "Koyu sarı arka plan"],
+        ["1. Seviye:", "Açık mavi arka plan"],
+        ["2. Seviye:", "Açık yeşil arka plan"],
+    ]
+    
+    for row_num, (key, value) in enumerate(summary_data, 1):
+        key_cell = ws_summary.cell(row=row_num, column=1)
+        key_cell.value = key
+        value_cell = ws_summary.cell(row=row_num, column=2)
+        value_cell.value = value
+        
+        if row_num == 1:
+            ws_summary.merge_cells(f'A{row_num}:B{row_num}')
+            key_cell.font = Font(bold=True, size=14, color="FFFFFF")
+            key_cell.fill = PatternFill(start_color="2563eb", end_color="2563eb", fill_type="solid")
+            key_cell.alignment = Alignment(horizontal="center", vertical="center")
+            ws_summary.row_dimensions[row_num].height = 25
+        elif ":" in key:
+            key_cell.font = Font(bold=True)
+    
+    # BytesIO'ya kaydet
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return output
 

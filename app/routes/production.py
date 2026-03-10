@@ -1,11 +1,11 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, session
+from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, session, send_file
 from flask_login import login_required, current_user
 from app.models import Category, StockMovement, Product, ProductionRecord, ProductionConsumption
 from app import db
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from app.utils.decorators import roles_required
-from app.utils.excel_utils import parse_bom_excel
+from app.utils.excel_utils import parse_bom_excel, create_bom_tree_excel
 from app.utils.bom_utils import (
     parse_bom_excel_v2,
     import_bom_to_db,
@@ -552,6 +552,32 @@ def api_bom_tree(bom_id):
     """BOM ağacını JSON olarak döndür."""
     tree = get_bom_tree(bom_id, db)
     return jsonify(tree)
+
+
+@production_bp.route('/bom/<int:bom_id>/download_excel')
+@login_required
+@roles_required('Genel', 'Yönetici')
+def bom_download_excel(bom_id):
+    """BOM ağacını Excel dosyası olarak indir."""
+    tree = get_bom_tree(bom_id, db)
+    
+    if not tree.get('roots'):
+        flash(f'BOM #{bom_id} bulunamadı veya boş.', 'error')
+        return redirect(url_for('production.bom_list'))
+    
+    try:
+        excel_file = create_bom_tree_excel(tree, bom_id)
+        filename = f'BOM_{bom_id}_Agac_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        
+        return send_file(
+            excel_file,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        flash(f'Excel oluşturulurken hata: {str(e)}', 'error')
+        return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
 
 @production_bp.route('/bom/<int:bom_id>/delete', methods=['POST'])
