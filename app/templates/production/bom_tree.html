@@ -336,7 +336,7 @@
                             <tr>
                                 <th>Numara</th>
                                 <th>Adlandırma</th>
-                                <th>Malzeme Cinsi</th>
+                                <th>Malzeme Ölçüsü</th>
                                 <th>Kod</th>
                                 <th class="text-right">Stok</th>
                                 <th class="text-right col-fireli">Fireli Metre</th>
@@ -695,9 +695,14 @@
         }
 
         children.forEach(c => {
-            const cinsi = c.material ? c.material : (c.item_type || '-');
+            // Malzeme ölçüsü - sadece material field'ını göster (5 mm, Ø76x5 gibi)
+            let malzemeOlcu = '-';
+            if (c.material && c.material.trim() !== '') {
+                malzemeOlcu = c.material;
+            }
+            
             const tr = document.createElement('tr');
-            tr.className = rowClass(c.item_type, cinsi);
+            tr.className = rowClass(c.item_type, c.material || '');
 
             let fMetre = '-', nMetre = '-';
             let fAgirlik = '-', nAgirlik = '-';
@@ -742,7 +747,7 @@
             tr.innerHTML = `
             <td><strong class="text-primary">${c.num}</strong></td>
             <td title="${c.name}">${nameCell}</td>
-            <td>${cinsi}</td>
+            <td><span class="badge bg-warning text-dark">${malzemeOlcu}</span></td>
             <td>${codeCell}</td>
             <td class="text-right">${c.stock_qty || 0}</td>
             <td class="text-right col-fireli fw-bold">${fMetre !== '-' ? fMetre + ' m' : '-'}</td>
