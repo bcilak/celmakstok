@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}{{ location.name }} - Lokasyon Detayı - ÇELMAK{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+        <h1 class="page-title">
+            <i class="bi bi-geo-alt-fill text-primary me-2"></i>{{ location.name }}
+        </h1>
+        <p class="page-subtitle">{{ location.description or 'Lokasyon stok detayları' }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('warehouse.locations') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Lokasyonlar
+        </a>
+        <a href="{{ url_for('stock.stock_in') }}" class="btn btn-success">
+            <i class="bi bi-plus-lg me-1"></i>Stok Girişi
+        </a>
+    </div>
+</div>
+
+<!-- İstatistikler -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted mb-1 small">Ürün Çeşidi</p>
+                        <h3 class="mb-0">{{ total_products }}</h3>
+                    </div>
+                    <div class="gradient-icon primary" style="width: 40px; height: 40px;">
+                        <i class="bi bi-box"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted mb-1 small">Toplam Miktar</p>
+                        <h3 class="mb-0">{{ "{:.0f}".format(total_quantity) }}</h3>
+                    </div>
+                    <div class="gradient-icon success" style="width: 40px; height: 40px;">
+                        <i class="bi bi-stack"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted mb-1 small">Toplam Değer</p>
+                        <h3 class="mb-0">₺{{ "{:,.0f}".format(total_value) }}</h3>
+                    </div>
+                    <div class="gradient-icon info" style="width: 40px; height: 40px;">
+                        <i class="bi bi-cash-stack"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stok Listesi -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white py-3">
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center">
+                <div class="gradient-icon primary me-2" style="width: 32px; height: 32px;">
+                    <i class="bi bi-box-seam" style="font-size: 0.9rem;"></i>
+                </div>
+                <h6 class="mb-0">Lokasyondaki Stoklar</h6>
+            </div>
+            <span class="badge bg-primary">{{ total_products }} ürün</span>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        {% if stocks %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light sticky-top">
+                    <tr>
+                        <th class="ps-4">Ürün Kodu</th>
+                        <th>Ürün Adı</th>
+                        <th>Kategori</th>
+                        <th class="text-end">Miktar</th>
+                        <th class="text-end">Birim</th>
+                        <th class="text-end">Birim Fiyat</th>
+                        <th class="text-end pe-4">Toplam Değer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stock in stocks %}
+                    {% if stock.quantity > 0 %}
+                    <tr>
+                        <td class="ps-4">
+                            <code>{{ stock.product.code }}</code>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('products.view', id=stock.product.id) }}"
+                                class="text-decoration-none fw-medium">
+                                {{ stock.product.name }}
+                            </a>
+                        </td>
+                        <td>
+                            {% if stock.product.category %}
+                            <span class="category-tag">{{ stock.product.category.name }}</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <span class="badge bg-primary bg-opacity-10 text-primary">
+                                {{ "{:.2f}".format(stock.quantity) }}
+                            </span>
+                        </td>
+                        <td class="text-end text-muted">
+                            {{ stock.product.unit_type }}
+                        </td>
+                        <td class="text-end text-muted">
+                            {% if stock.product.unit_cost %}
+                            ₺{{ "{:.2f}".format(stock.product.unit_cost) }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td class="text-end pe-4">
+                            {% if stock.product.unit_cost %}
+                            <span class="fw-semibold">
+                                ₺{{ "{:,.2f}".format(stock.quantity * stock.product.unit_cost) }}
+                            </span>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <div class="gradient-icon warning mx-auto mb-3" style="width: 56px; height: 56px;">
+                <i class="bi bi-inbox" style="font-size: 1.5rem;"></i>
+            </div>
+            <h6 class="text-muted">Bu lokasyonda stok yok</h6>
+            <small class="text-muted">Stok girişi yaparak ürün ekleyebilirsiniz.</small>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Son Hareketler -->
+{% if recent_movements %}
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white py-3">
+        <div class="d-flex align-items-center">
+            <div class="gradient-icon info me-2" style="width: 32px; height: 32px;">
+                <i class="bi bi-clock-history" style="font-size: 0.9rem;"></i>
+            </div>
+            <h6 class="mb-0">Son Hareketler</h6>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">Tarih</th>
+                        <th>Ürün</th>
+                        <th>Hareket Tipi</th>
+                        <th class="text-end">Miktar</th>
+                        <th class="text-end pe-4">İşlem Yapan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for mv in recent_movements %}
+                    <tr>
+                        <td class="ps-4">
+                            <small class="text-muted">
+                                {{ mv.created_at.strftime('%d.%m.%Y %H:%M') }}
+                            </small>
+                        </td>
+                        <td>
+                            {% if mv.product %}
+                            <a href="{{ url_for('products.view', id=mv.product.id) }}"
+                                class="text-decoration-none">
+                                {{ mv.product.name }}
+                            </a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if mv.movement_type == 'in' %}
+                            <span class="badge bg-success bg-opacity-10 text-success">
+                                <i class="bi bi-arrow-down-circle me-1"></i>Giriş
+                            </span>
+                            {% elif mv.movement_type == 'out' %}
+                            <span class="badge bg-danger bg-opacity-10 text-danger">
+                                <i class="bi bi-arrow-up-circle me-1"></i>Çıkış
+                            </span>
+                            {% elif mv.movement_type == 'transfer' %}
+                            <span class="badge bg-info bg-opacity-10 text-info">
+                                <i class="bi bi-arrow-left-right me-1"></i>Transfer
+                            </span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ mv.movement_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <span class="fw-medium">{{ mv.quantity }} {{ mv.product.unit_type if mv.product else '' }}</span>
+                        </td>
+                        <td class="text-end pe-4">
+                            {% if mv.user %}
+                            <small class="text-muted">{{ mv.user.username }}</small>
+                            {% else %}
+                            <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

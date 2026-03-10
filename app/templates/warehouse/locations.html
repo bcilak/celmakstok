@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}Lokasyon Yönetimi - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+        <h1 class="page-title"><i class="bi bi-geo-alt me-2"></i>Lokasyon Yönetimi</h1>
+        <p class="page-subtitle">Depo ve lokasyon tanımları</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('warehouse.index') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Depo Ana Sayfa
+        </a>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addLocationModal">
+            <i class="bi bi-plus-lg me-1"></i>Yeni Lokasyon
+        </button>
+    </div>
+</div>
+
+<!-- Aktif Lokasyonlar -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white py-3">
+        <div class="d-flex align-items-center">
+            <div class="gradient-icon success me-2" style="width: 32px; height: 32px;">
+                <i class="bi bi-check-circle" style="font-size: 0.9rem;"></i>
+            </div>
+            <h6 class="mb-0">Aktif Lokasyonlar</h6>
+            <span class="badge bg-success bg-opacity-10 text-success ms-2">{{ location_data|length }}</span>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        {% if location_data %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">Lokasyon Adı</th>
+                        <th>Açıklama</th>
+                        <th class="text-center">Ürün Çeşidi</th>
+                        <th class="text-center">Toplam Miktar</th>
+                        <th class="text-end pe-4">İşlemler</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for data in location_data %}
+                    <tr>
+                        <td class="ps-4">
+                            <a href="{{ url_for('warehouse.location_detail', id=data.location.id) }}"
+                                class="text-decoration-none fw-semibold">
+                                <i class="bi bi-geo-alt-fill text-primary me-2"></i>{{ data.location.name }}
+                            </a>
+                        </td>
+                        <td>
+                            <span class="text-muted">{{ data.location.description or '-' }}</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-primary bg-opacity-10 text-primary">
+                                {{ data.product_count }} ürün
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            <span class="text-muted">{{ "{:.0f}".format(data.total_quantity) }} birim</span>
+                        </td>
+                        <td class="text-end pe-4">
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('warehouse.location_detail', id=data.location.id) }}"
+                                    class="btn btn-outline-primary" title="Detaylar">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <button type="button" class="btn btn-outline-secondary"
+                                    data-location-id="{{ data.location.id }}"
+                                    data-location-name="{{ data.location.name }}"
+                                    data-location-description="{{ data.location.description or '' }}"
+                                    onclick="editLocation(this)"
+                                    title="Düzenle">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <form action="{{ url_for('warehouse.location_toggle', id=data.location.id) }}"
+                                    method="POST" class="d-inline">
+                                    <button type="submit" class="btn btn-outline-warning" title="Pasif Yap"
+                                        onclick="return confirm('Bu lokasyonu pasif yapmak istediğinizden emin misiniz?')">
+                                        <i class="bi bi-pause-circle"></i>
+                                    </button>
+                                </form>
+                                {% if data.product_count == 0 %}
+                                <form action="{{ url_for('warehouse.location_delete', id=data.location.id) }}"
+                                    method="POST" class="d-inline">
+                                    <button type="submit" class="btn btn-outline-danger" title="Sil"
+                                        onclick="return confirm('Bu lokasyonu kalıcı olarak silmek istediğinizden emin misiniz?')">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <div class="gradient-icon warning mx-auto mb-3" style="width: 56px; height: 56px;">
+                <i class="bi bi-inbox" style="font-size: 1.5rem;"></i>
+            </div>
+            <h6 class="text-muted">Henüz lokasyon eklenmemiş</h6>
+            <small class="text-muted">Yeni lokasyon eklemek için yukarıdaki butonu kullanın.</small>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Pasif Lokasyonlar -->
+{% if inactive_locations %}
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white py-3">
+        <div class="d-flex align-items-center">
+            <div class="gradient-icon secondary me-2" style="width: 32px; height: 32px;">
+                <i class="bi bi-pause-circle" style="font-size: 0.9rem;"></i>
+            </div>
+            <h6 class="mb-0">Pasif Lokasyonlar</h6>
+            <span class="badge bg-secondary bg-opacity-10 text-secondary ms-2">{{ inactive_locations|length }}</span>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">Lokasyon Adı</th>
+                        <th>Açıklama</th>
+                        <th class="text-end pe-4">İşlemler</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for loc in inactive_locations %}
+                    <tr class="opacity-50">
+                        <td class="ps-4">
+                            <i class="bi bi-geo-alt text-muted me-2"></i>{{ loc.name }}
+                        </td>
+                        <td>
+                            <span class="text-muted">{{ loc.description or '-' }}</span>
+                        </td>
+                        <td class="text-end pe-4">
+                            <form action="{{ url_for('warehouse.location_toggle', id=loc.id) }}" method="POST"
+                                class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-success" title="Aktif Yap">
+                                    <i class="bi bi-play-circle me-1"></i>Aktif Yap
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Yeni Lokasyon Modal -->
+<div class="modal fade" id="addLocationModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Yeni Lokasyon Ekle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{{ url_for('warehouse.location_add') }}" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Lokasyon Adı *</label>
+                        <input type="text" name="name" class="form-control" required
+                            placeholder="Örn: Ana Depo, Montaj Hattı, Sevkiyat">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Açıklama</label>
+                        <textarea name="description" class="form-control" rows="3"
+                            placeholder="Lokasyon hakkında ek bilgiler..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-plus-lg me-1"></i>Ekle
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Düzenle Modal -->
+<div class="modal fade" id="editLocationModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Lokasyon Düzenle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editLocationForm" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Lokasyon Adı *</label>
+                        <input type="text" name="name" id="edit-name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Açıklama</label>
+                        <textarea name="description" id="edit-description" class="form-control" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-1"></i>Güncelle
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function editLocation(button) {
+        const id = button.dataset.locationId;
+        const name = button.dataset.locationName;
+        const description = button.dataset.locationDescription;
+        
+        document.getElementById('editLocationForm').action = '/warehouse/locations/' + id + '/edit';
+        document.getElementById('edit-name').value = name;
+        document.getElementById('edit-description').value = description;
+        new bootstrap.Modal(document.getElementById('editLocationModal')).show();
+    }
+</script>
+{% endblock %}

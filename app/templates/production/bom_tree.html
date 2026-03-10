@@ -25,7 +25,7 @@
         background: #f8fafc;
         padding: 8px 6px;
     }
-    
+
     #bom-tree-panel .panel-hdr {
         padding: 6px 8px 8px;
         border-bottom: 1px solid #dee2e6;
@@ -39,7 +39,7 @@
     .bt-node {
         margin-bottom: 1px;
     }
-    
+
     .bt-row {
         display: flex;
         align-items: center;
@@ -52,18 +52,18 @@
         overflow: hidden;
         user-select: none;
     }
-    
+
     .bt-row:hover {
         background: #eff6ff;
     }
-    
+
     .bt-row.active {
         background: #dbeafe;
         border-left: 3px solid #3b82f6;
         font-weight: 600;
         color: #1e3a8a;
     }
-    
+
     .bt-toggle {
         width: 18px;
         text-align: center;
@@ -72,7 +72,7 @@
         cursor: pointer;
         flex-shrink: 0;
     }
-    
+
     .bt-num {
         font-weight: 700;
         color: #2563eb;
@@ -80,30 +80,30 @@
         flex-shrink: 0;
         margin-right: 2px;
     }
-    
+
     .bt-name {
         font-size: .84rem;
         overflow: hidden;
         text-overflow: ellipsis;
     }
-    
+
     .bt-name-link {
         color: inherit;
         text-decoration: none;
     }
-    
+
     .bt-name-link:hover {
         text-decoration: underline;
         color: #2563eb;
     }
-    
+
     .bt-children {
         margin-left: 14px;
         border-left: 1px dashed #cbd5e1;
         padding-left: 4px;
         display: none;
     }
-    
+
     .bt-children.open {
         display: block;
     }
@@ -116,19 +116,19 @@
         flex-shrink: 0;
         margin-left: auto;
     }
-    
+
     .bt-tb-ym {
         background: #fff8e1;
         color: #f57f17;
         border: 1px solid #ffe082;
     }
-    
+
     .bt-tb-ham {
         background: #fce4ec;
         color: #880e4f;
         border: 1px solid #f48fb1;
     }
-    
+
     .bt-tb-mm {
         background: #e3f2fd;
         color: #0d47a1;
@@ -142,11 +142,11 @@
         padding: 16px 20px;
         background: #f8fafc;
     }
-    
+
     #bom-detail-panel table {
         font-size: .84rem;
     }
-    
+
     #bom-detail-panel th {
         background: #f1f5f9;
         font-size: .8rem;
@@ -159,36 +159,36 @@
     .row-ym {
         background-color: #fef9c3 !important;
     }
-    
+
     .row-ham {
         color: #64748b;
         font-style: italic;
     }
-    
+
     .row-mamul {
         background-color: #fef08a !important;
         font-weight: 500;
     }
-    
+
     .text-right {
         text-align: right;
         font-variant-numeric: tabular-nums;
     }
-    
+
     .col-fireli {
         background-color: #fff1f2 !important;
     }
-    
+
     .col-firesiz {
         background-color: #f0fdf4 !important;
     }
-    
+
     .table-product-name {
         cursor: pointer;
         color: #2563eb;
         text-decoration: none;
     }
-    
+
     .table-product-name:hover {
         text-decoration: underline;
         color: #1d4ed8;
@@ -267,7 +267,8 @@
                             <a id="det-produce-link" href="#" class="btn btn-sm btn-success d-none">
                                 <i class="bi bi-hammer me-1"></i>Üretim
                             </a>
-                            <a id="det-product-link" href="#" class="btn btn-sm btn-outline-secondary d-none" target="_blank">
+                            <a id="det-product-link" href="#" class="btn btn-sm btn-outline-secondary d-none"
+                                target="_blank">
                                 <i class="bi bi-box-seam-fill me-1"></i>Stok Kaydı
                             </a>
                         </div>
@@ -334,7 +335,8 @@
                 <div class="mb-3">
                     <label class="form-label">Ürün (Ana Stok) Kodu</label>
                     <input type="text" class="form-control" id="edit-node-product-code">
-                    <small class="text-muted">Bu kodu değiştirirseniz ürünün sistemdeki stok kodu da güncellenir.</small>
+                    <small class="text-muted">Bu kodu değiştirirseniz ürünün sistemdeki stok kodu da
+                        güncellenir.</small>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Ürün Tipi</label>
@@ -489,7 +491,7 @@
         const icon = typeIcon(node.item_type, cinsi, node.name, hasKids);
 
         row.appendChild(toggleEl);
-        
+
         // Ürün adına link ekleme
         let nameHtml = `<span class="bt-num">${node.num}</span>`;
         if (node.product_id) {
@@ -497,7 +499,7 @@
         } else {
             nameHtml += `<span class="bt-name">${node.name} <small class="text-muted ms-1">(${node.quantity} ${node.unit || ''})</small></span>`;
         }
-        
+
         row.insertAdjacentHTML('beforeend', `
             <span style="margin-right:3px; font-size:14px;">${icon}</span>
             ${nameHtml}
@@ -614,7 +616,7 @@
                 codeCell += ` <a href="/products/${c.product_id}" target="_blank" class="ms-1 text-muted" title="Stok kaydı">
                             <i class="fas fa-external-link-alt fa-xs"></i></a>`;
             }
-            
+
             // Ürün adı tıklanabilir yap - ağaçta navigasyon için
             let displayName = c.name.length > 30 ? c.name.substring(0, 30) + '...' : c.name;
             let nameCell = `<span class="table-product-name" onclick="navigateToNode(${c.id})" title="${c.name} detaylarını görüntüle">${displayName}</span>`;
@@ -646,7 +648,7 @@
             if (el.innerHTML.trim() !== '&nbsp;') el.innerHTML = '▼';
         });
     });
-    
+
     document.getElementById('btn-collapse').addEventListener('click', () => {
         document.querySelectorAll('.bt-children').forEach(el => el.classList.remove('open'));
         document.querySelectorAll('.bt-toggle').forEach(el => {
@@ -663,23 +665,23 @@
             alert('Node bulunamadı!');
             return;
         }
-        
+
         // Sol ağaçtaki tüm active class'ları kaldır
         document.querySelectorAll('.bt-row').forEach(r => r.classList.remove('active'));
-        
+
         // Bu node'a kadar tüm parent'ları aç
         openParentNodes(nodeId);
-        
+
         // Node'u active yap ve detayını göster
         const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
         if (nodeElement) {
             nodeElement.classList.add('active');
             nodeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
-        
+
         showDetail(node);
     }
-    
+
     function openParentNodes(nodeId) {
         // Parent node'ları bul ve aç
         function findParent(targetId, nodes) {
@@ -699,9 +701,9 @@
             }
             return [];
         }
-        
+
         const parentPath = findParent(nodeId, TREE.roots);
-        
+
         // Tüm parent'ların children div'lerini aç
         parentPath.forEach(parentId => {
             const parentElement = document.querySelector(`[data-node-id="${parentId}"]`);
@@ -728,8 +730,8 @@
         fetch('/production/api/bom_node/' + nodeId)
             .then(res => res.json())
             .then(data => {
-                if(data.error) {
-                    alert(data.error); 
+                if (data.error) {
+                    alert(data.error);
                     return;
                 }
                 document.getElementById('edit-node-id').value = data.id;
@@ -738,16 +740,16 @@
                 document.getElementById('edit-node-code').value = data.code || '';
                 document.getElementById('edit-node-product-code').value = data.product_code || '';
                 document.getElementById('edit-node-type').value = data.type || 'hammadde';
-                
+
                 let uStr = data.unit ? data.unit.toLowerCase() : '';
                 let lbl = uStr === 'adet' ? 'Adet' : 'Miktar (' + data.unit + ')';
                 document.getElementById('lbl-qty').textContent = lbl + ' (Fireli)';
                 document.getElementById('lbl-qty-net').textContent = lbl + ' (Firesiz)';
-                
+
                 document.getElementById('edit-node-piece-count').value = data.piece_count || 1;
                 document.getElementById('edit-node-quantity').value = data.quantity || 0;
                 document.getElementById('edit-node-quantity-net').value = data.quantity_net || 0;
-                
+
                 var modal = new bootstrap.Modal(document.getElementById('editNodeModal'));
                 modal.show();
             })
@@ -766,21 +768,21 @@
             quantity_net: parseFloat(document.getElementById('edit-node-quantity-net').value) || 0,
             piece_count: parseFloat(document.getElementById('edit-node-piece-count').value) || 1
         };
-        
+
         fetch('/production/api/bom_node/' + nodeId, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         })
-        .then(res => res.json())
-        .then(res => {
-            if(res.success) {
-                location.reload();
-            } else {
-                alert('Kaydedilemedi: ' + (res.error || 'Bilinmeyen hata'));
-            }
-        })
-        .catch(err => alert('Hata: ' + err));
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    location.reload();
+                } else {
+                    alert('Kaydedilemedi: ' + (res.error || 'Bilinmeyen hata'));
+                }
+            })
+            .catch(err => alert('Hata: ' + err));
     }
 
     buildTree();
