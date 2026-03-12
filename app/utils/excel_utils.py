@@ -564,7 +564,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
     ws.title = f"BOM #{bom_id}"
     
     # Başlık satırları
-    ws.merge_cells('A1:O1')
+    ws.merge_cells('A1:N1')
     title_cell = ws['A1']
     if node_info:
         title_cell.value = f'BOM #{bom_id} - {node_info.get("num", "")} {node_info.get("name", "Alt Ağaç")}'
@@ -574,7 +574,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
     title_cell.fill = PatternFill(start_color="2563eb", end_color="2563eb", fill_type="solid")
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
     
-    ws.merge_cells('A2:O2')
+    ws.merge_cells('A2:N2')
     date_cell = ws['A2']
     date_cell.value = f'Oluşturma Tarihi: {datetime.now().strftime("%d.%m.%Y %H:%M")}'
     date_cell.font = Font(size=10, italic=True)
@@ -583,7 +583,6 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
     # Kolon başlıkları
     headers = [
         'No',
-        'Seviye',
         'Ürün Adı',
         'Ürün Kodu',
         'Malzeme',
@@ -617,7 +616,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         cell.border = thin_border
     
     # Kolon genişlikleri
-    column_widths = [8, 8, 35, 15, 20, 15, 15, 15, 10, 10, 16, 16, 16, 16, 12]
+    column_widths = [8, 35, 15, 20, 15, 15, 15, 10, 10, 16, 16, 16, 16, 12]
     for col_num, width in enumerate(column_widths, 1):
         ws.column_dimensions[get_column_letter(col_num)].width = width
     
@@ -649,14 +648,8 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         num_cell.border = thin_border
         num_cell.font = Font(bold=True, color="2563eb")
         
-        # Seviye
-        level_cell = ws.cell(row=current_row, column=2)
-        level_cell.value = indent_level
-        level_cell.alignment = Alignment(horizontal="center")
-        level_cell.border = thin_border
-        
         # Ürün Adı (girintili)
-        name_cell = ws.cell(row=current_row, column=3)
+        name_cell = ws.cell(row=current_row, column=2)
         indent = "  " * indent_level  # Her seviye için 2 boşluk
         name_cell.value = f"{indent}{node.get('name', '')}"
         name_cell.border = thin_border
@@ -674,17 +667,17 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
             name_cell.fill = PatternFill(start_color="d1fae5", end_color="d1fae5", fill_type="solid")
         
         # Ürün Kodu
-        code_cell = ws.cell(row=current_row, column=4)
+        code_cell = ws.cell(row=current_row, column=3)
         code_cell.value = node.get('code', '')
         code_cell.border = thin_border
         
         # Malzeme
-        material_cell = ws.cell(row=current_row, column=5)
+        material_cell = ws.cell(row=current_row, column=4)
         material_cell.value = node.get('material', '')
         material_cell.border = thin_border
         
         # Tür
-        type_cell = ws.cell(row=current_row, column=6)
+        type_cell = ws.cell(row=current_row, column=5)
         item_type = node.get('item_type', '')
         
         # Türkçe karşılıklar
@@ -709,7 +702,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
             type_cell.font = Font(color="0d47a1")
         
         # Miktar (Fireli)
-        qty_fireli_cell = ws.cell(row=current_row, column=7)
+        qty_fireli_cell = ws.cell(row=current_row, column=6)
         qty_fireli = node.get('quantity', '')
         if qty_fireli and qty_fireli != '':
             try:
@@ -722,7 +715,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         qty_fireli_cell.fill = PatternFill(start_color="fff1f2", end_color="fff1f2", fill_type="solid")
         
         # Miktar (Firesiz)
-        qty_firesiz_cell = ws.cell(row=current_row, column=8)
+        qty_firesiz_cell = ws.cell(row=current_row, column=7)
         qty_firesiz = node.get('quantity_net', '')
         if qty_firesiz and qty_firesiz != '':
             try:
@@ -735,7 +728,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         qty_firesiz_cell.fill = PatternFill(start_color="f0fdf4", end_color="f0fdf4", fill_type="solid")
         
         # Fire %
-        waste_cell = ws.cell(row=current_row, column=9)
+        waste_cell = ws.cell(row=current_row, column=8)
         waste_ratio = node.get('waste_ratio', '')
         if waste_ratio and waste_ratio != '':
             try:
@@ -747,7 +740,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         waste_cell.border = thin_border
         
         # Birim
-        unit_cell = ws.cell(row=current_row, column=10)
+        unit_cell = ws.cell(row=current_row, column=9)
         unit_cell.value = node.get('unit', '')
         unit_cell.alignment = Alignment(horizontal="center")
         unit_cell.border = thin_border
@@ -759,7 +752,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         weight_per_unit = node.get('weight_per_unit', 0)
         
         # Uzunluk (Fireli) - Sadece metre biriminde
-        length_fireli_cell = ws.cell(row=current_row, column=11)
+        length_fireli_cell = ws.cell(row=current_row, column=10)
         if unit_type == 'metre' and qty_fireli_val:
             try:
                 length_fireli_cell.value = float(qty_fireli_val)
@@ -771,7 +764,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         length_fireli_cell.fill = PatternFill(start_color="fef3c7", end_color="fef3c7", fill_type="solid")
         
         # Uzunluk (Firesiz) - Sadece metre biriminde
-        length_firesiz_cell = ws.cell(row=current_row, column=12)
+        length_firesiz_cell = ws.cell(row=current_row, column=11)
         if unit_type == 'metre' and qty_firesiz_val:
             try:
                 length_firesiz_cell.value = float(qty_firesiz_val)
@@ -783,7 +776,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         length_firesiz_cell.fill = PatternFill(start_color="fef9c3", end_color="fef9c3", fill_type="solid")
         
         # Ağırlık (Fireli) - kg biriminde veya hesaplanan
-        weight_fireli_cell = ws.cell(row=current_row, column=13)
+        weight_fireli_cell = ws.cell(row=current_row, column=12)
         if unit_type == 'kg' and qty_fireli_val:
             try:
                 weight_fireli_cell.value = float(qty_fireli_val)
@@ -802,7 +795,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         weight_fireli_cell.fill = PatternFill(start_color="dbeafe", end_color="dbeafe", fill_type="solid")
         
         # Ağırlık (Firesiz) - kg biriminde veya hesaplanan
-        weight_firesiz_cell = ws.cell(row=current_row, column=14)
+        weight_firesiz_cell = ws.cell(row=current_row, column=13)
         if unit_type == 'kg' and qty_firesiz_val:
             try:
                 weight_firesiz_cell.value = float(qty_firesiz_val)
@@ -821,7 +814,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         weight_firesiz_cell.fill = PatternFill(start_color="e0f2fe", end_color="e0f2fe", fill_type="solid")
         
         # Stok
-        stock_cell = ws.cell(row=current_row, column=15)
+        stock_cell = ws.cell(row=current_row, column=14)
         stock_qty = node.get('stock_qty', 0)
         try:
             stock_cell.value = float(stock_qty)
@@ -844,7 +837,7 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
     
     # Alt bilgi
     info_row = current_row + 2
-    ws.merge_cells(f'A{info_row}:O{info_row}')
+    ws.merge_cells(f'A{info_row}:N{info_row}')
     info_cell = ws[f'A{info_row}']
     info_cell.value = '© ÇELMAK Stok Takip Sistemi - BOM Ağaç Raporu'
     info_cell.font = Font(size=9, italic=True, color="64748b")
@@ -863,7 +856,6 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
         ["Toplam Kök Sayısı:", len(roots)],
         ["", ""],
         ["AÇIKLAMALAR:", ""],
-        ["Seviye:", "Ürünün ağaçtaki derinlik seviyesi (0=ana ürün)"],
         ["Fireli Miktar:", "Fire dahil gerekli miktar"],
         ["Firesiz Miktar:", "Net (fire hariç) miktar"],
         ["Fire %:", "Fire oranı (Fireli - Firesiz) / Firesiz * 100"],
