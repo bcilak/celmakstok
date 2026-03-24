@@ -21,18 +21,60 @@
         width: 360px;
         flex-shrink: 0;
         border-right: 1px solid #dee2e6;
-        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
         background: #f8fafc;
-        padding: 8px 6px;
     }
 
     #bom-tree-panel .panel-hdr {
-        padding: 6px 8px 8px;
+        padding: 12px 12px 8px;
         border-bottom: 1px solid #dee2e6;
-        margin-bottom: 6px;
+        margin-bottom: 0;
         display: flex;
         align-items: center;
         gap: 8px;
+        flex-shrink: 0;
+    }
+    
+    .bom-search-container {
+        padding: 8px 10px;
+        border-bottom: 1px solid #dee2e6;
+        background: #f1f5f9;
+        flex-shrink: 0;
+        z-index: 10;
+    }
+
+    #bom-search-input {
+        background-color: #e2e8f0;
+        border: 1px solid transparent;
+        transition: all 0.2s;
+    }
+
+    #bom-search-input:focus {
+        background-color: #ffffff;
+        border-color: #93c5fd;
+        box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+    }
+
+    #bom-tree-root {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px 6px;
+    }
+    
+    .bt-node.d-none {
+        display: none !important;
+    }
+    
+    .bt-row.search-match {
+        background-color: #fef08a !important;
+        border-right: 3px solid #eab308;
+    }
+    
+    .bt-row.search-match.active {
+        background-color: #fde047 !important;
+        border-right: 3px solid #ca8a04;
+        border-left: 3px solid #3b82f6;
     }
 
     /* Ağaç düğümleri */
@@ -287,6 +329,16 @@
             <strong class="small">Hiyerarşi</strong>
             <span id="bom-root-label" class="text-muted small ms-1 text-truncate"></span>
         </div>
+        
+        <!-- Arama Kutusu -->
+        <div class="bom-search-container position-relative">
+            <i class="bi bi-search position-absolute text-muted" style="left: 20px; top: 50%; transform: translateY(-50%); font-size: 0.85rem;"></i>
+            <input type="text" id="bom-search-input" class="form-control form-control-sm rounded-pill shadow-sm" 
+                   style="padding-left: 32px; padding-right: 28px;" placeholder="Ağaçta ara...">
+            <i class="bi bi-x-circle-fill position-absolute text-secondary d-none" id="bom-search-clear"
+               style="right: 20px; top: 50%; transform: translateY(-50%); font-size: 0.85rem; cursor: pointer;"></i>
+        </div>
+
         <div id="bom-tree-root"></div>
     </div>
 
@@ -906,6 +958,111 @@
                 }
             })
             .catch(err => alert('Hata: ' + err));
+    }
+
+    /* ---------------------------------------------------------
+       Arama Fonksiyonu
+    --------------------------------------------------------- */
+    const searchInput = document.getElementById('bom-search-input');
+    const searchClear = document.getElementById('bom-search-clear');
+    let searchTimeout = null;
+
+    if (searchInput) {
+        searchInput.addEventListener('input', function(e) {
+            const query = e.target.value.trim().toLowerCase();
+            
+            if (query.length > 0) {
+                if (searchClear) searchClear.classList.remove('d-none');
+                
+                // Debounce arama işlemi
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    performSearch(query);
+                }, 200);
+            } else {
+                if (searchClear) searchClear.classList.add('d-none');
+                clearTimeout(searchTimeout);
+                clearSearch();
+            }
+        });
+    }
+
+    if (searchClear) {
+        searchClear.addEventListener('click', function() {
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.focus();
+            }
+            searchClear.classList.add('d-none');
+            clearSearch();
+        });
+    }
+
+    function performSearch(query) {
+        let hasAnyMatch = false;
+
+        function checkNode(node) {
+            let isMatch = false;
+            
+            if (
+                (node.name && node.name.toLowerCase().includes(query)) ||
+                (node.num && String(node.num).toLowerCase().includes(query)) ||
+                (node.code && node.code.toLowerCase().includes(query)) ||
+                (node.material && node.material.toLowerCase().includes(query))
+            ) {
+                isMatch = true;
+                hasAnyMatch = true;
+            }
+
+            let hasMatchingChild = false;
+            
+            if (node.children && node.children.length > 0) {
+                for (let child of node.children) {
+                    if (checkNode(child)) {
+                        hasMatchingChild = true;
+                    }
+                }
+            }
+
+            const rowEl = document.querySelector('.bt-row[data-node-id="' + node.id + '"]');
+            const nodeEl = rowEl ? rowEl.closest('.bt-node') : null;
+            
+            if (rowEl && nodeEl) {
+                if (isMatch) {
+                    rowEl.classList.add('search-match');
+                } else {
+                    rowEl.classList.remove('search-match');
+                }
+
+                if (isMatch || hasMatchingChild) {
+                    nodeEl.classList.remove('d-none');
+                    if (hasMatchingChild) {
+                        const kidsDiv = nodeEl.querySelector('.bt-children');
+                        const toggleEl = rowEl.querySelector('.bt-toggle');
+                        if (kidsDiv) kidsDiv.classList.add('open');
+                        if (toggleEl && toggleEl.innerHTML.trim() !== '&nbsp;') toggleEl.innerHTML = '▼';
+                    }
+                } else {
+                    nodeEl.classList.add('d-none');
+                }
+            }
+            
+            return isMatch || hasMatchingChild;
+        }
+
+        if (TREE.roots && TREE.roots.length > 0) {
+            for (let root of TREE.roots) {
+                checkNode(root);
+            }
+        }
+    }
+
+    function clearSearch() {
+        document.querySelectorAll('.bt-row').forEach(row => {
+            row.classList.remove('search-match');
+            const nodeEl = row.closest('.bt-node');
+            if (nodeEl) nodeEl.classList.remove('d-none');
+        });
     }
 
     buildTree();
