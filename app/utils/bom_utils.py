@@ -227,14 +227,14 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             continue
 
         rv_lower = [str(x).lower().strip() for x in rv]
-        if not col_map_found and any('numara' in x for x in rv_lower) and any('adlandırılma' in x for x in rv_lower):
+        if not col_map_found and any('numara' in x for x in rv_lower) and any('adlandır' in x for x in rv_lower):
             col_map_found = True
             for c, val in enumerate(rv_lower):
                 if 'numara' in val: col_map['num'] = c
-                elif 'adlandırılma' in val: col_map['name'] = c
+                elif 'adlandır' in val and 'name' not in col_map: col_map['name'] = c
                 elif 'cinsi' in val: col_map['type'] = c
                 elif 'kodu' in val: col_map['code'] = c
-                elif 'özelliği' in val or 'ozelligi' in val: col_map['spec'] = c
+                elif 'özellik' in val or 'ozelligi' in val or 'özelliği' in val: col_map['spec'] = c
                 elif 'fireli metre' in val: col_map['fireliM'] = c
                 elif 'firesiz metre' in val: col_map['firesizM'] = c
                 elif 'fireli ağırlık' in val or 'fireli agirlik' in val: col_map['fireliA'] = c
@@ -306,7 +306,11 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             name = _c(rv[col_map['name']]) if col_map['name'] < len(rv) else ''
             typ = _c(rv[col_map['type']]) if 'type' in col_map and col_map['type'] < len(rv) else ''
             spc = _c(rv[col_map['spec']]) if 'spec' in col_map and col_map['spec'] < len(rv) else ''
-            material = spc if spc else typ
+            # Ölçü (typ = Malzeme Cinsi: Ø76×5, 5 mm) ve Özellik (spc: Sanayi Borusu, Lama) birleştir
+            if typ and spc:
+                material = f"{typ} - {spc}"
+            else:
+                material = typ or spc
             code = _c(rv[col_map['code']]) if 'code' in col_map and col_map['code'] < len(rv) else ''
             
             e_val = _float(rv_raw[col_map['fireliM']], 0.0) if 'fireliM' in col_map and col_map['fireliM'] < len(rv_raw) else 0.0
@@ -697,8 +701,11 @@ def _parse_format_c(ws, override_root_name=None) -> tuple[list[dict], list[dict]
                 w_val  = 0.0
                 w_unit = ''
 
-            # material: Col D önce, Col B fallback
-            mat = col_d if col_d else col_b
+            # material: Ölçü (col_b = Malzeme Cinsi) ve Özellik (col_d) birleştir
+            if col_b and col_d and col_b.lower() not in ('montaj', 'assembly', 'alt montaj', 'submontaj', 'montage'):
+                mat = f"{col_b} - {col_d}"
+            else:
+                mat = col_d if col_d else col_b
 
             rows.append({
                 'num': num, 'level': 2,
@@ -930,11 +937,10 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
             # Mevcut ürün - kullanıcı kararlarına göre güncelle
             product_updated = False
             
-            # Malzeme güncellemesi
-            if resolution.get('update_material', False) or (row.get('material') and not product.material):
-                if row.get('material'):
-                    product.material = row['material']
-                    product_updated = True
+            # Malzeme güncellemesi - her zaman güncelle (yeni import değerleri öncelikli)
+            if row.get('material') and row['material'] != (product.material or ''):
+                product.material = row['material']
+                product_updated = True
             
             # Tip güncellemesi
             if resolution.get('update_type', False):
