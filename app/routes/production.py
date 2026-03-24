@@ -641,7 +641,7 @@ def bom_produce(bom_id, node_id):
     if request.method == 'GET':
         materials = []
         for edge in edges:
-            child = edge.child
+            child = edge.child_node
             c_product = child.item.product if child.item else None
             # brüt miktar (varsa edge.quantity, yoksa node.quantity)
             req_q = edge.quantity
@@ -668,7 +668,7 @@ def bom_produce(bom_id, node_id):
     insufficient = []
     required_consumptions = [] # [(product, total_req_qty, child_node)]
     for edge in edges:
-        child = edge.child
+        child = edge.child_node
         c_product = child.item.product if child and child.item else None
         if not c_product:
             continue
