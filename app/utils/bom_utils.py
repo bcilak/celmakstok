@@ -283,7 +283,7 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             continue
 
         # Başlık satırı → atla
-        if _is_header_row(rv):
+        if _is_header_row(rv) and not _is_num(first_val):
             continue
 
         # Numara hücresi — noktalı BOM numarası olmalı
@@ -774,6 +774,9 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
     existing_products = []
     conflicts = []
     
+    # Excel dosyasındaki tekrarları (aynı isme sahip aynı parçalar) yakalamak için
+    seen_in_excel = {}
+    
     standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', 
                         '210', '211', '212', '213', '214', '216', '217', '219'}
     
@@ -800,11 +803,16 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
             'level': row['level']
         }
         
+        # Eğer bu isimli ürün veritabanında yoksa ama bu excel dosyasında daha önce gördüysek, 
+        # onu yeni bir ürün olarak tekrar tekrar eklemek yerine "mevcut_excel_tekrarı" gibi değerlendireceğiz.
+        
         if not product:
-            # Yeni ürün
-            base_code = _make_product_code(row['name'], row.get('code') or '')
-            entry['generated_code'] = _unique_product_code(base_code)
-            new_products.append(entry)
+            if row['name'] not in seen_in_excel:
+                # Gerçekten yeni ürün
+                base_code = _make_product_code(row['name'], row.get('code') or '')
+                entry['generated_code'] = _unique_product_code(base_code)
+                new_products.append(entry)
+                seen_in_excel[row['name']] = True
         else:
             # Mevcut ürün - çakışma kontrolü
             entry['existing_code'] = product.code
