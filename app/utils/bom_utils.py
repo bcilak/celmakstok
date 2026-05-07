@@ -1198,11 +1198,27 @@ def get_bom_tree(bom_id: int, db) -> dict:
 
         if built_children:
             calc_total_cost = sum(c.get('total_cost', 0) for c in built_children)
+            
+            # Eğer Lama veya hesaplaması kg üzerinden yapılan bir hammaddeyse ve weight_per_unit varsa
+            # Üst kırılma da kendi qty_fireli metrajını vs uygulayabilir ancak
+            # Alt kırılımların toplamı üst kırılımın 1 ADET (veya toplam) maliyetini oluşturur.
+            # q_fireli 'adet' veya 'metre' olabilir. Birim maliyeti bölerken kullanıyoruz:
             calc_unit_cost = (calc_total_cost / q_fireli) if q_fireli and q_fireli > 0 else 0.0
             calc_currency = product.currency if product and product.currency else 'TRY'
         else:
             calc_unit_cost = product.unit_cost if product and product.unit_cost else 0.0
-            calc_total_cost = (calc_unit_cost * q_fireli) if q_fireli else 0.0
+            
+            # Eğer "Lama" ise maliyeti KG üzerinden hesaplamalıyız (q_fireli * weight_per_unit)
+            material_name = (product.material or '').lower()
+            is_lama = 'lama' in material_name
+            
+            if is_lama and w_per_unit:
+                # Toplam ağırlık = metraj (q_fireli) * weight_per_unit
+                total_kg = q_fireli * w_per_unit
+                calc_total_cost = (calc_unit_cost * total_kg)
+            else:
+                calc_total_cost = (calc_unit_cost * q_fireli) if q_fireli else 0.0
+            
             calc_currency = product.currency if product and product.currency else 'TRY'
 
         return {
