@@ -1209,6 +1209,9 @@ def get_bom_tree(bom_id: int, db) -> dict:
             'material': product.material if product else None,
             'item_type': display_type,
             'stock_qty': product.current_stock if product else 0,
+            'unit_cost': product.unit_cost if product else 0.0,
+            'currency': product.currency if product else 'TRY',
+            'total_cost': (product.unit_cost * q_fireli) if product and product.unit_cost and q_fireli else 0.0,
             'children': [build(cid) for cid in children_ids]
         }
 

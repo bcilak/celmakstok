@@ -361,6 +361,7 @@
                         <span class="text-muted small" id="det-qty-info"></span>
                         <span class="text-muted small" id="det-weight-info"></span>
                         <span id="det-code-info" class="text-muted small font-monospace"></span>
+                        <span id="det-cost-info" class="badge bg-success" style="display:none;"></span>
                         <div class="ms-auto d-flex gap-2">
                             <a id="det-produce-link" href="#" class="btn btn-sm btn-success d-none">
                                 <i class="bi bi-hammer me-1"></i>Üretim
@@ -396,6 +397,8 @@
                                 <th class="text-right col-fireli">Fireli Ağırlık</th>
                                 <th class="text-right col-firesiz">Firesiz Ağırlık</th>
                                 <th class="text-right">Adet</th>
+                                <th class="text-right">Birim M.</th>
+                                <th class="text-right">Toplam M.</th>
                                 <th class="text-right" style="color: #ef4444;">Fire %</th>
                                 <th class="text-right">İşlem</th>
                             </tr>
@@ -551,7 +554,11 @@
             return;
         }
 
-        document.getElementById('bom-root-label').textContent = TREE.roots[0].name;
+        let rootName = TREE.roots[0].name;
+        if (TREE.roots[0].total_cost !== null && TREE.roots[0].total_cost !== undefined) {
+           rootName += ` - Toplam BOM Maliyeti: ${parseFloat(TREE.roots[0].total_cost).toFixed(2)} ${TREE.roots[0].currency || 'TL'}`;
+        }
+        document.getElementById('bom-root-label').textContent = rootName;
         TREE.roots.forEach(r => container.appendChild(makeNode(r)));
 
         /* İlk düğümü otomatik seç ve aç */
@@ -716,6 +723,18 @@
         /* Kod */
         document.getElementById('det-code-info').textContent = node.code ? `[${node.code}]` : '';
 
+        /* Maliyet */
+        const costInfoEl = document.getElementById('det-cost-info');
+        if (node.total_cost !== null && node.total_cost !== undefined) {
+            costInfoEl.textContent = `Toplam Maliyet: ${parseFloat(node.total_cost).toFixed(2)} ${node.currency || 'TL'}`;
+            if (node.unit_cost !== null && node.unit_cost !== undefined) {
+                costInfoEl.textContent += ` (Birim: ${parseFloat(node.unit_cost).toFixed(2)})`;
+            }
+            costInfoEl.style.display = 'inline-block';
+        } else {
+            costInfoEl.style.display = 'none';
+        }
+
         /* Stok linki */
         const linkEl = document.getElementById('det-product-link');
         if (node.product_id) {
@@ -741,7 +760,7 @@
         document.getElementById('det-child-count').textContent = children.length;
 
         if (!children.length) {
-            tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted py-4">
+            tbody.innerHTML = `<tr><td colspan="14" class="text-center text-muted py-4">
             <i class="bi bi-dash me-1"></i>En alt kırılım - alt bileşeni bulunmamaktadır.</td></tr>`;
             return;
         }
@@ -807,6 +826,8 @@
             <td class="text-right col-fireli fw-bold">${fAgirlik !== '-' ? fAgirlik + ' kg' : '-'}</td>
             <td class="text-right col-firesiz text-success">${nAgirlik !== '-' ? nAgirlik + ' kg' : '-'}</td>
             <td class="text-right fw-bold">${adet}</td>
+            <td class="text-right text-muted">${c.unit_cost !== null && c.unit_cost !== undefined ? parseFloat(c.unit_cost).toFixed(2) + ' ' + (c.currency || 'TL') : '-'}</td>
+            <td class="text-right fw-bold text-success">${c.total_cost !== null && c.total_cost !== undefined ? parseFloat(c.total_cost).toFixed(2) + ' ' + (c.currency || 'TL') : '-'}</td>
             <td class="text-right fw-bold" style="color: #ef4444;">${c.waste_ratio ? '%' + c.waste_ratio : '-'}</td>
             <td class="text-right"><button class="btn btn-sm btn-outline-primary" onclick="openEditNodeModal(${c.id})"><i class="bi bi-pencil"></i></button></td>
         `;
