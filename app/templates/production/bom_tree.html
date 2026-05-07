@@ -632,23 +632,22 @@
                 window.location.href = `/production/bom/${bomId}/download_excel/${nodeId}`;
             };
         }
-    }
 
-    wrap.appendChild(row);
+        wrap.appendChild(row);
 
-    if (hasKids) {
-        const kidsDiv = document.createElement('div');
-        kidsDiv.className = 'bt-children';
-        node.children.forEach(c => kidsDiv.appendChild(makeNode(c)));
-        wrap.appendChild(kidsDiv);
+        if (hasKids) {
+            const kidsDiv = document.createElement('div');
+            kidsDiv.className = 'bt-children';
+            node.children.forEach(c => kidsDiv.appendChild(makeNode(c)));
+            wrap.appendChild(kidsDiv);
 
-        toggleEl.onclick = e => {
-            e.stopPropagation();
-            const open = kidsDiv.classList.toggle('open');
-            toggleEl.innerHTML = open ? '▼' : '▶';
-        };
-    }
-    return wrap;
+            toggleEl.onclick = e => {
+                e.stopPropagation();
+                const open = kidsDiv.classList.toggle('open');
+                toggleEl.innerHTML = open ? '▼' : '▶';
+            };
+        }
+        return wrap;
     }
 
     /* ---------------------------------------------------------
