@@ -306,9 +306,9 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             name = _c(rv[col_map['name']]) if col_map['name'] < len(rv) else ''
             typ = _c(rv[col_map['type']]) if 'type' in col_map and col_map['type'] < len(rv) else ''
             spc = _c(rv[col_map['spec']]) if 'spec' in col_map and col_map['spec'] < len(rv) else ''
-            # Ölçü (typ = Malzeme Cinsi: Ø76×5, 5 mm) ve Özellik (spc: Sanayi Borusu, Lama) birleştir
+            # Ölçü (typ = Malzeme Cinsi: Ø76×5) ve Özellik (spc: Sanayi Borusu) birleştir => "Sanayi Borusu Ø76x5"
             if typ and spc:
-                material = f"{typ} - {spc}"
+                material = f"{spc} {typ}".strip()
             else:
                 material = typ or spc
             code = _c(rv[col_map['code']]) if 'code' in col_map and col_map['code'] < len(rv) else ''
@@ -701,9 +701,9 @@ def _parse_format_c(ws, override_root_name=None) -> tuple[list[dict], list[dict]
                 w_val  = 0.0
                 w_unit = ''
 
-            # material: Ölçü (col_b = Malzeme Cinsi) ve Özellik (col_d) birleştir
+            # material: Özel format (Özellik + Cins) => Örn: "Sanayi Borusu Ø76x5 mm"
             if col_b and col_d and col_b.lower() not in ('montaj', 'assembly', 'alt montaj', 'submontaj', 'montage'):
-                mat = f"{col_b} - {col_d}"
+                mat = f"{col_d} {col_b}".strip()
             else:
                 mat = col_d if col_d else col_b
 
@@ -749,7 +749,57 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
             f'Excel\'den hiç parça çıkarılamadı (format={fmt}). '
             'Numara kolonunu veya kolon yapısını kontrol edin.'}]
 
-    return rows, errors
+    # --- YarıMamül ve Otomatik Hammadde Dönüşümü ---
+    transformed_rows = []
+    standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', 
+                         '210', '211', '212', '213', '214', '216', '217', '219'}
+
+    for r in rows:
+        mat_str = str(r.get('material', '')).strip()
+        c_prefix = str(r.get('code') or '')[:3]
+        
+        is_assembly = mat_str.lower() in ('montaj', 'assembly', 'alt montaj', 'submontaj', 'montage')
+        is_standard = c_prefix in standard_prefixes or mat_str.lower() == 'standart parça'
+        
+        # Eğer bir montaj/seviye 0 değilse, standart parça değilse ve malzemesi varsa:
+        needs_child = not is_assembly and not is_standard and bool(mat_str) and r['level'] > 0
+        
+        if needs_child:
+            # Yarı Mamul'ün kendi adedi
+            parent_qty = r.get('piece_count', 1.0)
+            child_qty_fireli = r.get('quantity', parent_qty)
+            child_qty_firesiz = r.get('quantity_net', parent_qty)
+            child_unit = r.get('unit_type', 'adet')
+            
+            # Yarı Mamul'ü Adet olarak sabitle
+            r['quantity'] = parent_qty
+            r['quantity_net'] = parent_qty
+            r['unit_type'] = 'adet'
+            
+            transformed_rows.append(r)
+            
+            # Hammadde child node oluştur
+            child = {
+                'num': r['num'] + '1.',
+                'level': r['level'] + 1,
+                'name': mat_str,  # Malzeme Cinsi + Özelliği
+                'code': '',       # Hammaddenin kendi kodu yok, ürün koduna geçmesin
+                'material': 'Hammadde',
+                'quantity': child_qty_fireli,
+                'quantity_net': child_qty_firesiz,
+                'unit_type': child_unit,
+                'piece_count': 1.0,
+                'weight_per_unit': r.get('weight_per_unit', 0.0),
+                'weight_unit': r.get('weight_unit', ''),
+                'parent_num': r['num'],
+                'excel_row': r.get('excel_row', 0),
+                'is_auto_hammadde': True
+            }
+            transformed_rows.append(child)
+        else:
+            transformed_rows.append(r)
+
+    return transformed_rows, errors
 
 
 # ---------------------------------------------------------------------------
@@ -782,12 +832,14 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
     
     for row in parsed_rows:
         code_prefix = str(row.get('code') or '')[:3]
-        if code_prefix in standard_prefixes:
+        if code_prefix in standard_prefixes or str(row.get('material', '')).lower() == 'standart parça':
             item_type = 'standart_parca'
+        elif row['level'] == 0:
+            item_type = 'mamul'
+        elif row.get('is_auto_hammadde'): 
+            item_type = 'hammadde'
         else:
-            item_type = ('mamul' if row['level'] == 0
-                         else 'yarimamul' if row['level'] <= 2
-                         else 'hammadde')
+            item_type = 'yarimamul'
         
         # Mevcut ürünü kontrol et
         product = Product.query.filter_by(name=row['name']).first()
@@ -895,12 +947,14 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
 
     for row in parsed_rows:
         code_prefix = str(row.get('code') or '')[:3]
-        if code_prefix in standard_prefixes:
+        if code_prefix in standard_prefixes or str(row.get('material', '')).lower() == 'standart parça':
             item_type = 'standart_parca'
+        elif row['level'] == 0:
+            item_type = 'mamul'
+        elif row.get('is_auto_hammadde'):
+            item_type = 'hammadde'
         else:
-            item_type = ('mamul' if row['level'] == 0
-                         else 'yarimamul' if row['level'] <= 2
-                         else 'hammadde')
+            item_type = 'yarimamul'
 
         # --- Ağırlık / birim notu oluştur ---
         weight_val  = row.get('weight_per_unit', 0.0) or 0.0
