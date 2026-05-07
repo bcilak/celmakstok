@@ -764,7 +764,15 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
         # Eğer bir montaj/seviye 0 değilse, standart parça değilse ve malzemesi varsa:
         needs_child = not is_assembly and not is_standard and bool(mat_str) and r['level'] > 0
         
-        if needs_child:
+        if is_standard:
+            # Standart Parçaların birimi her zaman "adet" olmalıdır
+            parent_qty = r.get('piece_count', 1.0)
+            r['quantity'] = parent_qty
+            r['quantity_net'] = parent_qty
+            r['unit_type'] = 'adet'
+            transformed_rows.append(r)
+
+        elif needs_child:
             # Yarı Mamul'ün kendi adedi
             parent_qty = r.get('piece_count', 1.0)
             child_qty_fireli = r.get('quantity', parent_qty)
