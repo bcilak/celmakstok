@@ -1194,6 +1194,17 @@ def get_bom_tree(bom_id: int, db) -> dict:
         else:
             display_type = raw_type
 
+        built_children = [build(cid) for cid in children_ids]
+
+        if built_children:
+            calc_total_cost = sum(c.get('total_cost', 0) for c in built_children)
+            calc_unit_cost = (calc_total_cost / q_fireli) if q_fireli and q_fireli > 0 else 0.0
+            calc_currency = product.currency if product and product.currency else 'TRY'
+        else:
+            calc_unit_cost = product.unit_cost if product and product.unit_cost else 0.0
+            calc_total_cost = (calc_unit_cost * q_fireli) if q_fireli else 0.0
+            calc_currency = product.currency if product and product.currency else 'TRY'
+
         return {
             'id': n.id, 'num': n.num, 'level': n.level,
             'name': n.display_name,
@@ -1209,10 +1220,10 @@ def get_bom_tree(bom_id: int, db) -> dict:
             'material': product.material if product else None,
             'item_type': display_type,
             'stock_qty': product.current_stock if product else 0,
-            'unit_cost': product.unit_cost if product else 0.0,
-            'currency': product.currency if product else 'TRY',
-            'total_cost': (product.unit_cost * q_fireli) if product and product.unit_cost and q_fireli else 0.0,
-            'children': [build(cid) for cid in children_ids]
+            'unit_cost': calc_unit_cost,
+            'currency': calc_currency,
+            'total_cost': calc_total_cost,
+            'children': built_children
         }
 
     root_ids = parent_to_children.get(None, [])
