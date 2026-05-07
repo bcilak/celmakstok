@@ -1209,7 +1209,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
             calc_unit_cost = product.unit_cost if product and product.unit_cost else 0.0
             
             # Eğer "Lama" ise maliyeti KG üzerinden hesaplamalıyız (q_fireli * weight_per_unit)
-            material_name = (product.material or '').lower()
+            material_name = (product.material or '').lower() if product else ''
             is_lama = 'lama' in material_name
             
             if is_lama and w_per_unit:
