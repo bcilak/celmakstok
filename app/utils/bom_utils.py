@@ -841,9 +841,27 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
         else:
             item_type = 'yarimamul'
         
-        # Mevcut ürünü kontrol et
-        product = Product.query.filter_by(name=row['name']).first()
-        item = BomItem.query.filter_by(name=row['name']).first()
+        # Mevcut ürünü kontrol et (Adına ve Koda göre)
+        excel_code = row.get('code') or ''
+        product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
+        if not product:
+            # Eğer koduyla bulamadıysa ama ismiyle ve boş koduyla varsa falan diye sadece name ile tekrar bakalım, 
+            # ancak bu sefer excel_code doluysa ve db_code dolu ve farklıysa BUNLAR FARKLI ÜRÜNDÜR, AYNI SAYMA
+            potentials = Product.query.filter_by(name=row['name']).all()
+            for p in potentials:
+                p_code = p.code or ''
+                if not excel_code or not p_code or excel_code == p_code:
+                    product = p
+                    break
+        
+        item = BomItem.query.filter_by(name=row['name']).filter(BomItem.code == excel_code if excel_code else True).first()
+        if not item:
+            potentials_item = BomItem.query.filter_by(name=row['name']).all()
+            for i in potentials_item:
+                i_code = i.code or ''
+                if not excel_code or not i_code or excel_code == i_code:
+                    item = i
+                    break
         
         entry = {
             'name': row['name'],
@@ -975,7 +993,15 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         product_notes = ' | '.join(notes_parts) or None
 
         # --- Product Master eşleştirme / oluşturma ---
-        product = Product.query.filter_by(name=row['name']).first()
+        excel_code = row.get('code') or ''
+        product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
+        if not product:
+            potentials = Product.query.filter_by(name=row['name']).all()
+            for p in potentials:
+                p_code = p.code or ''
+                if not excel_code or not p_code or excel_code == p_code:
+                    product = p
+                    break
         
         # Kullanıcı bu ürün için karar verdiyse kontrol et
         resolution = conflict_resolutions.get(row['name'], {})
@@ -1023,7 +1049,15 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
                 updated_products_c += 1
 
         # --- BomItem — name bazlı unique ---
-        item = BomItem.query.filter_by(name=row['name']).first()
+        item = BomItem.query.filter_by(name=row['name']).filter(BomItem.code == excel_code if excel_code else True).first()
+        if not item:
+            potentials_item = BomItem.query.filter_by(name=row['name']).all()
+            for i in potentials_item:
+                i_code = i.code or ''
+                if not excel_code or not i_code or excel_code == i_code:
+                    item = i
+                    break
+
         if not item:
             item = BomItem(
                 code=row.get('code') or None,
