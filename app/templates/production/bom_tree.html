@@ -77,6 +77,27 @@
         border-left: 3px solid #3b82f6;
     }
 
+    /* Fiyatsız ürün vurgusu */
+    .bt-row.no-price-highlight {
+        background-color: #fff7ed !important;
+        border-left: 3px solid #f97316;
+        border-right: 3px solid #f97316;
+        color: #c2410c;
+        font-weight: 600;
+    }
+
+    .bt-row.no-price-highlight::after {
+        content: '₺?';
+        margin-left: 6px;
+        font-size: 0.7rem;
+        background: #f97316;
+        color: #fff;
+        border-radius: 3px;
+        padding: 1px 4px;
+        font-weight: 700;
+        vertical-align: middle;
+    }
+
     /* Ağaç düğümleri */
     .bt-node {
         margin-bottom: 1px;
@@ -301,6 +322,9 @@
         </button>
         <button id="btn-collapse" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrows-angle-contract me-1"></i>Tümünü Kapat
+        </button>
+        <button id="btn-no-price" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-tag-fill me-1"></i>Fiyatsız Ürünler <span id="no-price-count" class="badge bg-warning text-dark ms-1" style="display:none;"></span>
         </button>
         <a href="{{ url_for('production.bom_download_excel', bom_id=bom_id) }}" class="btn btn-sm btn-success">
             <i class="bi bi-file-earmark-excel me-1"></i>Excel İndir
@@ -1086,6 +1110,91 @@
             if (nodeEl) nodeEl.classList.remove('d-none');
         });
     }
+
+    /* ---------------------------------------------------------
+       Fiyatsız Ürün Filtresi
+    --------------------------------------------------------- */
+    let noPriceFilterActive = false;
+
+    function hasNoPrice(node) {
+        return !node.unit_cost || parseFloat(node.unit_cost) === 0;
+    }
+
+    function collectNoPriceIds(nodes, result) {
+        nodes.forEach(n => {
+            if (hasNoPrice(n) && n.level > 0) result.add(n.id);
+            if (n.children && n.children.length) collectNoPriceIds(n.children, result);
+        });
+    }
+
+    function getAncestorIds(targetId, nodes, path) {
+        for (let n of nodes) {
+            if (n.id === targetId) return true;
+            if (n.children && n.children.length) {
+                if (getAncestorIds(targetId, n.children, path)) {
+                    path.add(n.id);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    document.getElementById('btn-no-price').addEventListener('click', function () {
+        noPriceFilterActive = !noPriceFilterActive;
+        const btn = this;
+        const countEl = document.getElementById('no-price-count');
+
+        if (!noPriceFilterActive) {
+            // Filtreyi kaldır
+            btn.classList.remove('btn-warning');
+            btn.classList.add('btn-outline-warning');
+            countEl.style.display = 'none';
+            document.querySelectorAll('.bt-row').forEach(r => {
+                r.classList.remove('no-price-highlight');
+                r.closest('.bt-node').classList.remove('d-none');
+            });
+            return;
+        }
+
+        // Fiyatsız node ID'lerini topla
+        const noPriceIds = new Set();
+        collectNoPriceIds(TREE.roots, noPriceIds);
+
+        // Ancestor ID'lerini topla (context için gösterilecek)
+        const ancestorIds = new Set();
+        noPriceIds.forEach(id => getAncestorIds(id, TREE.roots, ancestorIds));
+
+        // Tüm node'lara uygula
+        document.querySelectorAll('.bt-row').forEach(r => {
+            const nid = parseInt(r.getAttribute('data-node-id'));
+            const nodeEl = r.closest('.bt-node');
+            r.classList.remove('no-price-highlight');
+
+            if (noPriceIds.has(nid)) {
+                // Fiyatsız: vurgula ve göster
+                r.classList.add('no-price-highlight');
+                nodeEl.classList.remove('d-none');
+                // Üst children div'leri aç
+                let parent = nodeEl.parentElement;
+                while (parent) {
+                    if (parent.classList.contains('bt-children')) parent.classList.add('open');
+                    parent = parent.parentElement;
+                }
+            } else if (ancestorIds.has(nid)) {
+                // Ata node: gizleme, ama vurgulamıyoruz
+                nodeEl.classList.remove('d-none');
+            } else {
+                // İlgisiz: gizle
+                nodeEl.classList.add('d-none');
+            }
+        });
+
+        btn.classList.remove('btn-outline-warning');
+        btn.classList.add('btn-warning');
+        countEl.textContent = noPriceIds.size;
+        countEl.style.display = 'inline';
+    });
 
     buildTree();
 </script>
