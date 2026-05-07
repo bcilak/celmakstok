@@ -1197,7 +1197,8 @@ def get_bom_tree(bom_id: int, db) -> dict:
         built_children = [build(cid) for cid in children_ids]
 
         if built_children:
-            calc_total_cost = sum(c.get('total_cost', 0) for c in built_children)
+            # sum can fail if total_cost is None
+            calc_total_cost = sum((c.get('total_cost') or 0.0) for c in built_children)
             
             # Eğer Lama veya hesaplaması kg üzerinden yapılan bir hammaddeyse ve weight_per_unit varsa
             # Üst kırılma da kendi qty_fireli metrajını vs uygulayabilir ancak
@@ -1214,7 +1215,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
             
             if is_lama and w_per_unit:
                 # Toplam ağırlık = metraj (q_fireli) * weight_per_unit
-                total_kg = q_fireli * w_per_unit
+                total_kg = (q_fireli or 0) * (w_per_unit or 0)
                 calc_total_cost = (calc_unit_cost * total_kg)
             else:
                 calc_total_cost = (calc_unit_cost * q_fireli) if q_fireli else 0.0
