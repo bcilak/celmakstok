@@ -488,6 +488,119 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
         }
     }
 
+
+def _fmt_money(value, currency='TRY'):
+    try:
+        amount = float(value or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    return f"{amount:,.2f} {currency}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _fmt_qty(value):
+    try:
+        amount = float(value or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    return f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _is_quota_error(error):
+    text = str(error).lower()
+    return '429' in text or 'quota' in text or 'rate-limit' in text or 'rate limit' in text
+
+
+def _should_answer_locally(query):
+    q = (query or '').lower()
+    terms = _normalize_search_keyword(q)
+    local_keywords = [
+        'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'stok', 'satış', 'satis',
+        'çıkış', 'cikis', 'sarfiyat', 'ürün ağacı', 'urun agaci', 'reçete',
+        'recete', 'bom'
+    ]
+    if any(word in q for word in local_keywords):
+        return True
+    if 1 <= len(terms) <= 3:
+        product_query, _ = _product_search_query(query)
+        return product_query.first() is not None
+    return False
+
+
+def _local_analysis_answer(query, quota_limited=False):
+    family = analyze_product_family(query).get('result')
+    if isinstance(family, str):
+        product_result = search_product(query).get('result')
+        if isinstance(product_result, list) and product_result:
+            prefix = "AI kotasi dolu oldugu icin veritabanindan direkt hesapladim.\n\n" if quota_limited else ""
+            return prefix + "\n".join(f"- {item}" for item in product_result[:5])
+        return family
+
+    boms = family.get('urun_agaclari') or []
+    best_bom = boms[0] if boms else None
+    currency = (best_bom or {}).get('para_birimi') or 'TRY'
+    bom_cost = (best_bom or {}).get('yaklasik_toplam_maliyet')
+
+    lines = []
+    if quota_limited:
+        lines.append("AI kotasi dolu oldugu icin Gemini'ye gitmeden veritabanindan direkt analiz ettim.")
+        lines.append("")
+
+    lines.append(f"**{query}** icin {family.get('bulunan_urun_sayisi', 0)} kayit buldum.")
+
+    if best_bom:
+        lines.append(
+            f"En ilgili urun agaci **{best_bom.get('urun_agaci')}**; yaklasik BOM maliyeti "
+            f"**{_fmt_money(bom_cost, currency)}**."
+        )
+    else:
+        lines.append(
+            f"Urun agaci eslesmesi bulunamadi; stok kartlari uzerinden tahmini stok maliyeti "
+            f"**{_fmt_money(family.get('tahmini_stok_maliyeti'), 'TRY')}**."
+        )
+
+    lines.append(
+        f"Toplam stok miktari **{_fmt_qty(family.get('toplam_stok_miktari'))}**, "
+        f"kritik urun **{family.get('kritik_urun_sayisi', 0)}**, "
+        f"tukenen urun **{family.get('tukenen_urun_sayisi', 0)}**."
+    )
+    lines.append(
+        f"Sistemdeki toplam giris **{_fmt_qty(family.get('toplam_giris'))}**, "
+        f"cikis/sarfiyat/transfer toplamı **{_fmt_qty(family.get('toplam_cikis_sarfiyat_transfer'))}**. "
+        "Ayri satis kaydi olmadigi icin bunu kesin satis degil stok cikisi olarak yorumladim."
+    )
+
+    risks = family.get('stok_riski_olan_urunler') or []
+    if risks:
+        lines.append("")
+        lines.append("Oncelikli riskler:")
+        for item in risks[:3]:
+            lines.append(f"- {item}")
+
+    if boms and len(boms) > 1:
+        lines.append("")
+        lines.append("Diger ilgili urun agaclari:")
+        for bom in boms[1:4]:
+            lines.append(
+                f"- {bom.get('urun_agaci')}: yaklasik **{_fmt_money(bom.get('yaklasik_toplam_maliyet'), bom.get('para_birimi') or 'TRY')}**"
+            )
+
+    return "\n".join(lines)
+
+
+def _local_stock_summary(total_items, critical_items, empty_items, critical_products):
+    names = [p.name for p in critical_products[:5]]
+    if critical_items or empty_items:
+        detail = f" Oncelikli kontrol: {', '.join(names)}." if names else ""
+        return (
+            f"Stokta **{total_items}** aktif urun var; **{critical_items}** urun kritik seviyede, "
+            f"**{empty_items}** urun tamamen bitmis gorunuyor.{detail} "
+            "Tedarik veya uretim planinda once biten ve minimum altindaki kalemlere odaklanmak gerekir."
+        )
+    return (
+        f"Stokta **{total_items}** aktif urun var ve kritik ya da biten urun gorunmuyor. "
+        "Mevcut tablo genel olarak saglikli; yine de yuksek sarfiyatli urunler periyodik izlenmeli."
+    )
+
 @reports_bp.route('/ai-assistant')
 @login_required
 @roles_required('Genel')
@@ -508,9 +621,14 @@ def ai_assistant_ask():
     client_history = data.get('history', [])
 
     try:
+        if _should_answer_locally(query):
+            answer = _local_analysis_answer(query)
+            return jsonify({'success': True, 'answer': answer, 'source': 'local'})
+
         api_key = current_app.config.get('GEMINI_API_KEY')
         if not api_key:
-            raise ValueError("GEMINI_API_KEY is not set in the configuration.")
+            answer = _local_analysis_answer(query)
+            return jsonify({'success': True, 'answer': answer, 'source': 'local'})
 
         genai.configure(api_key=api_key)
 
@@ -594,6 +712,9 @@ EK VERI KURALLARI:
     except Exception as e:
         import traceback
         print(traceback.format_exc())
+        if _is_quota_error(e):
+            answer = _local_analysis_answer(query, quota_limited=True)
+            return jsonify({'success': True, 'answer': answer, 'source': 'local_quota_fallback'})
         return jsonify({'success': False, 'error': f'Bir hata oluştu: {str(e)}'}), 500
 
 
@@ -669,6 +790,10 @@ def api_stock_summary():
     
     critical_productsList = [f"{p.name} (Stok: {p.current_stock}, Min: {p.minimum_stock})" for p in critical_products]
     
+    if not current_app.config.get('GEMINI_API_KEY'):
+        summary = _local_stock_summary(total_items, critical_items, empty_items, critical_products)
+        return jsonify({'success': True, 'summary': summary, 'source': 'local'})
+
     try:
         api_key = current_app.config.get('GEMINI_API_KEY')
         if not api_key:
@@ -692,6 +817,9 @@ def api_stock_summary():
         ai_summary = response.text.strip()
         return jsonify({'success': True, 'summary': ai_summary})
     except Exception as e:
+        if _is_quota_error(e):
+            summary = _local_stock_summary(total_items, critical_items, empty_items, critical_products)
+            return jsonify({'success': True, 'summary': summary, 'source': 'local_quota_fallback'})
         return jsonify({'success': False, 'message': f"AI özet üretilemedi: {str(e)}"})
 
 @reports_bp.route('/stock/export')
