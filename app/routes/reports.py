@@ -11,6 +11,80 @@ from app.utils.decorators import roles_required
 
 reports_bp = Blueprint('reports', __name__)
 
+SEARCH_STOPWORDS = {
+    'ara', 'arar', 'arama', 'bul', 'bulur', 'getir', 'goster', 'gosterir',
+    'nedir', 'ne', 'kadar', 'kac', 'adet', 'stok', 'stogu', 'stokta',
+    'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'kdv', 'bilgi', 'detay',
+    'urun', 'urunu', 'malzeme', 'malzemesi', 'var', 'mi', 'mu', 'mı', 'mü',
+    'icin', 'için', 'olan', 'listele', 'rapor', 'raporu'
+}
+
+
+def _normalize_search_keyword(keyword):
+    """Keep likely product/code terms from a natural-language question."""
+    import re
+    raw = (keyword or '').strip()
+    tokens = re.findall(r"[\w\-./]+", raw, flags=re.UNICODE)
+    cleaned = []
+    for token in tokens:
+        normalized = token.strip(" .,:;!?()[]{}'\"").lower()
+        if len(normalized) < 2 or normalized in SEARCH_STOPWORDS:
+            continue
+        cleaned.append(token.strip(" .,:;!?()[]{}'\""))
+    return cleaned or ([raw] if raw else [])
+
+
+def _product_search_query(keyword):
+    terms = _normalize_search_keyword(keyword)
+    query = Product.query.filter(Product.is_active == True)
+    if not terms:
+        return query, terms
+
+    filters = []
+    for term in terms:
+        like = f'%{term}%'
+        filters.append(db.or_(
+            Product.name.ilike(like),
+            Product.code.ilike(like),
+            Product.barcode.ilike(like),
+            Product.material.ilike(like),
+            Product.notes.ilike(like),
+            Product.category.has(Category.name.ilike(like)),
+        ))
+
+    # Prefer products matching all meaningful words; fall back to any word.
+    strict_query = query.filter(*filters)
+    if strict_query.first():
+        return strict_query, terms
+    return query.filter(db.or_(*filters)), terms
+
+
+def _format_product_for_ai(p, include_cost=True):
+    cat_name = p.category.name if p.category else '-'
+    cost_info = f"{p.unit_cost} {p.currency}" if p.unit_cost and p.unit_cost > 0 else "Bilinmiyor"
+    vat_info = f"%{int(p.vat_rate)}" if p.vat_rate else "Belirtilmemis"
+    cost_with_vat = round(p.unit_cost * (1 + p.vat_rate / 100), 2) if p.unit_cost and p.unit_cost > 0 and p.vat_rate else None
+    cost_vat_str = f", KDV Dahil: {cost_with_vat} {p.currency}" if cost_with_vat else ""
+
+    loc_info = []
+    for ls in p.location_stocks:
+        if ls.quantity and ls.quantity > 0:
+            loc_name = ls.location.name if ls.location else "Lokasyon"
+            loc_info.append(f"{loc_name}: {ls.quantity} {p.unit_type}")
+    loc_str = ", ".join(loc_info) if loc_info else "Lokasyon kaydi yok"
+
+    material = f", Malzeme: {p.material}" if p.material else ""
+    notes = f", Not: {p.notes}" if p.notes else ""
+    cost = f", Birim Maliyet: {cost_info}, KDV: {vat_info}{cost_vat_str}" if include_cost else ""
+
+    return (
+        f"Kod: {p.code}, Ad: {p.name}, Tip: {p.type}, Kategori: {cat_name}, "
+        f"Toplam Stok: {p.current_stock} {p.unit_type}, Min Stok: {p.minimum_stock}, "
+        f"Durum: {p.stock_status}, Lokasyon Dagilimi: [{loc_str}]"
+        f"{material}{notes}{cost}"
+    )
+
+
 def get_db_schema():
     """Veritabanı şemasını ve tablolar hakkında bilgi döndürür."""
     table_info = ""
@@ -122,6 +196,209 @@ def get_product_costs(keyword: str = "") -> dict:
         
     return {"result": result}
 
+
+# The definitions below intentionally override the initial AI tool functions.
+# They accept natural-language questions more reliably, so Gemini can pass
+# phrases like "tamburlu maliyeti ne kadar" and still hit the right product.
+def get_critical_stock() -> dict:
+    """Return products below minimum stock with shortage details."""
+    products = Product.query.filter(
+        Product.is_active == True,
+        Product.minimum_stock > 0,
+        Product.current_stock < Product.minimum_stock
+    ).order_by((Product.minimum_stock - Product.current_stock).desc()).limit(50).all()
+
+    if not products:
+        return {"result": "Su an kritik stokta veya bitmis urun yok."}
+
+    result = []
+    for p in products:
+        status = "Bos" if p.current_stock <= 0 else "Kritik"
+        shortage = max((p.minimum_stock or 0) - (p.current_stock or 0), 0)
+        result.append(f"{_format_product_for_ai(p)}; Eksik Miktar: {shortage} {p.unit_type}; Kritik Durum: {status}")
+    return {"result": result}
+
+
+def search_product(keyword: str) -> dict:
+    """Search products by natural-language keyword, code, barcode, material or notes."""
+    query, terms = _product_search_query(keyword)
+    products = query.order_by(Product.name).limit(20).all()
+
+    if not products:
+        term_text = ", ".join(terms) if terms else keyword
+        return {"result": f"'{term_text}' aramasina uygun urun bulunamadi."}
+
+    return {"result": [_format_product_for_ai(p) for p in products]}
+
+
+def get_recent_movements(limit: int = 20) -> dict:
+    """Return latest stock movements."""
+    limit = max(1, min(int(limit or 20), 100))
+    movements = StockMovement.query.order_by(StockMovement.date.desc()).limit(limit).all()
+    if not movements:
+        return {"result": "Son hareket bulunamadi."}
+
+    result = []
+    for m in movements:
+        date_str = m.date.strftime('%Y-%m-%d %H:%M') if m.date else ""
+        prod_name = m.product.name if m.product else '-'
+        unit = m.product.unit_type if m.product else ''
+        result.append(
+            f"Tarih: {date_str}, Urun: {prod_name}, Kod: {m.product.code if m.product else '-'}, "
+            f"Yon/Tip: {m.movement_type}, Miktar: {m.quantity} {unit}, "
+            f"Kaynak: {m.source or '-'}, Hedef: {m.destination or '-'}, Aciklama: {m.note or '-'}"
+        )
+    return {"result": result}
+
+
+def get_production_info() -> dict:
+    """Return production line/category summary."""
+    categories = Category.query.filter_by(is_active=True).all()
+    if not categories:
+        return {"result": "Aktif bir uretim hatti bulunamadi."}
+
+    result = []
+    for cat in categories:
+        product_count = cat.products.filter_by(is_active=True).count()
+        result.append(f"Uretim Hatti/Kategori: {cat.name} (Kod: {cat.code}), Aktif Urun: {product_count}")
+    return {"result": result}
+
+
+def get_product_costs(keyword: str = "") -> dict:
+    """Return product costs and VAT. Keyword can be a full natural-language question."""
+    if keyword:
+        query, terms = _product_search_query(keyword)
+    else:
+        query = Product.query.filter(Product.is_active == True)
+        terms = []
+
+    products = query.order_by(Product.name).limit(50).all()
+    if not products:
+        term_text = ", ".join(terms) if terms else keyword
+        return {"result": f"'{term_text}' icin maliyet bilgisi bulunamadi."}
+
+    return {"result": [_format_product_for_ai(p, include_cost=True) for p in products]}
+
+
+def get_stock_overview() -> dict:
+    """Return overall stock counts and the riskiest products."""
+    total = Product.query.filter_by(is_active=True).count()
+    empty = Product.query.filter(Product.is_active == True, Product.current_stock <= 0).count()
+    critical = Product.query.filter(
+        Product.is_active == True,
+        Product.minimum_stock > 0,
+        Product.current_stock < Product.minimum_stock
+    ).count()
+    total_stock = db.session.query(func.sum(Product.current_stock)).filter(Product.is_active == True).scalar() or 0
+    risky = Product.query.filter(
+        Product.is_active == True,
+        Product.minimum_stock > 0,
+        Product.current_stock < Product.minimum_stock
+    ).order_by((Product.minimum_stock - Product.current_stock).desc()).limit(10).all()
+
+    return {
+        "result": {
+            "toplam_aktif_urun": total,
+            "kritik_urun": critical,
+            "tukenen_urun": empty,
+            "toplam_stok_miktari": total_stock,
+            "en_riskli_urunler": [_format_product_for_ai(p, include_cost=False) for p in risky]
+        }
+    }
+
+
+def get_product_movements(keyword: str, limit: int = 20) -> dict:
+    """Return latest stock movements for a product found by natural-language keyword."""
+    product_query, terms = _product_search_query(keyword)
+    product = product_query.order_by(Product.name).first()
+    if not product:
+        term_text = ", ".join(terms) if terms else keyword
+        return {"result": f"'{term_text}' icin urun bulunamadi."}
+
+    limit = max(1, min(int(limit or 20), 100))
+    movements = StockMovement.query.filter_by(product_id=product.id).order_by(StockMovement.date.desc()).limit(limit).all()
+    if not movements:
+        return {"result": f"{product.code} - {product.name} icin stok hareketi bulunamadi."}
+
+    rows = []
+    for m in movements:
+        date_str = m.date.strftime('%Y-%m-%d %H:%M') if m.date else ""
+        rows.append(
+            f"Tarih: {date_str}, Tip: {m.movement_type}, Miktar: {m.quantity} {product.unit_type}, "
+            f"Kaynak: {m.source or '-'}, Hedef: {m.destination or '-'}, Aciklama: {m.note or '-'}"
+        )
+    return {"result": {"urun": _format_product_for_ai(product), "hareketler": rows}}
+
+
+def get_bom_costs(keyword: str = "", limit: int = 25) -> dict:
+    """Return BOM/product-tree recipe details with calculated approximate costs."""
+    import re
+    from app.utils.bom_utils import get_bom_tree, list_boms
+
+    limit = max(5, min(int(limit or 25), 80))
+    terms = _normalize_search_keyword(keyword)
+    keyword_l = (keyword or '').strip().lower()
+    bom_id_match = re.search(r'\b(?:bom|recete|reçete|agac|ağaç)?\s*#?\s*(\d+)\b', keyword_l)
+
+    boms = list_boms(db)
+    if bom_id_match:
+        wanted_id = int(bom_id_match.group(1))
+        boms = [b for b in boms if b.get('bom_id') == wanted_id]
+    elif terms:
+        lowered_terms = [t.lower() for t in terms]
+        filtered = []
+        for bom in boms:
+            haystack = " ".join(str(bom.get(k) or '') for k in ('bom_id', 'root_name', 'category_name')).lower()
+            if all(term in haystack for term in lowered_terms):
+                filtered.append(bom)
+        if not filtered:
+            for bom in boms:
+                haystack = " ".join(str(bom.get(k) or '') for k in ('bom_id', 'root_name', 'category_name')).lower()
+                if any(term in haystack for term in lowered_terms):
+                    filtered.append(bom)
+        boms = filtered
+
+    if not boms:
+        term_text = ", ".join(terms) if terms else keyword
+        return {"result": f"'{term_text}' icin urun agaci/recete bulunamadi."}
+
+    def flatten_cost_nodes(nodes, rows):
+        for node in nodes:
+            rows.append({
+                "num": node.get("num"),
+                "ad": node.get("name"),
+                "kod": node.get("code"),
+                "tip": node.get("item_type"),
+                "miktar": node.get("quantity"),
+                "birim": node.get("unit"),
+                "stok": node.get("stock_qty"),
+                "birim_maliyet": node.get("unit_cost"),
+                "toplam_maliyet": node.get("total_cost"),
+                "para_birimi": node.get("currency") or "TRY",
+            })
+            flatten_cost_nodes(node.get("children") or [], rows)
+
+    results = []
+    for bom in boms[:5]:
+        tree = get_bom_tree(bom["bom_id"], db)
+        roots = tree.get("roots") or []
+        components = []
+        flatten_cost_nodes(roots, components)
+        root = roots[0] if roots else {}
+        missing_cost_count = sum(1 for c in components if not c.get("birim_maliyet"))
+        results.append({
+            "bom_id": bom["bom_id"],
+            "urun_agaci": bom.get("root_name"),
+            "kategori": bom.get("category_name"),
+            "parca_sayisi": bom.get("node_count"),
+            "yaklasik_toplam_maliyet": root.get("total_cost"),
+            "para_birimi": root.get("currency") or "TRY",
+            "maliyeti_eksik_parca_sayisi": missing_cost_count,
+            "recete_kalemleri": components[:limit],
+        })
+
+    return {"result": results}
+
 @reports_bp.route('/ai-assistant')
 @login_required
 @roles_required('Genel')
@@ -172,7 +449,27 @@ CEVAP FORMATI:
 - Cevaba gereksiz giriş cümlesi ekleme, direkt bilgiyi ver.
         """
 
-        tools = [get_critical_stock, search_product, get_recent_movements, get_production_info, get_product_costs]
+        system_instruction += """
+
+EK VERI KURALLARI:
+- Genel stok durumu, toplam, kritik veya tukenen urun sorularinda get_stock_overview veya get_critical_stock kullan.
+- Urun adi/kodu gecen stok, lokasyon, malzeme veya detay sorularinda search_product kullan.
+- Bir urunun hareket gecmisi sorulursa get_product_movements kullan.
+- Maliyet/fiyat/KDV sorulari icin get_product_costs fonksiyonunu kullan.
+- Urun agaci, BOM, recete, parca listesi veya yaklasik urun agaci maliyeti sorularinda get_bom_costs kullan.
+- Veritabaniyla ilgili sorularda tahmin etme; once uygun fonksiyonu cagir.
+        """
+
+        tools = [
+            get_stock_overview,
+            get_critical_stock,
+            search_product,
+            get_product_movements,
+            get_bom_costs,
+            get_recent_movements,
+            get_production_info,
+            get_product_costs,
+        ]
         model = genai.GenerativeModel('gemini-2.5-flash', tools=tools, system_instruction=system_instruction)
 
         # Son 6 mesajı bağlam olarak kullan
