@@ -399,6 +399,95 @@ def get_bom_costs(keyword: str = "", limit: int = 25) -> dict:
 
     return {"result": results}
 
+
+def analyze_product_family(keyword: str, limit: int = 12) -> dict:
+    """Return an executive-style analysis for a product family keyword."""
+    from app.utils.bom_utils import get_bom_tree, list_boms
+
+    query, terms = _product_search_query(keyword)
+    products = query.order_by(Product.name).limit(200).all()
+    if not products:
+        term_text = ", ".join(terms) if terms else keyword
+        return {"result": f"'{term_text}' icin urun ailesi bulunamadi."}
+
+    product_ids = [p.id for p in products]
+    total_stock = sum((p.current_stock or 0) for p in products)
+    empty_count = sum(1 for p in products if (p.current_stock or 0) <= 0)
+    critical_count = sum(
+        1 for p in products
+        if (p.minimum_stock or 0) > 0 and (p.current_stock or 0) < (p.minimum_stock or 0)
+    )
+    total_inventory_cost = sum((p.current_stock or 0) * (p.unit_cost or 0) for p in products)
+    priced_count = sum(1 for p in products if p.unit_cost and p.unit_cost > 0)
+
+    movement_totals = dict(
+        db.session.query(StockMovement.movement_type, func.sum(StockMovement.quantity))
+        .filter(StockMovement.product_id.in_(product_ids))
+        .group_by(StockMovement.movement_type)
+        .all()
+    )
+    total_in = float(movement_totals.get('giris') or 0)
+    total_out = float(
+        (movement_totals.get('cikis') or 0)
+        + (movement_totals.get('transfer') or 0)
+        + (movement_totals.get('fire') or 0)
+    )
+
+    boms = []
+    lowered_terms = [t.lower() for t in terms]
+    for bom in list_boms(db):
+        haystack = " ".join(str(bom.get(k) or '') for k in ('bom_id', 'root_name', 'category_name')).lower()
+        if lowered_terms and not any(term in haystack for term in lowered_terms):
+            continue
+        tree = get_bom_tree(bom["bom_id"], db)
+        roots = tree.get("roots") or []
+        if not roots:
+            continue
+        root = roots[0]
+        boms.append({
+            "bom_id": bom["bom_id"],
+            "urun_agaci": bom.get("root_name"),
+            "kategori": bom.get("category_name"),
+            "yaklasik_toplam_maliyet": root.get("total_cost"),
+            "para_birimi": root.get("currency") or "TRY",
+            "kalem_sayisi": bom.get("node_count"),
+        })
+
+    boms = sorted(boms, key=lambda b: b.get("yaklasik_toplam_maliyet") or 0, reverse=True)
+
+    top_products = sorted(products, key=lambda p: p.unit_cost or 0, reverse=True)[:limit]
+    stock_risks = sorted(
+        [
+            p for p in products
+            if (p.current_stock or 0) <= 0
+            or ((p.minimum_stock or 0) > 0 and (p.current_stock or 0) < (p.minimum_stock or 0))
+        ],
+        key=lambda p: ((p.minimum_stock or 0) - (p.current_stock or 0)),
+        reverse=True
+    )[:limit]
+
+    return {
+        "result": {
+            "arama": keyword,
+            "bulunan_urun_sayisi": len(products),
+            "fiyatli_urun_sayisi": priced_count,
+            "toplam_stok_miktari": total_stock,
+            "tahmini_stok_maliyeti": total_inventory_cost,
+            "kritik_urun_sayisi": critical_count,
+            "tukenen_urun_sayisi": empty_count,
+            "toplam_giris": total_in,
+            "toplam_cikis_sarfiyat_transfer": total_out,
+            "urun_agaclari": boms[:5],
+            "en_yuksek_birim_maliyetli_urunler": [
+                _format_product_for_ai(p, include_cost=True) for p in top_products
+            ],
+            "stok_riski_olan_urunler": [
+                _format_product_for_ai(p, include_cost=True) for p in stock_risks
+            ],
+            "not": "Cikis/sarfiyat/transfer toplami satis anlamina gelmeyebilir; sistemde ayri satis kaydi yoksa bunu stok cikisi olarak yorumla."
+        }
+    }
+
 @reports_bp.route('/ai-assistant')
 @login_required
 @roles_required('Genel')
@@ -440,10 +529,12 @@ SİSTEM BİLGİLERİ:
 - KDV Dahil = Birim Maliyet × (1 + KDV/100)
 
 CEVAP FORMATI:
-- Kısa, net, doğrudan cevap ver. Gereksiz tekrar YAPMA.
+- Kısa, net, doğrudan ve analiz gibi cevap ver. Gereksiz tekrar YAPMA.
 - Tek bir ürün sorulduğunda madde işareti (•) ile önemli bilgileri alt alta yaz.
-- 5'ten AZ ürün varsa madde işaretleri ile listele, tablo KULLANMA.
-- 5'ten FAZLA ürün listelerken tablo kullanabilirsin.
+- Excel gibi tablo oluşturma. Çok ürün çıksa bile tablo KULLANMA.
+- Kullanıcı tek kelime/aile adı yazarsa (örn. "tamburlu") liste dökme; önce özet analiz ver.
+- "Maliyet şu kadar, stok şu kadar, çıkış/sarfiyat şu kadar, risk şu" gibi yönetici özeti yaz.
+- Çok fazla ürün varsa en önemli 3-5 ürünü veya riski seçip anlat; tamamını sıralama.
 - Önemli sayıları **kalın** yap.
 - Asla ham json veya liste formatı gösterme, insan dostu yaz.
 - Cevaba gereksiz giriş cümlesi ekleme, direkt bilgiyi ver.
@@ -454,9 +545,11 @@ CEVAP FORMATI:
 EK VERI KURALLARI:
 - Genel stok durumu, toplam, kritik veya tukenen urun sorularinda get_stock_overview veya get_critical_stock kullan.
 - Urun adi/kodu gecen stok, lokasyon, malzeme veya detay sorularinda search_product kullan.
+- Kullanici tek bir urun ailesi/kelime yazarsa veya analiz isterse analyze_product_family kullan; tablo gibi listeleme yapma.
 - Bir urunun hareket gecmisi sorulursa get_product_movements kullan.
 - Maliyet/fiyat/KDV sorulari icin get_product_costs fonksiyonunu kullan.
 - Urun agaci, BOM, recete, parca listesi veya yaklasik urun agaci maliyeti sorularinda get_bom_costs kullan.
+- Satis kelimesi gecerse sistemde ayri satis kaydi yoksa stok cikisi/sarfiyat/transfer toplamlarini "cikis/sarfiyat" diye belirt, kesin satis gibi sunma.
 - Veritabaniyla ilgili sorularda tahmin etme; once uygun fonksiyonu cagir.
         """
 
@@ -464,6 +557,7 @@ EK VERI KURALLARI:
             get_stock_overview,
             get_critical_stock,
             search_product,
+            analyze_product_family,
             get_product_movements,
             get_bom_costs,
             get_recent_movements,
