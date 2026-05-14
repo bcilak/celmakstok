@@ -1213,7 +1213,13 @@ def get_bom_tree(bom_id: int, db) -> dict:
             material_name = (product.material or '').lower() if product else ''
             is_lama = 'lama' in material_name
             
-            if is_lama and w_per_unit:
+            # Dışarıdan alınan hazır parça / standart parça (adetle fiyatlanan)
+            is_hazir = (raw_type == 'hazir_parca' or display_type == 'hazir_parca')
+            
+            if is_hazir:
+                p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0
+                calc_total_cost = calc_unit_cost * p_count
+            elif is_lama and w_per_unit:
                 # Toplam ağırlık = metraj (q_fireli) * weight_per_unit
                 total_kg = (q_fireli or 0) * (w_per_unit or 0)
                 calc_total_cost = (calc_unit_cost * total_kg)

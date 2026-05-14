@@ -530,7 +530,7 @@ def api_bom_node(node_id):
                     product.name = data['name']
                 if 'material' in data:
                     product.material = data['material']
-                if 'type' in data and data['type'] in ['hammadde', 'yarimamul', 'mamul', 'standart_parca']:
+                if 'type' in data and data['type'] in ['hammadde', 'yarimamul', 'mamul', 'standart_parca', 'hazir_parca']:
                     product.type = data['type']
                 if 'product_code' in data and data['product_code']:
                     existing = Product.query.filter(Product.code == data['product_code'], Product.id != product.id).first()
