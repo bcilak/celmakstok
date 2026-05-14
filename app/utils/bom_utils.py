@@ -1181,7 +1181,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
 
         # item_type: eğer altında çocuk varsa 'yarimamul', yoksa item kaydından al
         has_children = bool(children_ids)
-        raw_type = item.type if item else 'hammadde'
+        raw_type = product.type if product and product.type else (item.type if item else 'hammadde')
         
         standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213', '214', '216', '217', '219'}
         code_str = str(item.code) if (item and item.code) else (str(product.code) if product else '')
