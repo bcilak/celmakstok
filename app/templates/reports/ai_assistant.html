@@ -171,6 +171,11 @@
         max-width: 85%;
     }
 
+    .message-wrapper.ai .bubble.analysis-view {
+        padding: 1.1rem;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    }
+
     /* Markdown rendered content */
     .message-wrapper.ai .bubble p {
         margin: 0 0 8px 0;
@@ -191,8 +196,22 @@
     }
 
     .message-wrapper.ai .bubble h3 {
-        font-size: 0.98em;
+        font-size: 1.05rem;
         border-bottom: none;
+        color: #0f172a;
+        margin: 0 0 12px 0;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .message-wrapper.ai .bubble h3::before {
+        content: "";
+        width: 8px;
+        height: 24px;
+        border-radius: 999px;
+        background: #4f46e5;
     }
 
     .message-wrapper.ai .bubble ul,
@@ -205,8 +224,49 @@
         margin-bottom: 3px;
     }
 
+    .message-wrapper.ai .bubble.analysis-view p:has(> strong),
+    .message-wrapper.ai .bubble.analysis-view ul {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin: 10px 0;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+
+    .message-wrapper.ai .bubble.analysis-view ul {
+        padding-left: 34px;
+    }
+
+    .message-wrapper.ai .bubble.analysis-view li {
+        margin-bottom: 8px;
+    }
+
+    .message-wrapper.ai .bubble.analysis-view li:last-child {
+        margin-bottom: 0;
+    }
+
     .message-wrapper.ai .bubble strong {
         color: #1e293b;
+    }
+
+    .message-wrapper.ai .bubble.analysis-view strong {
+        color: #111827;
+        font-weight: 800;
+    }
+
+    .message-wrapper.ai .bubble.analysis-view blockquote {
+        margin: 12px 0 0 0;
+        padding: 10px 12px;
+        background: #fffbeb;
+        border-left: 4px solid #f59e0b;
+        border-radius: 8px;
+        color: #78350f;
+        font-size: 0.92rem;
+    }
+
+    .message-wrapper.ai .bubble.analysis-view blockquote p {
+        margin: 0;
     }
 
     .message-wrapper.ai .bubble hr {
@@ -513,6 +573,9 @@
                 var bubble = document.createElement('div');
                 bubble.className = 'bubble';
                 bubble.innerHTML = renderMarkdown(text);
+                if (/^###\s|Yaklasik BOM maliyeti|Yaklaşık BOM maliyeti|Oncelikli riskler|Öncelikli riskler/i.test(text)) {
+                    bubble.classList.add('analysis-view');
+                }
                 // Format tables
                 var tables = bubble.querySelectorAll('table');
                 for (var i = 0; i < tables.length; i++) {

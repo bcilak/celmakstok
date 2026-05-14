@@ -505,6 +505,18 @@ def _fmt_qty(value):
     return f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _format_risk_product(p):
+    shortage = max((p.minimum_stock or 0) - (p.current_stock or 0), 0)
+    if (p.current_stock or 0) <= 0:
+        status = "tukenmis"
+    elif shortage > 0:
+        status = f"{_fmt_qty(shortage)} {p.unit_type} eksik"
+    else:
+        status = "normal"
+    cost = _fmt_money(p.unit_cost, p.currency) if p.unit_cost and p.unit_cost > 0 else "maliyet yok"
+    return f"**{p.name}** - stok **{_fmt_qty(p.current_stock)} {p.unit_type}**, {status}, birim maliyet {cost}"
+
+
 def _is_quota_error(error):
     text = str(error).lower()
     return '429' in text or 'quota' in text or 'rate-limit' in text or 'rate limit' in text
@@ -545,40 +557,45 @@ def _local_analysis_answer(query, quota_limited=False):
         lines.append("AI kotasi dolu oldugu icin Gemini'ye gitmeden veritabanindan direkt analiz ettim.")
         lines.append("")
 
-    lines.append(f"**{query}** icin {family.get('bulunan_urun_sayisi', 0)} kayit buldum.")
+    lines.append(f"### {query}")
+    lines.append(f"{family.get('bulunan_urun_sayisi', 0)} kayit icinden en anlamli sonucu ozetledim.")
+    lines.append("")
 
     if best_bom:
-        lines.append(
-            f"En ilgili urun agaci **{best_bom.get('urun_agaci')}**; yaklasik BOM maliyeti "
-            f"**{_fmt_money(bom_cost, currency)}**."
-        )
+        lines.append("**Maliyet**")
+        lines.append(f"- En ilgili urun agaci: **{best_bom.get('urun_agaci')}**")
+        lines.append(f"- Yaklasik BOM maliyeti: **{_fmt_money(bom_cost, currency)}**")
     else:
+        lines.append("**Maliyet**")
         lines.append(
-            f"Urun agaci eslesmesi bulunamadi; stok kartlari uzerinden tahmini stok maliyeti "
-            f"**{_fmt_money(family.get('tahmini_stok_maliyeti'), 'TRY')}**."
+            f"- Urun agaci eslesmesi bulunamadi; stok kartlari uzerinden tahmini stok maliyeti: "
+            f"**{_fmt_money(family.get('tahmini_stok_maliyeti'), 'TRY')}**"
         )
 
-    lines.append(
-        f"Toplam stok miktari **{_fmt_qty(family.get('toplam_stok_miktari'))}**, "
-        f"kritik urun **{family.get('kritik_urun_sayisi', 0)}**, "
-        f"tukenen urun **{family.get('tukenen_urun_sayisi', 0)}**."
-    )
-    lines.append(
-        f"Sistemdeki toplam giris **{_fmt_qty(family.get('toplam_giris'))}**, "
-        f"cikis/sarfiyat/transfer toplamı **{_fmt_qty(family.get('toplam_cikis_sarfiyat_transfer'))}**. "
-        "Ayri satis kaydi olmadigi icin bunu kesin satis degil stok cikisi olarak yorumladim."
-    )
+    lines.append("")
+    lines.append("**Stok ve hareket**")
+    lines.append(f"- Toplam stok: **{_fmt_qty(family.get('toplam_stok_miktari'))}**")
+    lines.append(f"- Kritik / biten: **{family.get('kritik_urun_sayisi', 0)} / {family.get('tukenen_urun_sayisi', 0)}**")
+    lines.append(f"- Giris: **{_fmt_qty(family.get('toplam_giris'))}**")
+    lines.append(f"- Cikis-sarfiyat-transfer: **{_fmt_qty(family.get('toplam_cikis_sarfiyat_transfer'))}**")
+    lines.append("")
+    lines.append("> Ayri satis kaydi olmadigi icin hareketleri kesin satis degil stok cikisi/sarfiyat olarak yorumladim.")
 
     risks = family.get('stok_riski_olan_urunler') or []
     if risks:
         lines.append("")
-        lines.append("Oncelikli riskler:")
-        for item in risks[:3]:
-            lines.append(f"- {item}")
+        lines.append("**Oncelikli riskler**")
+        risky_products = []
+        query_obj, _ = _product_search_query(query)
+        for p in query_obj.order_by(Product.name).limit(200).all():
+            if (p.current_stock or 0) <= 0 or ((p.minimum_stock or 0) > 0 and (p.current_stock or 0) < (p.minimum_stock or 0)):
+                risky_products.append(p)
+        for p in sorted(risky_products, key=lambda item: ((item.minimum_stock or 0) - (item.current_stock or 0)), reverse=True)[:3]:
+            lines.append(f"- {_format_risk_product(p)}")
 
     if boms and len(boms) > 1:
         lines.append("")
-        lines.append("Diger ilgili urun agaclari:")
+        lines.append("**Diger ilgili urun agaclari**")
         for bom in boms[1:4]:
             lines.append(
                 f"- {bom.get('urun_agaci')}: yaklasik **{_fmt_money(bom.get('yaklasik_toplam_maliyet'), bom.get('para_birimi') or 'TRY')}**"
