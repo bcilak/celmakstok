@@ -1214,7 +1214,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
             is_lama = 'lama' in material_name
             
             # Dışarıdan alınan hazır parça / standart parça (adetle fiyatlanan)
-            is_hazir = (raw_type == 'hazir_parca' or display_type == 'hazir_parca')
+            is_hazir = (raw_type in ['hazir_parca', 'standart_parca'] or display_type in ['hazir_parca', 'standart_parca'])
             
             if is_hazir:
                 p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0

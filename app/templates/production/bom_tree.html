@@ -471,6 +471,7 @@
                         <option value="yarimamul">Yarı Mamül</option>
                         <option value="mamul">Mamül</option>
                         <option value="standart_parca">Standart Parça</option>
+                        <option value="hazir_parca">Hazır Parça (Dış Alım)</option>
                     </select>
                 </div>
                 <div class="row" id="row-piece-count">
@@ -534,6 +535,7 @@
         if (lc === 'hammadde') return 'bt-tb-ham';
         if (lc === 'mamul') return 'bt-tb-mm';
         if (lc === 'standart_parca') return 'bg-info text-dark';
+        if (lc === 'hazir_parca') return 'bg-primary text-white';
         return '';
     }
 
@@ -544,6 +546,7 @@
         if (lc === 'hammadde') return 'Hammadde';
         if (lc === 'mamul') return 'Mamül';
         if (lc === 'standart_parca') return 'Standart Parça';
+        if (lc === 'hazir_parca') return 'Hazır Parça';
         return t;
     }
 
