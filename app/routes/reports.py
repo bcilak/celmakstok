@@ -447,13 +447,19 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
         boms.append({
             "bom_id": bom["bom_id"],
             "urun_agaci": bom.get("root_name"),
+            "product_id": bom.get("product_id"),
             "kategori": bom.get("category_name"),
             "yaklasik_toplam_maliyet": root.get("total_cost"),
             "para_birimi": root.get("currency") or "TRY",
             "kalem_sayisi": bom.get("node_count"),
+            "match_score": sum(1 for term in lowered_terms if term in haystack),
         })
 
-    boms = sorted(boms, key=lambda b: b.get("yaklasik_toplam_maliyet") or 0, reverse=True)
+    boms = sorted(
+        boms,
+        key=lambda b: (b.get("match_score") or 0, b.get("yaklasik_toplam_maliyet") or 0),
+        reverse=True
+    )
 
     top_products = sorted(products, key=lambda p: p.unit_cost or 0, reverse=True)[:limit]
     stock_risks = sorted(
@@ -517,6 +523,60 @@ def _format_risk_product(p):
     return f"**{p.name}** - stok **{_fmt_qty(p.current_stock)} {p.unit_type}**, {status}, birim maliyet {cost}"
 
 
+def _period_starts():
+    now = datetime.utcnow()
+    week_start = now - timedelta(days=now.weekday())
+    week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    return week_start, month_start, year_start
+
+
+def _movement_total(product_id, movement_types, since=None):
+    query = db.session.query(func.sum(StockMovement.quantity)).filter(
+        StockMovement.product_id == product_id,
+        StockMovement.movement_type.in_(movement_types)
+    )
+    if since:
+        query = query.filter(StockMovement.date >= since)
+    return float(query.scalar() or 0)
+
+
+def _select_main_product(query, family):
+    terms = [term.lower() for term in _normalize_search_keyword(query)]
+    boms = family.get('urun_agaclari') or []
+    for bom in boms:
+        if len(terms) > 1 and (bom.get('match_score') or 0) < len(terms):
+            continue
+        product_id = bom.get('product_id')
+        if product_id:
+            product = Product.query.get(product_id)
+            if product:
+                return product, bom
+
+    product_query, _ = _product_search_query(query)
+    products = product_query.order_by(Product.name).limit(100).all()
+    if len(terms) > 1:
+        def matches_all(product):
+            haystack = " ".join([
+                product.name or '',
+                product.code or '',
+                product.barcode or '',
+                product.material or '',
+                product.notes or '',
+                product.category.name if product.category else '',
+            ]).lower()
+            return all(term in haystack for term in terms)
+
+        products = [product for product in products if matches_all(product)]
+
+    type_order = {'mamul': 0, 'mamul ': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
+    if products:
+        product = sorted(products, key=lambda p: type_order.get((p.type or '').strip().lower(), 9))[0]
+        return product, None
+    return None, None
+
+
 def _is_quota_error(error):
     text = str(error).lower()
     return '429' in text or 'quota' in text or 'rate-limit' in text or 'rate limit' in text
@@ -547,59 +607,51 @@ def _local_analysis_answer(query, quota_limited=False):
             return prefix + "\n".join(f"- {item}" for item in product_result[:5])
         return family
 
-    boms = family.get('urun_agaclari') or []
-    best_bom = boms[0] if boms else None
-    currency = (best_bom or {}).get('para_birimi') or 'TRY'
-    bom_cost = (best_bom or {}).get('yaklasik_toplam_maliyet')
+    product, best_bom = _select_main_product(query, family)
+    if not product:
+        return f"'{query}' icin mamul bulunamadi."
+
+    currency = (best_bom or {}).get('para_birimi') or product.currency or 'TRY'
+    unit_cost = (best_bom or {}).get('yaklasik_toplam_maliyet')
+    if not unit_cost:
+        unit_cost = product.unit_cost or 0
+
+    week_start, month_start, year_start = _period_starts()
+    out_types = ['cikis', 'transfer', 'fire']
+    sold_week = _movement_total(product.id, out_types, week_start)
+    sold_month = _movement_total(product.id, out_types, month_start)
+    sold_year = _movement_total(product.id, out_types, year_start)
+    sold_total = _movement_total(product.id, out_types)
+    in_month = _movement_total(product.id, ['giris'], month_start)
+    stock_value = (product.current_stock or 0) * (unit_cost or 0)
 
     lines = []
     if quota_limited:
         lines.append("AI kotasi dolu oldugu icin Gemini'ye gitmeden veritabanindan direkt analiz ettim.")
         lines.append("")
 
-    lines.append(f"### {query}")
-    lines.append(f"{family.get('bulunan_urun_sayisi', 0)} kayit icinden en anlamli sonucu ozetledim.")
+    lines.append(f"### {product.name}")
+    lines.append(f"Kod: **{product.code}** | Tip: **{product.type or 'mamul'}**")
     lines.append("")
 
+    lines.append("**Big boss ozeti**")
+    lines.append(f"- Yaklasik birim maliyet: **{_fmt_money(unit_cost, currency)}**")
+    lines.append(f"- Elimizdeki mamul stogu: **{_fmt_qty(product.current_stock)} {product.unit_type}**")
+    lines.append(f"- Eldeki stok maliyeti: **{_fmt_money(stock_value, currency)}**")
     if best_bom:
-        lines.append("**Maliyet**")
-        lines.append(f"- En ilgili urun agaci: **{best_bom.get('urun_agaci')}**")
-        lines.append(f"- Yaklasik BOM maliyeti: **{_fmt_money(bom_cost, currency)}**")
+        lines.append(f"- Maliyet kaynagi: **{best_bom.get('urun_agaci')}** urun agaci")
     else:
-        lines.append("**Maliyet**")
-        lines.append(
-            f"- Urun agaci eslesmesi bulunamadi; stok kartlari uzerinden tahmini stok maliyeti: "
-            f"**{_fmt_money(family.get('tahmini_stok_maliyeti'), 'TRY')}**"
-        )
+        lines.append("- Maliyet kaynagi: urun kartindaki birim maliyet")
 
     lines.append("")
-    lines.append("**Stok ve hareket**")
-    lines.append(f"- Toplam stok: **{_fmt_qty(family.get('toplam_stok_miktari'))}**")
-    lines.append(f"- Kritik / biten: **{family.get('kritik_urun_sayisi', 0)} / {family.get('tukenen_urun_sayisi', 0)}**")
-    lines.append(f"- Giris: **{_fmt_qty(family.get('toplam_giris'))}**")
-    lines.append(f"- Cikis-sarfiyat-transfer: **{_fmt_qty(family.get('toplam_cikis_sarfiyat_transfer'))}**")
+    lines.append("**Satis / cikis hareketi**")
+    lines.append(f"- Bu hafta: **{_fmt_qty(sold_week)} {product.unit_type}**")
+    lines.append(f"- Bu ay: **{_fmt_qty(sold_month)} {product.unit_type}**")
+    lines.append(f"- Bu yil: **{_fmt_qty(sold_year)} {product.unit_type}**")
+    lines.append(f"- Toplam kayitli cikis: **{_fmt_qty(sold_total)} {product.unit_type}**")
+    lines.append(f"- Bu ay giris/uretim: **{_fmt_qty(in_month)} {product.unit_type}**")
     lines.append("")
-    lines.append("> Ayri satis kaydi olmadigi icin hareketleri kesin satis degil stok cikisi/sarfiyat olarak yorumladim.")
-
-    risks = family.get('stok_riski_olan_urunler') or []
-    if risks:
-        lines.append("")
-        lines.append("**Oncelikli riskler**")
-        risky_products = []
-        query_obj, _ = _product_search_query(query)
-        for p in query_obj.order_by(Product.name).limit(200).all():
-            if (p.current_stock or 0) <= 0 or ((p.minimum_stock or 0) > 0 and (p.current_stock or 0) < (p.minimum_stock or 0)):
-                risky_products.append(p)
-        for p in sorted(risky_products, key=lambda item: ((item.minimum_stock or 0) - (item.current_stock or 0)), reverse=True)[:3]:
-            lines.append(f"- {_format_risk_product(p)}")
-
-    if boms and len(boms) > 1:
-        lines.append("")
-        lines.append("**Diger ilgili urun agaclari**")
-        for bom in boms[1:4]:
-            lines.append(
-                f"- {bom.get('urun_agaci')}: yaklasik **{_fmt_money(bom.get('yaklasik_toplam_maliyet'), bom.get('para_birimi') or 'TRY')}**"
-            )
+    lines.append("> Sistemde ayri satis modulu olmadigi icin satis bilgisini stok cikisi/transfer/fire hareketlerinden okudum.")
 
     return "\n".join(lines)
 
@@ -686,6 +738,12 @@ EK VERI KURALLARI:
 - Urun agaci, BOM, recete, parca listesi veya yaklasik urun agaci maliyeti sorularinda get_bom_costs kullan.
 - Satis kelimesi gecerse sistemde ayri satis kaydi yoksa stok cikisi/sarfiyat/transfer toplamlarini "cikis/sarfiyat" diye belirt, kesin satis gibi sunma.
 - Veritabaniyla ilgili sorularda tahmin etme; once uygun fonksiyonu cagir.
+
+BIG BOSS KURALLARI:
+- Mamul sorularinda alt parcalari listeleme; sadece mamul seviyesi onemli bilgileri ver.
+- Oncelik sirasi: yaklasik maliyet, eldeki stok, bu hafta/ay/yil satis veya stok cikisi.
+- Cok fazla eslesme varsa mamul/BOM kokunu sec; tum urunleri ve parcalari siralama.
+- BOM ve recete bilgisini sadece sonuc maliyeti hesaplamak icin kullan.
         """
 
         tools = [
