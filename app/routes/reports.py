@@ -564,7 +564,7 @@ EK VERI KURALLARI:
             get_production_info,
             get_product_costs,
         ]
-        model = genai.GenerativeModel('gemini-2.5-flash', tools=tools, system_instruction=system_instruction)
+        model = genai.GenerativeModel('gemini-2.5-pro', tools=tools, system_instruction=system_instruction)
 
         # Son 6 mesajı bağlam olarak kullan
         context = ""
@@ -675,7 +675,7 @@ def api_stock_summary():
             return jsonify({'success': False, 'message': 'API anahtarı bulunamadı.'})
             
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-pro')
         
         summary_prompt = f"""
         Sen şirketin stok yöneticisisin. Aşağıda mevcut stok raporunun gerçek verileri var:
