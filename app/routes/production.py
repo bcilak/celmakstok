@@ -14,6 +14,7 @@ from app.utils.bom_utils import (
     list_boms,
     next_bom_id,
     analyze_bom_for_import,
+    compare_bom_update,
 )
 import pickle
 import os
@@ -468,6 +469,122 @@ def bom_import_v2():
             return redirect(url_for('production.bom_import_v2'))
 
     return render_template('production/bom_import_v2.html', categories=categories)
+
+
+@production_bp.route('/bom/<int:bom_id>/update-excel', methods=['GET', 'POST'])
+@login_required
+@roles_required('Yönetici')
+def bom_update_excel(bom_id):
+    """Mevcut BOM'u Excel ile karşılaştırır ve onayda yeni revizyon oluşturur."""
+    from app.models import Category, BomNode
+
+    categories = Category.query.order_by(Category.name).all()
+    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root_node:
+        flash(f'BOM #{bom_id} bulunamadı.', 'error')
+        return redirect(url_for('production.bom_list'))
+
+    root_product = root_node.item.product if root_node.item and root_node.item.product else None
+    default_category_id = root_product.category_id if root_product else None
+
+    if request.method == 'POST':
+        if request.form.get('action') == 'confirm_update':
+            temp_id = session.get('bom_update_temp_id')
+            bom_data = _load_bom_temp_data(temp_id) if temp_id else None
+            if not bom_data:
+                flash('Güncelleme oturumu bulunamadı. Lütfen Excel dosyasını tekrar yükleyin.', 'error')
+                return redirect(url_for('production.bom_update_excel', bom_id=bom_id))
+
+            try:
+                conflict_resolutions = {}
+                for key in request.form:
+                    if key.startswith('conflict_'):
+                        product_name = key.replace('conflict_', '')
+                        conflict_resolutions[product_name] = {
+                            'action': request.form.get(key),
+                            'update_material': request.form.get(f'update_material_{product_name}') == 'on',
+                            'update_type': request.form.get(f'update_type_{product_name}') == 'on',
+                            'update_unit': request.form.get(f'update_unit_{product_name}') == 'on',
+                        }
+
+                new_bom_id = next_bom_id(db)
+                stats = import_bom_to_db(
+                    bom_data['rows'],
+                    new_bom_id,
+                    db,
+                    category_id=bom_data.get('category_id'),
+                    conflict_resolutions=conflict_resolutions
+                )
+
+                _delete_bom_temp_data(temp_id)
+                session.pop('bom_update_temp_id', None)
+
+                flash(
+                    f'BOM #{bom_id} için yeni revizyon BOM #{new_bom_id} olarak oluşturuldu. '
+                    f'{stats["nodes"]} düğüm | {stats["products"]} yeni ürün | '
+                    f'{stats["updated"]} güncelleme'
+                    + (f' | {stats["unresolved_materials"]} hammadde eşleşmedi.' if stats.get('unresolved_materials') else '.'),
+                    'success'
+                )
+                return redirect(url_for('production.bom_tree', bom_id=new_bom_id))
+            except Exception as exc:
+                db.session.rollback()
+                flash(f'Güncelleme import hatası: {exc}', 'error')
+                return redirect(url_for('production.bom_update_excel', bom_id=bom_id))
+
+        if 'file' not in request.files or request.files['file'].filename == '':
+            flash('Dosya seçilmedi.', 'error')
+            return redirect(url_for('production.bom_update_excel', bom_id=bom_id))
+
+        file = request.files['file']
+        if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+            flash('Geçersiz dosya formatı. Lütfen .xlsx veya .xls yükleyin.', 'error')
+            return redirect(url_for('production.bom_update_excel', bom_id=bom_id))
+
+        try:
+            bom_name = request.form.get('bom_name', '').strip()
+            rows, errors = parse_bom_excel_v2(file, override_root_name=bom_name or root_node.display_name)
+            if errors and not rows:
+                flash(f'Excel parse hatası: {errors[0]["error"]}', 'error')
+                return redirect(url_for('production.bom_update_excel', bom_id=bom_id))
+
+            category_id = request.form.get('category_id') or default_category_id
+            cat_id_int = int(category_id) if category_id else None
+            analysis = analyze_bom_for_import(rows, category_id=cat_id_int)
+            comparison = compare_bom_update(bom_id, rows, db)
+
+            temp_id = _save_bom_temp_data({
+                'rows': rows,
+                'source_bom_id': bom_id,
+                'bom_name': bom_name or root_node.display_name,
+                'category_id': cat_id_int,
+            })
+            session['bom_update_temp_id'] = temp_id
+
+            warn_msg = f'{len(errors)} satır atlandı.' if errors else ''
+            return render_template(
+                'production/bom_update_preview.html',
+                source_bom_id=bom_id,
+                root_name=root_node.display_name,
+                analysis=analysis,
+                comparison=comparison,
+                categories=categories,
+                selected_category_id=cat_id_int,
+                warn_msg=warn_msg,
+                errors=errors
+            )
+        except Exception as exc:
+            db.session.rollback()
+            flash(f'Beklenmeyen hata: {exc}', 'error')
+            return redirect(url_for('production.bom_update_excel', bom_id=bom_id))
+
+    return render_template(
+        'production/bom_update_excel.html',
+        bom_id=bom_id,
+        root_name=root_node.display_name,
+        categories=categories,
+        selected_category_id=default_category_id
+    )
 
 
 @production_bp.route('/bom/<int:bom_id>')

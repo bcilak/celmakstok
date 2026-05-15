@@ -21,6 +21,7 @@ import re
 import openpyxl
 from decimal import Decimal
 import unicodedata
+from collections import Counter
 
 
 # ---------------------------------------------------------------------------
@@ -1091,6 +1092,156 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
         'matched_materials': matched_materials,
         'missing_materials': missing_materials,
         'stats': stats
+    }
+
+
+def _compare_key(row: dict) -> tuple:
+    code = str(row.get('code') or '').strip().upper()
+    if code:
+        return ('code', code)
+    return ('name', _ascii_upper(row.get('name') or ''), int(row.get('level') or 0))
+
+
+def _indexed_compare_rows(rows: list[dict]) -> dict:
+    seen = Counter()
+    indexed = {}
+    for row in rows:
+        base_key = _compare_key(row)
+        seen[base_key] += 1
+        indexed[(base_key, seen[base_key])] = row
+    return indexed
+
+
+def _row_changed_fields(old_row: dict, new_row: dict) -> list[dict]:
+    checks = [
+        ('name', 'Ad'),
+        ('quantity', 'Fireli miktar'),
+        ('quantity_net', 'Firesiz miktar'),
+        ('piece_count', 'Parça adedi'),
+        ('unit_type', 'Birim'),
+        ('material', 'Malzeme'),
+    ]
+    changes = []
+    for field, label in checks:
+        old_val = old_row.get(field)
+        new_val = new_row.get(field)
+        if field in {'quantity', 'quantity_net', 'piece_count'}:
+            try:
+                old_cmp = round(float(old_val or 0), 4)
+                new_cmp = round(float(new_val or 0), 4)
+            except Exception:
+                old_cmp = old_val
+                new_cmp = new_val
+        else:
+            old_cmp = str(old_val or '').strip()
+            new_cmp = str(new_val or '').strip()
+        if old_cmp != new_cmp:
+            changes.append({'field': field, 'label': label, 'old': old_val or '-', 'new': new_val or '-'})
+    return changes
+
+
+def _existing_bom_rows(bom_id: int) -> list[dict]:
+    from app.models import BomNode
+
+    nodes = BomNode.query.filter_by(bom_id=bom_id).order_by(BomNode.num).all()
+    rows = []
+    for node in nodes:
+        item = node.item
+        product = item.product if item else None
+        rows.append({
+            'num': node.num,
+            'level': node.level,
+            'name': node.display_name or (item.name if item else ''),
+            'code': item.code if item else '',
+            'material': product.material if product else '',
+            'quantity': float(node.quantity or 0),
+            'quantity_net': float(node.quantity_net or 0) if node.quantity_net is not None else 0,
+            'piece_count': float(node.piece_count or 1),
+            'unit_type': node.unit_type or (item.unit_type if item else 'adet'),
+        })
+    return rows
+
+
+def _find_product_for_row(row: dict):
+    from app.models import Product
+
+    excel_code = row.get('code') or ''
+    product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
+    if not product:
+        potentials = Product.query.filter_by(name=row['name']).all()
+        for p in potentials:
+            p_code = p.code or ''
+            if not excel_code or not p_code or excel_code == p_code:
+                product = p
+                break
+    if not product and row.get('is_auto_hammadde'):
+        product = _find_matching_raw_material(row)
+    return product
+
+
+def estimate_bom_rows_cost(rows: list[dict]) -> float:
+    """Best-effort preview cost for parsed rows using existing Product cards."""
+    parent_nums = {row.get('parent_num') for row in rows if row.get('parent_num')}
+    total = 0.0
+    for row in rows:
+        if row.get('num') in parent_nums:
+            continue
+        product = _find_product_for_row(row)
+        if not product:
+            continue
+        unit_cost = float(product.unit_cost or 0)
+        qty = float(row.get('quantity') or 0)
+        total += unit_cost * qty
+    return round(total, 2)
+
+
+def compare_bom_update(existing_bom_id: int, new_rows: list[dict], db) -> dict:
+    """Compare an existing BOM with newly parsed rows before creating a revision."""
+    old_rows = _existing_bom_rows(existing_bom_id)
+    old_index = _indexed_compare_rows(old_rows)
+    new_index = _indexed_compare_rows(new_rows)
+
+    added = []
+    removed = []
+    changed = []
+
+    for key, new_row in new_index.items():
+        old_row = old_index.get(key)
+        if not old_row:
+            added.append(new_row)
+            continue
+        changes = _row_changed_fields(old_row, new_row)
+        if changes:
+            changed.append({'old': old_row, 'new': new_row, 'changes': changes})
+
+    for key, old_row in old_index.items():
+        if key not in new_index:
+            removed.append(old_row)
+
+    old_cost = 0.0
+    try:
+        tree = get_bom_tree(existing_bom_id, db)
+        old_cost = sum(root.get('total_cost') or 0 for root in tree.get('roots', []))
+    except Exception:
+        old_cost = estimate_bom_rows_cost(old_rows)
+
+    new_cost = estimate_bom_rows_cost(new_rows)
+
+    return {
+        'old_bom_id': existing_bom_id,
+        'old_total': len(old_rows),
+        'new_total': len(new_rows),
+        'added': added,
+        'removed': removed,
+        'changed': changed,
+        'stats': {
+            'added': len(added),
+            'removed': len(removed),
+            'changed': len(changed),
+            'old_cost': round(old_cost or 0, 2),
+            'new_cost': round(new_cost or 0, 2),
+            'cost_delta': round((new_cost or 0) - (old_cost or 0), 2),
+        }
     }
 
 

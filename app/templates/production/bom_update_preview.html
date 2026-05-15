@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}BOM Güncelleme Önizleme - ÇELMAK{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+    }
+    .summary-box {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 14px;
+        background: #fff;
+    }
+    .summary-box strong {
+        display: block;
+        font-size: 1.6rem;
+        line-height: 1.1;
+    }
+    .change-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #fff;
+        margin-bottom: 16px;
+    }
+    .change-card .card-head {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e5e7eb;
+        font-weight: 700;
+    }
+    .table td, .table th {
+        vertical-align: middle;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+        <div>
+            <h1 class="h3 fw-bold mb-1">
+                <i class="bi bi-clipboard-check text-success me-2"></i>Güncelleme Önizlemesi
+            </h1>
+            <p class="text-muted mb-0">#{{ source_bom_id }} - {{ root_name }} eski reçete olarak korunacak. Onayda yeni BOM ID açılır.</p>
+        </div>
+        <a href="{{ url_for('production.bom_update_excel', bom_id=source_bom_id) }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Geri
+        </a>
+    </div>
+
+    {% if warn_msg %}
+    <div class="alert alert-warning">{{ warn_msg }}</div>
+    {% endif %}
+
+    <div class="summary-grid mb-4">
+        <div class="summary-box">
+            <strong>{{ comparison.old_total }}</strong>
+            <span class="text-muted">Eski Satır</span>
+        </div>
+        <div class="summary-box">
+            <strong>{{ comparison.new_total }}</strong>
+            <span class="text-muted">Yeni Satır</span>
+        </div>
+        <div class="summary-box">
+            <strong class="text-success">{{ comparison.stats.added }}</strong>
+            <span class="text-muted">Eklendi</span>
+        </div>
+        <div class="summary-box">
+            <strong class="text-danger">{{ comparison.stats.removed }}</strong>
+            <span class="text-muted">Çıkarıldı</span>
+        </div>
+        <div class="summary-box">
+            <strong class="text-warning">{{ comparison.stats.changed }}</strong>
+            <span class="text-muted">Değişti</span>
+        </div>
+        <div class="summary-box">
+            <strong>{{ "%.2f"|format(comparison.stats.old_cost) }} ₺</strong>
+            <span class="text-muted">Eski Yaklaşık Maliyet</span>
+        </div>
+        <div class="summary-box">
+            <strong>{{ "%.2f"|format(comparison.stats.new_cost) }} ₺</strong>
+            <span class="text-muted">Yeni Yaklaşık Maliyet</span>
+        </div>
+        <div class="summary-box">
+            <strong class="{% if comparison.stats.cost_delta > 0 %}text-danger{% elif comparison.stats.cost_delta < 0 %}text-success{% endif %}">
+                {{ "%.2f"|format(comparison.stats.cost_delta) }} ₺
+            </strong>
+            <span class="text-muted">Maliyet Farkı</span>
+        </div>
+    </div>
+
+    {% if analysis.stats.missing_materials > 0 %}
+    <div class="alert alert-danger">
+        {{ analysis.stats.missing_materials }} hammadde kartı eşleşmedi. Yeni revizyon oluşturulabilir ama bu kalemlerin maliyet/stok hesabı eksik kalır.
+    </div>
+    {% endif %}
+
+    <div class="change-card">
+        <div class="card-head">Yeni Eklenecek Kalemler</div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Ad</th>
+                        <th>Kod</th>
+                        <th>Malzeme</th>
+                        <th>Miktar</th>
+                        <th>Birim</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in comparison.added[:40] %}
+                    <tr>
+                        <td>{{ row.name }}</td>
+                        <td><code>{{ row.code or '-' }}</code></td>
+                        <td>{{ row.material or '-' }}</td>
+                        <td>{{ row.quantity }}</td>
+                        <td>{{ row.unit_type }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-muted text-center py-3">Yeni kalem yok.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="change-card">
+        <div class="card-head">Değişen Kalemler</div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Kalem</th>
+                        <th>Değişiklik</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in comparison.changed[:50] %}
+                    <tr>
+                        <td>{{ item.new.name }}</td>
+                        <td>
+                            {% for change in item.changes %}
+                            <span class="badge bg-warning text-dark me-1">{{ change.label }}: {{ change.old }} → {{ change.new }}</span>
+                            {% endfor %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="2" class="text-muted text-center py-3">Değişen kalem yok.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="change-card">
+        <div class="card-head">Çıkarılan Kalemler</div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Ad</th>
+                        <th>Kod</th>
+                        <th>Miktar</th>
+                        <th>Birim</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in comparison.removed[:40] %}
+                    <tr>
+                        <td>{{ row.name }}</td>
+                        <td><code>{{ row.code or '-' }}</code></td>
+                        <td>{{ row.quantity }}</td>
+                        <td>{{ row.unit_type }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-muted text-center py-3">Çıkarılan kalem yok.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('production.bom_update_excel', bom_id=source_bom_id) }}" class="text-end mb-4">
+        <input type="hidden" name="action" value="confirm_update">
+        <a href="{{ url_for('production.bom_update_excel', bom_id=source_bom_id) }}" class="btn btn-outline-secondary">
+            İptal
+        </a>
+        <button type="submit" class="btn btn-success">
+            <i class="bi bi-check-circle"></i> Yeni Revizyon Olarak Kaydet
+        </button>
+    </form>
+</div>
+{% endblock %}
