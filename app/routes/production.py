@@ -400,7 +400,8 @@ def bom_import_v2():
                     f'✅ BOM #{bom_id} başarıyla içe aktarıldı! '
                     f'{stats["nodes"]} düğüm | {stats["items"]} parça | '
                     f'{stats["products"]} yeni ürün | {stats["updated"]} güncelleme | '
-                    f'{stats["edges"]} ilişki oluşturuldu.',
+                    f'{stats["edges"]} ilişki oluşturuldu'
+                    + (f' | {stats["unresolved_materials"]} hammadde eşleşmedi.' if stats.get("unresolved_materials") else '.'),
                     'success'
                 )
                 return redirect(url_for('production.bom_tree', bom_id=bom_id))

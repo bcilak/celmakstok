@@ -202,6 +202,18 @@
                     <div class="stat-number">{{ analysis.stats.existing }}</div>
                     <div class="stat-label">Zaten Mevcut</div>
                 </div>
+                {% if analysis.stats.matched_materials > 0 %}
+                <div class="stat-box success">
+                    <div class="stat-number">{{ analysis.stats.matched_materials }}</div>
+                    <div class="stat-label">Hammadde Eşleşti</div>
+                </div>
+                {% endif %}
+                {% if analysis.stats.missing_materials > 0 %}
+                <div class="stat-box danger">
+                    <div class="stat-number">{{ analysis.stats.missing_materials }}</div>
+                    <div class="stat-label">Hammadde Eksik</div>
+                </div>
+                {% endif %}
                 {% if analysis.stats.conflicts > 0 %}
                 <div class="stat-box warning">
                     <div class="stat-number">{{ analysis.stats.conflicts }}</div>
@@ -222,6 +234,77 @@
         <input type="hidden" name="action" value="confirm_import">
 
         <!-- Çakışmalar / Uyarılar -->
+        <!-- Eşleşmeyen Hammaddeler -->
+        {% if analysis.missing_materials %}
+        <div class="preview-card">
+            <div class="card-header" style="background: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%);">
+                Hammadde Kartı Bulunamayanlar ({{ analysis.missing_materials|length }})
+            </div>
+            <div class="card-body">
+                <div class="alert alert-danger">
+                    Bu hammaddeler için sistem otomatik ürün kartı oluşturmayacak. Maliyet ve stok hesabının doğru olması için önce uygun hammadde kartını açın ya da mevcut kartın ad/malzeme bilgisini düzeltin.
+                </div>
+                <button type="button" class="collapsible">Detayları Göster/Gizle</button>
+                <div class="collapsible-content">
+                    <table class="product-table">
+                        <thead>
+                            <tr>
+                                <th>Excel Hammadde</th>
+                                <th>Birim</th>
+                                <th>Miktar</th>
+                                <th>Seviye</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in analysis.missing_materials %}
+                            <tr>
+                                <td>{{ product.name }}</td>
+                                <td>{{ product.unit_type }}</td>
+                                <td>{{ product.quantity }}</td>
+                                <td>{{ product.level }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Eşleşen Hammaddeler -->
+        {% if analysis.matched_materials %}
+        <div class="preview-card">
+            <div class="card-header" style="background: linear-gradient(135deg, #047857 0%, #10b981 100%);">
+                Mevcut Hammadde Kartıyla Eşleşenler ({{ analysis.matched_materials|length }})
+            </div>
+            <div class="card-body">
+                <button type="button" class="collapsible">Detayları Göster/Gizle</button>
+                <div class="collapsible-content">
+                    <table class="product-table">
+                        <thead>
+                            <tr>
+                                <th>Excel Hammadde</th>
+                                <th>Eşleşen Kart</th>
+                                <th>Kod</th>
+                                <th>Birim</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in analysis.matched_materials %}
+                            <tr>
+                                <td>{{ product.name }}</td>
+                                <td>{{ product.matched_name }}</td>
+                                <td><code>{{ product.matched_code }}</code></td>
+                                <td>{{ product.unit_type }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         {% if analysis.conflicts %}
         <div class="preview-card">
             <div class="card-header" style="background: linear-gradient(135deg, #ffa500 0%, #ff6347 100%);">

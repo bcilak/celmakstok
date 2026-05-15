@@ -20,6 +20,7 @@ FORMAT B — Kolon Girintisi  (urun_agaci_sablon.xlsx şablonu):
 import re
 import openpyxl
 from decimal import Decimal
+import unicodedata
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +29,27 @@ from decimal import Decimal
 
 _TR_MAP = {'\u00e7': 'C', '\u00c7': 'C', '\u011f': 'G', '\u011e': 'G', '\u0131': 'I', '\u0130': 'I',
            '\u00f6': 'O', '\u00d6': 'O', '\u015f': 'S', '\u015e': 'S', '\u00fc': 'U', '\u00dc': 'U'}
+
+STANDARD_PREFIXES = {'201', '202', '203', '204', '205', '206', '207', '208', '209',
+                     '210', '211', '212', '213', '214', '216', '217', '219'}
+
+MATERIAL_WORD_ALIASES = {
+    'ST3237': 'ST37',
+    'ST37': 'ST37',
+    'ST44': 'ST44',
+    'S235': 'ST37',
+    'SIYAH': 'SIYAH',
+    'SAC': 'SAC',
+    'LAMA': 'LAMA',
+    'BORU': 'BORU',
+    'SANAYI': 'SANAYI',
+    'PROFIL': 'PROFIL',
+    'TRANSMISYON': 'TRANSMISYON',
+    'CEKME': 'CEKME',
+    'CELIK': 'CELIK',
+    'C1040': 'C1040',
+    'Ç1040': 'C1040',
+}
 
 
 def _make_product_code(name: str, bom_code: str = '') -> str:
@@ -56,6 +78,108 @@ def _unique_product_code(base: str) -> str:
 # ---------------------------------------------------------------------------
 # Yardımcılar
 # ---------------------------------------------------------------------------
+
+def _ascii_upper(value: str) -> str:
+    """Turkish-safe uppercase text for fuzzy material matching."""
+    text = str(value or '')
+    for tr, en in _TR_MAP.items():
+        text = text.replace(tr, en)
+    text = text.replace('Ø', ' CAP ').replace('ø', ' CAP ')
+    text = unicodedata.normalize('NFKD', text)
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
+    return text.upper()
+
+
+def _material_tokens(value: str) -> set[str]:
+    """Normalize raw material text into comparable tokens."""
+    text = _ascii_upper(value)
+    replacements = {
+        'ST 37': 'ST37',
+        'ST-37': 'ST37',
+        'ST 44': 'ST44',
+        'ST-44': 'ST44',
+        'C 1040': 'C1040',
+        'C-1040': 'C1040',
+        'CAP': ' ',
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    raw_tokens = re.findall(r'[A-Z0-9]+(?:X[A-Z0-9]+)*', text)
+    ignored = {'MM', 'KG', 'MT', 'M', 'METRE', 'KILOGRAM', 'HAZIR', 'HAMMADDE', 'PARCA', 'PARÇA'}
+    tokens = set()
+    for token in raw_tokens:
+        if token in ignored:
+            continue
+        tokens.add(MATERIAL_WORD_ALIASES.get(token, token))
+    return tokens
+
+
+def _material_match_score(source: str, product) -> int:
+    source_tokens = _material_tokens(source)
+    if not source_tokens:
+        return 0
+
+    name_tokens = _material_tokens(product.name or '')
+    detail_tokens = _material_tokens(' '.join([
+        product.material or '',
+        product.code or '',
+        product.notes or '',
+    ]))
+    if not (source_tokens & name_tokens):
+        return 0
+    candidate_tokens = name_tokens | detail_tokens
+    common = source_tokens & candidate_tokens
+    if not common:
+        return 0
+
+    dimension_tokens = {t for t in source_tokens if any(ch.isdigit() for ch in t)}
+    material_tokens = source_tokens - dimension_tokens
+    if dimension_tokens and not dimension_tokens.issubset(candidate_tokens):
+        return 0
+    if material_tokens and not material_tokens.intersection(candidate_tokens):
+        return 0
+
+    score = (len(source_tokens & name_tokens) * 14) + (len(source_tokens & detail_tokens) * 8)
+    score += len(dimension_tokens & candidate_tokens) * 8
+
+    code = (product.code or '').upper()
+    if code.startswith('3TB-'):
+        score -= 25
+    return score
+
+
+def _find_matching_raw_material(row: dict):
+    """Find an existing raw material card for auto-generated material rows."""
+    from app.models import Product
+
+    if not row.get('is_auto_hammadde'):
+        return None
+
+    wanted_name = row.get('name') or ''
+    wanted_unit = row.get('unit_type') or ''
+    candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
+
+    scored = []
+    for product in candidates:
+        if (product.code or '').upper().startswith('3TB-'):
+            continue
+        score = _material_match_score(wanted_name, product)
+        if score <= 0:
+            continue
+        if wanted_unit and product.unit_type == wanted_unit:
+            score += 20
+        elif wanted_unit and product.unit_type != wanted_unit:
+            score -= 15
+        scored.append((score, product))
+
+    if not scored:
+        return None
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_product = scored[0]
+    return best_product if best_score >= 20 else None
+
 
 def _c(v) -> str:
     """None → '' temizleyici."""
@@ -751,15 +875,12 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
 
     # --- YarıMamül ve Otomatik Hammadde Dönüşümü ---
     transformed_rows = []
-    standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', 
-                         '210', '211', '212', '213', '214', '216', '217', '219'}
-
     for r in rows:
         mat_str = str(r.get('material', '')).strip()
         c_prefix = str(r.get('code') or '')[:3]
         
         is_assembly = mat_str.lower() in ('montaj', 'assembly', 'alt montaj', 'submontaj', 'montage')
-        is_standard = c_prefix in standard_prefixes or mat_str.lower() == 'standart parça'
+        is_standard = c_prefix in STANDARD_PREFIXES or mat_str.lower() == 'standart parça'
         
         # Eğer bir montaj/seviye 0 değilse, standart parça değilse ve malzemesi varsa:
         needs_child = not is_assembly and not is_standard and bool(mat_str) and r['level'] > 0
@@ -831,16 +952,15 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
     new_products = []
     existing_products = []
     conflicts = []
+    matched_materials = []
+    missing_materials = []
     
     # Excel dosyasındaki tekrarları (aynı isme sahip aynı parçalar) yakalamak için
     seen_in_excel = {}
     
-    standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', 
-                        '210', '211', '212', '213', '214', '216', '217', '219'}
-    
     for row in parsed_rows:
         code_prefix = str(row.get('code') or '')[:3]
-        if code_prefix in standard_prefixes or str(row.get('material', '')).lower() == 'standart parça':
+        if code_prefix in STANDARD_PREFIXES or str(row.get('material', '')).lower() == 'standart parça':
             item_type = 'standart_parca'
         elif row['level'] == 0:
             item_type = 'mamul'
@@ -870,6 +990,12 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
                 if not excel_code or not i_code or excel_code == i_code:
                     item = i
                     break
+
+        matched_raw_material = None
+        if not product and row.get('is_auto_hammadde'):
+            matched_raw_material = _find_matching_raw_material(row)
+            if matched_raw_material:
+                product = matched_raw_material
         
         entry = {
             'name': row['name'],
@@ -878,13 +1004,22 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
             'unit_type': row['unit_type'],
             'quantity': row['quantity'],
             'item_type': item_type,
-            'level': row['level']
+            'level': row['level'],
+            'is_auto_hammadde': bool(row.get('is_auto_hammadde')),
+            'matched_by': 'material' if matched_raw_material else None
         }
         
         # Eğer bu isimli ürün veritabanında yoksa ama bu excel dosyasında daha önce gördüysek, 
         # onu yeni bir ürün olarak tekrar tekrar eklemek yerine "mevcut_excel_tekrarı" gibi değerlendireceğiz.
         
         if not product:
+            if row.get('is_auto_hammadde'):
+                if row['name'] not in seen_in_excel:
+                    entry['reason'] = 'Mevcut hammadde kartı bulunamadı'
+                    missing_materials.append(entry)
+                    seen_in_excel[row['name']] = True
+                continue
+
             if row['name'] not in seen_in_excel:
                 # Gerçekten yeni ürün
                 base_code = _make_product_code(row['name'], row.get('code') or '')
@@ -918,11 +1053,11 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
                 })
             
             # Malzeme bilgisi yoksa eklenecek
-            if row.get('material') and not product.material:
-                updates.append({
-                    'field': 'material',
-                    'value': row['material']
-                })
+            if matched_raw_material:
+                entry['matched_code'] = product.code
+                entry['matched_name'] = product.name
+            elif row.get('material') and not product.material:
+                pass
             elif row.get('material') and product.material and product.material != row['material']:
                 issues.append({
                     'type': 'material_mismatch',
@@ -934,6 +1069,8 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
             
             if issues:
                 conflicts.append(entry)
+            elif matched_raw_material:
+                matched_materials.append(entry)
             else:
                 existing_products.append(entry)
     
@@ -942,13 +1079,17 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
         'new': len(new_products),
         'existing': len(existing_products),
         'conflicts': len(conflicts),
-        'will_update': sum(1 for p in existing_products if p.get('updates'))
+        'will_update': sum(1 for p in existing_products if p.get('updates')),
+        'matched_materials': len(matched_materials),
+        'missing_materials': len(missing_materials)
     }
     
     return {
         'new_products': new_products,
         'existing_products': existing_products,
         'conflicts': conflicts,
+        'matched_materials': matched_materials,
+        'missing_materials': missing_materials,
         'stats': stats
     }
 
@@ -961,10 +1102,8 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
     from app.models import BomItem, BomNode, BomEdge, Product
 
     num_to_node_id: dict[str, int] = {}
-    items_c = nodes_c = edges_c = products_c = 0
+    items_c = nodes_c = edges_c = products_c = unresolved_materials_c = 0
 
-    standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213', '214', '216', '217', '219'}
-    
     # Çakışma çözümlerini hazırla (kullanıcı kararları yoksa default)
     if conflict_resolutions is None:
         conflict_resolutions = {}
@@ -973,7 +1112,7 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
 
     for row in parsed_rows:
         code_prefix = str(row.get('code') or '')[:3]
-        if code_prefix in standard_prefixes or str(row.get('material', '')).lower() == 'standart parça':
+        if code_prefix in STANDARD_PREFIXES or str(row.get('material', '')).lower() == 'standart parça':
             item_type = 'standart_parca'
         elif row['level'] == 0:
             item_type = 'mamul'
@@ -1010,11 +1149,14 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
                 if not excel_code or not p_code or excel_code == p_code:
                     product = p
                     break
+
+        if not product and row.get('is_auto_hammadde'):
+            product = _find_matching_raw_material(row)
         
         # Kullanıcı bu ürün için karar verdiyse kontrol et
         resolution = conflict_resolutions.get(row['name'], {})
 
-        if not product:
+        if not product and not row.get('is_auto_hammadde'):
             base_code = _make_product_code(row['name'], row.get('code') or '')
             code = _unique_product_code(base_code)
             product = Product(
@@ -1029,12 +1171,14 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
             db.session.add(product)
             db.session.flush()
             products_c += 1
-        else:
+        elif not product and row.get('is_auto_hammadde'):
+            unresolved_materials_c += 1
+        elif product:
             # Mevcut ürün - kullanıcı kararlarına göre güncelle
             product_updated = False
             
-            # Malzeme güncellemesi - her zaman güncelle (yeni import değerleri öncelikli)
-            if row.get('material') and row['material'] != (product.material or ''):
+            # Malzeme güncellemesi yalnızca kullanıcı seçerse yapılır.
+            if resolution.get('update_material', False) and row.get('material') and row['material'] != (product.material or ''):
                 product.material = row['material']
                 product_updated = True
             
@@ -1072,13 +1216,13 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
                 name=row['name'],
                 unit_type=row['unit_type'],
                 type=item_type,
-                product_id=product.id,
+                product_id=product.id if product else None,
             )
             db.session.add(item)
             db.session.flush()
             items_c += 1
         else:
-            if item.product_id is None:
+            if item.product_id is None and product:
                 item.product_id = product.id
             # Kod varsa ve item'da eksikse güncelle (FORMAT C import)
             if row.get('code') and not item.code:
@@ -1120,7 +1264,8 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         'edges': edges_c, 
         'items': items_c, 
         'products': products_c,
-        'updated': updated_products_c
+        'updated': updated_products_c,
+        'unresolved_materials': unresolved_materials_c
     }
 
 
@@ -1183,11 +1328,10 @@ def get_bom_tree(bom_id: int, db) -> dict:
         has_children = bool(children_ids)
         raw_type = product.type if product and product.type else (item.type if item else 'hammadde')
         
-        standard_prefixes = {'201', '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213', '214', '216', '217', '219'}
         code_str = str(item.code) if (item and item.code) else (str(product.code) if product else '')
         code_prefix = code_str[:3]
         
-        if code_prefix in standard_prefixes:
+        if code_prefix in STANDARD_PREFIXES:
             display_type = 'standart_parca'
         elif has_children and n.level > 0:
             display_type = 'yarimamul'
