@@ -98,6 +98,36 @@
     </div>
     {% endif %}
 
+    {% if comparison.raw_material_summary %}
+    <div class="change-card">
+        <div class="card-head">Hammadde Toplam Sarfiyat Özeti</div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Hammadde</th>
+                        <th>Kart Kodu</th>
+                        <th>Toplam Fireli</th>
+                        <th>Toplam Firesiz</th>
+                        <th>Kullanıldığı Yer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for material in comparison.raw_material_summary %}
+                    <tr>
+                        <td>{{ material.name }}</td>
+                        <td><code>{{ material.generated_code }}</code></td>
+                        <td>{{ "%.4f"|format(material.quantity) }} {{ material.unit_type }}</td>
+                        <td>{{ "%.4f"|format(material.quantity_net) }} {{ material.unit_type }}</td>
+                        <td>{{ material.usage_count }} yarımamul</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="change-card">
         <div class="card-head">Yeni Eklenecek Kalemler</div>
         <div class="table-responsive">
@@ -112,7 +142,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for row in comparison.added[:40] %}
+                    {% for row in comparison.added|rejectattr('is_auto_hammadde')|list %}
                     <tr>
                         <td>{{ row.name }}</td>
                         <td><code>{{ row.code or '-' }}</code></td>

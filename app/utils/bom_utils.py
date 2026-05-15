@@ -1189,8 +1189,30 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
         'conflicts': conflicts,
         'matched_materials': matched_materials,
         'missing_materials': missing_materials,
+        'raw_material_summary': _aggregate_raw_material_usage(parsed_rows),
         'stats': stats
     }
+
+
+def _aggregate_raw_material_usage(rows: list[dict]) -> list[dict]:
+    grouped = {}
+    for row in rows:
+        if not row.get('is_auto_hammadde') or not _is_priceable_raw_material_name(row.get('name') or ''):
+            continue
+        key = (_ascii_upper(row.get('name') or ''), row.get('unit_type') or 'adet')
+        item = grouped.setdefault(key, {
+            'name': row.get('name') or '',
+            'unit_type': row.get('unit_type') or 'adet',
+            'quantity': 0.0,
+            'quantity_net': 0.0,
+            'usage_count': 0,
+            'generated_code': _make_product_code(row.get('name') or '', row.get('code') or ''),
+        })
+        item['quantity'] += float(row.get('quantity') or 0)
+        item['quantity_net'] += float(row.get('quantity_net') or 0)
+        item['usage_count'] += 1
+
+    return sorted(grouped.values(), key=lambda x: (x['name'], x['unit_type']))
 
 
 def _compare_key(row: dict) -> tuple:
@@ -1363,6 +1385,7 @@ def compare_bom_update(existing_bom_id: int, new_rows: list[dict], db) -> dict:
         'added': added,
         'removed': removed,
         'changed': changed,
+        'raw_material_summary': _aggregate_raw_material_usage(new_rows),
         'stats': {
             'added': len(added),
             'removed': len(removed),

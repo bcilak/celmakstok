@@ -392,6 +392,41 @@
         {% endif %}
 
         <!-- Yeni Ürünler -->
+        {% if analysis.raw_material_summary %}
+        <div class="preview-card">
+            <div class="card-header" style="background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);">
+                Hammadde Toplam Sarfiyat Özeti ({{ analysis.raw_material_summary|length }})
+            </div>
+            <div class="card-body">
+                <button type="button" class="collapsible">Detayları Göster/Gizle</button>
+                <div class="collapsible-content">
+                    <table class="product-table">
+                        <thead>
+                            <tr>
+                                <th>Hammadde</th>
+                                <th>Kart Kodu</th>
+                                <th>Toplam Fireli</th>
+                                <th>Toplam Firesiz</th>
+                                <th>Kullanıldığı Yer</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for material in analysis.raw_material_summary %}
+                            <tr>
+                                <td>{{ material.name }}</td>
+                                <td><code>{{ material.generated_code }}</code></td>
+                                <td>{{ "%.4f"|format(material.quantity) }} {{ material.unit_type }}</td>
+                                <td>{{ "%.4f"|format(material.quantity_net) }} {{ material.unit_type }}</td>
+                                <td>{{ material.usage_count }} yarımamul</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         {% if analysis.new_products %}
         <div class="preview-card">
             <div class="card-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
@@ -412,6 +447,7 @@
                         </thead>
                         <tbody>
                             {% for product in analysis.new_products %}
+                            {% if not product.is_auto_hammadde %}
                             <tr>
                                 <td>{{ product.name }}</td>
                                 <td><code>{{ product.generated_code }}</code></td>
@@ -419,6 +455,7 @@
                                 <td>{{ product.unit_type }}</td>
                                 <td><span class="badge badge-success">{{ product.item_type }}</span></td>
                             </tr>
+                            {% endif %}
                             {% endfor %}
                         </tbody>
                     </table>
