@@ -170,6 +170,8 @@ def _find_matching_raw_material(row: dict):
             continue
         if wanted_unit and product.unit_type == wanted_unit:
             score += 20
+        elif wanted_unit and _units_compatible(product.unit_type, wanted_unit, row.get('weight_per_unit') or 0):
+            score += 8
         elif wanted_unit and product.unit_type != wanted_unit:
             score -= 15
         scored.append((score, product))
@@ -260,6 +262,52 @@ def _unit_str(v: str) -> str:
         return 'kutu'
     # Bilinmeyeni olduğu gibi küçük harfle döndür
     return ui
+
+
+def _units_compatible(product_unit: str, row_unit: str, weight_per_unit: float = 0.0) -> bool:
+    product_unit = (product_unit or '').lower()
+    row_unit = (row_unit or '').lower()
+    if product_unit == row_unit:
+        return True
+    if weight_per_unit and product_unit in {'kg', 'gr', 'ton'} and row_unit in {'metre', 'adet'}:
+        return True
+    if weight_per_unit and product_unit == 'metre' and row_unit in {'kg', 'gr', 'ton'}:
+        return True
+    return False
+
+
+def _cost_quantity_for_unit(product_unit: str, row_unit: str, quantity: float, piece_count: float = 1.0,
+                            weight_per_unit: float = 0.0) -> float:
+    """Convert BOM quantity to the Product card's pricing unit when possible."""
+    product_unit = (product_unit or '').lower()
+    row_unit = (row_unit or '').lower()
+    qty = float(quantity or 0)
+    pieces = float(piece_count or 1)
+    weight = float(weight_per_unit or 0)
+
+    if product_unit == row_unit:
+        return qty
+    if not weight:
+        return qty
+    if product_unit == 'kg' and row_unit == 'metre':
+        return qty * weight
+    if product_unit == 'kg' and row_unit == 'adet':
+        return pieces * weight
+    if product_unit == 'gr' and row_unit == 'metre':
+        return qty * weight * 1000
+    if product_unit == 'gr' and row_unit == 'adet':
+        return pieces * weight * 1000
+    if product_unit == 'ton' and row_unit == 'metre':
+        return (qty * weight) / 1000
+    if product_unit == 'ton' and row_unit == 'adet':
+        return (pieces * weight) / 1000
+    if product_unit == 'metre' and row_unit == 'kg':
+        return qty / weight
+    if product_unit == 'metre' and row_unit == 'gr':
+        return (qty / 1000) / weight
+    if product_unit == 'metre' and row_unit == 'ton':
+        return (qty * 1000) / weight
+    return qty
 
 
 # ---------------------------------------------------------------------------
@@ -1040,7 +1088,7 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
             updates = []
             
             # Birim tipi farklıysa UYARI
-            if product.unit_type != row['unit_type']:
+            if not _units_compatible(product.unit_type, row['unit_type'], row.get('weight_per_unit') or 0):
                 issues.append({
                     'type': 'unit_mismatch',
                     'message': f"Birim tipi farklı: Mevcut '{product.unit_type}' vs Excel '{row['unit_type']}'"
@@ -1190,7 +1238,13 @@ def estimate_bom_rows_cost(rows: list[dict]) -> float:
         if not product:
             continue
         unit_cost = float(product.unit_cost or 0)
-        qty = float(row.get('quantity') or 0)
+        qty = _cost_quantity_for_unit(
+            product.unit_type,
+            row.get('unit_type'),
+            row.get('quantity') or 0,
+            row.get('piece_count') or 1,
+            row.get('weight_per_unit') or 0
+        )
         total += unit_cost * qty
     return round(total, 2)
 
@@ -1504,22 +1558,21 @@ def get_bom_tree(bom_id: int, db) -> dict:
         else:
             calc_unit_cost = product.unit_cost if product and product.unit_cost else 0.0
             
-            # Eğer "Lama" ise maliyeti KG üzerinden hesaplamalıyız (q_fireli * weight_per_unit)
-            material_name = (product.material or '').lower() if product else ''
-            is_lama = 'lama' in material_name
-            
             # Dışarıdan alınan hazır parça / standart parça (adetle fiyatlanan)
             is_hazir = (raw_type in ['hazir_parca', 'standart_parca'] or display_type in ['hazir_parca', 'standart_parca'])
             
             if is_hazir:
                 p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0
                 calc_total_cost = calc_unit_cost * p_count
-            elif is_lama and w_per_unit:
-                # Toplam ağırlık = metraj (q_fireli) * weight_per_unit
-                total_kg = (q_fireli or 0) * (w_per_unit or 0)
-                calc_total_cost = (calc_unit_cost * total_kg)
             else:
-                calc_total_cost = (calc_unit_cost * q_fireli) if q_fireli else 0.0
+                cost_qty = _cost_quantity_for_unit(
+                    product.unit_type if product else n.unit_type,
+                    n.unit_type,
+                    q_fireli or 0,
+                    float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0,
+                    w_per_unit or 0
+                )
+                calc_total_cost = calc_unit_cost * cost_qty
             
             calc_currency = product.currency if product and product.currency else 'TRY'
 
