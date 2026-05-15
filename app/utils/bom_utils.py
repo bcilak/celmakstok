@@ -217,6 +217,17 @@ def _find_costing_raw_material(row: dict):
     return best_product if best_score >= 20 else None
 
 
+def _is_priceable_raw_material_name(name: str) -> bool:
+    tokens = _material_tokens(name)
+    if tokens & {'STANDART', 'HAZIR', 'DOVME', 'DÖVME'}:
+        return False
+    raw_markers = {
+        'SAC', 'LAMA', 'BORU', 'PROFIL', 'TRANSMISYON', 'MIL',
+        'CELIK', 'CEKME', 'C1040', 'SIYAH', 'ST37', 'ST44', 'SANAYI'
+    }
+    return bool(tokens & raw_markers)
+
+
 def _c(v) -> str:
     """None → '' temizleyici."""
     return '' if v is None else str(v).strip()
@@ -1096,7 +1107,13 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
         
         if not product:
             if row.get('is_auto_hammadde'):
-                if row['name'] not in seen_in_excel:
+                if row['name'] not in seen_in_excel and _is_priceable_raw_material_name(row['name']):
+                    base_code = _make_product_code(row['name'], row.get('code') or '')
+                    entry['generated_code'] = _unique_product_code(base_code)
+                    entry['material'] = row['name']
+                    new_products.append(entry)
+                    seen_in_excel[row['name']] = True
+                elif row['name'] not in seen_in_excel:
                     entry['reason'] = 'Mevcut hammadde kartı bulunamadı'
                     missing_materials.append(entry)
                     seen_in_excel[row['name']] = True
@@ -1257,6 +1274,10 @@ def _find_product_for_row(row: dict, for_cost: bool = False):
                 break
     if not product and row.get('is_auto_hammadde'):
         product = _find_matching_raw_material(row)
+    if product and for_cost and row.get('is_auto_hammadde') and not (product.unit_cost and product.unit_cost > 0):
+        priced_product = _find_costing_raw_material(row)
+        if priced_product and priced_product.unit_cost and priced_product.unit_cost > 0:
+            product = priced_product
     if not product and for_cost and (row.get('is_auto_hammadde') or str(row.get('material') or '').lower() == 'hammadde'):
         product = _find_costing_raw_material(row)
     return product
@@ -1415,7 +1436,7 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         # Kullanıcı bu ürün için karar verdiyse kontrol et
         resolution = conflict_resolutions.get(row['name'], {})
 
-        if not product and not row.get('is_auto_hammadde'):
+        if not product and (not row.get('is_auto_hammadde') or _is_priceable_raw_material_name(row['name'])):
             base_code = _make_product_code(row['name'], row.get('code') or '')
             code = _unique_product_code(base_code)
             product = Product(
@@ -1423,7 +1444,7 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
                 name=row['name'],
                 unit_type=row['unit_type'],
                 type=item_type,
-                material=row.get('material') or None,
+                material=(row['name'] if row.get('is_auto_hammadde') else (row.get('material') or None)),
                 notes=product_notes,
                 category_id=category_id if row['level'] == 0 else None
             )
@@ -1567,14 +1588,16 @@ def get_bom_tree(bom_id: int, db) -> dict:
         item    = n.item
         product = item.product if item else None
         costing_product = product
-        if not costing_product and item and item.type == 'hammadde':
-            costing_product = _find_costing_raw_material({
+        if item and item.type == 'hammadde' and (not costing_product or not (costing_product.unit_cost and costing_product.unit_cost > 0)):
+            fallback_product = _find_costing_raw_material({
                 'name': n.display_name or item.name,
                 'unit_type': n.unit_type,
                 'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
                 'material': 'Hammadde',
                 'is_auto_hammadde': True,
             })
+            if fallback_product and (not costing_product or fallback_product.unit_cost and fallback_product.unit_cost > 0):
+                costing_product = fallback_product
         children_ids = sorted(parent_to_children.get(nid, []),
                               key=lambda i: _num_key(node_map[i].num))
         # fireli / firesiz

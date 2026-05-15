@@ -28,22 +28,37 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
+def _product_payload(p):
+    return {
+        'id': p.id,
+        'code': p.code,
+        'name': p.name,
+        'type': p.type,
+        'category_id': p.category_id,
+        'category_name': p.category.name if p.category else None,
+        'unit_type': p.unit_type,
+        'current_stock': float(p.current_stock),
+        'minimum_stock': float(p.minimum_stock),
+        'barcode': p.barcode,
+        'notes': p.notes,
+        'material': p.material,
+        'unit_cost': float(p.unit_cost or 0),
+        'currency': p.currency,
+        'vat_rate': float(p.vat_rate or 0),
+        'status': p.stock_status,
+        'is_active': p.is_active,
+        'created_at': p.created_at.isoformat() if p.created_at else None,
+        'updated_at': p.updated_at.isoformat() if p.updated_at else None
+    }
+
 @api_bp.route('/products')
 @login_required
 @roles_required('Genel', 'Yönetici', 'Personel')
 def get_products():
     """Ürün listesi API"""
     products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
-    return jsonify([{
-        'id': p.id,
-        'code': p.code,
-        'name': p.name,
-        'category': p.category.name if p.category else None,
-        'unit_type': p.unit_type,
-        'current_stock': p.current_stock,
-        'minimum_stock': p.minimum_stock,
-        'status': p.stock_status
-    } for p in products])
+    return jsonify([_product_payload(p) for p in products])
 
 @api_bp.route('/products/<int:id>')
 @login_required
@@ -51,19 +66,13 @@ def get_products():
 def get_product(id):
     """Tek ürün detayı API"""
     product = Product.query.get_or_404(id)
-    return jsonify({
-        'id': product.id,
-        'code': product.code,
-        'name': product.name,
+    payload = _product_payload(product)
+    payload.update({
         'category': product.category.name if product.category else None,
-        'unit_type': product.unit_type,
-        'current_stock': product.current_stock,
-        'minimum_stock': product.minimum_stock,
         'total_in': product.total_in,
         'total_out': product.total_out,
-        'dimensions': product.dimensions,
-        'status': product.stock_status
     })
+    return jsonify(payload)
 
 @api_bp.route('/products/search')
 @login_required
@@ -305,24 +314,7 @@ def api_products_full():
 
     products = query.order_by(Product.code).all()
 
-    result = []
-    for p in products:
-        result.append({
-            'id': p.id,
-            'code': p.code,
-            'name': p.name,
-            'category_id': p.category_id,
-            'category_name': p.category.name if p.category else None,
-            'unit_type': p.unit_type,
-            'current_stock': float(p.current_stock),
-            'minimum_stock': float(p.minimum_stock),
-            'barcode': p.barcode,
-            'notes': p.notes,
-            'status': p.stock_status,
-            'is_active': p.is_active,
-            'created_at': p.created_at.isoformat() if p.created_at else None,
-            'updated_at': p.updated_at.isoformat() if p.updated_at else None
-        })
+    result = [_product_payload(p) for p in products]
 
     return jsonify({
         'success': True,
@@ -744,6 +736,22 @@ def api_stock_sync():
             
         product = Product.query.filter_by(code=code, is_active=True).first()
         if not product:
+            name = item.get('name') or item.get('product_name')
+            unit_type = item.get('unit_type') or 'kg'
+            if name:
+                product = Product(
+                    code=code,
+                    name=name,
+                    type=item.get('type') or 'hammadde',
+                    unit_type=unit_type,
+                    material=item.get('material') or name,
+                    current_stock=0,
+                    minimum_stock=0,
+                    is_active=True,
+                )
+                db.session.add(product)
+                db.session.flush()
+        if not product:
             results.append({'code': code, 'status': 'error', 'message': 'Ürün bulunamadı'})
             continue
             
@@ -836,6 +844,21 @@ def api_product_price_sync():
             
         product = Product.query.filter_by(code=code, is_active=True).first()
         if not product:
+            name = item.get('name') or item.get('product_name')
+            if name:
+                product = Product(
+                    code=code,
+                    name=name,
+                    type=item.get('type') or 'hammadde',
+                    unit_type=item.get('unit_type') or 'kg',
+                    material=item.get('material') or name,
+                    current_stock=0,
+                    minimum_stock=0,
+                    is_active=True,
+                )
+                db.session.add(product)
+                db.session.flush()
+        if not product:
             results.append({'code': code, 'status': 'error', 'message': 'Ürün bulunamadı'})
             continue
             
@@ -912,6 +935,19 @@ def api_sync_cost():
         return jsonify({'success': False, 'error': 'unit_cost alanı gereklidir'}), 400
 
     product = Product.query.filter_by(code=product_code, is_active=True).first()
+    if not product and data.get('product_name'):
+        product = Product(
+            code=product_code,
+            name=data.get('product_name'),
+            type=data.get('type') or 'hammadde',
+            unit_type=data.get('unit_type') or 'kg',
+            material=data.get('material') or data.get('product_name'),
+            current_stock=0,
+            minimum_stock=0,
+            is_active=True,
+        )
+        db.session.add(product)
+        db.session.flush()
     if not product:
         return jsonify({'success': False, 'error': f'Ürün bulunamadı: {product_code}'}), 404
 
