@@ -188,7 +188,11 @@ def _find_costing_raw_material(row: dict):
     """Cost-only material match; allows legacy part-coded hammadde cards as a fallback."""
     from app.models import Product
 
-    wanted_name = row.get('name') or ''
+    material_text = row.get('material') or ''
+    name_text = row.get('name') or ''
+    wanted_name = material_text if _is_priceable_raw_material_name(material_text) else name_text
+    if name_text and material_text and material_text.lower() not in {'hammadde', 'hazır', 'hazir'}:
+        wanted_name = f'{wanted_name} {name_text}'
     wanted_unit = row.get('unit_type') or ''
     candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
 
@@ -1296,11 +1300,15 @@ def _find_product_for_row(row: dict, for_cost: bool = False):
                 break
     if not product and row.get('is_auto_hammadde'):
         product = _find_matching_raw_material(row)
-    if product and for_cost and row.get('is_auto_hammadde') and not (product.unit_cost and product.unit_cost > 0):
+    if product and for_cost and not (product.unit_cost and product.unit_cost > 0):
         priced_product = _find_costing_raw_material(row)
         if priced_product and priced_product.unit_cost and priced_product.unit_cost > 0:
             product = priced_product
-    if not product and for_cost and (row.get('is_auto_hammadde') or str(row.get('material') or '').lower() == 'hammadde'):
+    if not product and for_cost and (
+        row.get('is_auto_hammadde')
+        or str(row.get('material') or '').lower() == 'hammadde'
+        or _is_priceable_raw_material_name(row.get('material') or row.get('name') or '')
+    ):
         product = _find_costing_raw_material(row)
     return product
 
@@ -1616,7 +1624,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 'name': n.display_name or item.name,
                 'unit_type': n.unit_type,
                 'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
-                'material': 'Hammadde',
+                'material': (product.material if product else None) or item.name or n.display_name or '',
                 'is_auto_hammadde': True,
             })
             if fallback_product and (not costing_product or fallback_product.unit_cost and fallback_product.unit_cost > 0):
