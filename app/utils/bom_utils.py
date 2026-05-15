@@ -458,6 +458,20 @@ def _cost_basis_quantity(quantity: float, quantity_net: float = None) -> float:
     return float(quantity or 0)
 
 
+def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: float = 0.0) -> bool:
+    """Sac/lama are priced by kg when BOM provides kg-per-unit data."""
+    if not weight_per_unit:
+        return False
+    if (row_unit or '').lower() not in {'metre', 'mt', 'adet'}:
+        return False
+    signature = _strict_material_signature(material_text or '')
+    return bool(signature and signature.get('family') in {'SAC', 'LAMA'})
+
+
+def _weight_cost_quantity(quantity: float, weight_per_unit: float = 0.0) -> float:
+    return float(quantity or 0) * float(weight_per_unit or 0)
+
+
 # ---------------------------------------------------------------------------
 # FORMAT TESPİTİ
 # ---------------------------------------------------------------------------
@@ -1443,13 +1457,17 @@ def estimate_bom_rows_cost(rows: list[dict]) -> float:
         if not product:
             continue
         unit_cost = float(product.unit_cost or 0)
-        qty = _cost_quantity_for_unit(
-            product.unit_type,
-            row.get('unit_type'),
-            _cost_basis_quantity(row.get('quantity') or 0, row.get('quantity_net')),
-            row.get('piece_count') or 1,
-            row.get('weight_per_unit') or 0
-        )
+        cost_basis_qty = _cost_basis_quantity(row.get('quantity') or 0, row.get('quantity_net'))
+        if _should_cost_by_weight(row.get('material') or row.get('name') or '', row.get('unit_type'), row.get('weight_per_unit') or 0):
+            qty = _weight_cost_quantity(cost_basis_qty, row.get('weight_per_unit') or 0)
+        else:
+            qty = _cost_quantity_for_unit(
+                product.unit_type,
+                row.get('unit_type'),
+                cost_basis_qty,
+                row.get('piece_count') or 1,
+                row.get('weight_per_unit') or 0
+            )
         total += unit_cost * qty
     return round(total, 2)
 
@@ -1818,6 +1836,13 @@ def get_bom_tree(bom_id: int, db) -> dict:
             or display_type in ['hazir_parca', 'standart_parca']
             or ready_purchase
         )
+        material_text = ' '.join(_c(value) for value in [
+            product.material if product else '',
+            product.name if product else '',
+            n.display_name or '',
+        ])
+        if _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0):
+            is_hazir = False
 
         if built_children and not is_hazir:
             # sum can fail if total_cost is None
@@ -1837,13 +1862,17 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0
                 calc_total_cost = calc_unit_cost * p_count
             else:
-                cost_qty = _cost_quantity_for_unit(
-                    costing_product.unit_type if costing_product else n.unit_type,
-                    n.unit_type,
-                    _cost_basis_quantity(q_fireli or 0, q_firesiz),
-                    float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0,
-                    w_per_unit or 0
-                )
+                cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
+                if _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0):
+                    cost_qty = _weight_cost_quantity(cost_basis_qty, w_per_unit or 0)
+                else:
+                    cost_qty = _cost_quantity_for_unit(
+                        costing_product.unit_type if costing_product else n.unit_type,
+                        n.unit_type,
+                        cost_basis_qty,
+                        float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0,
+                        w_per_unit or 0
+                    )
                 calc_total_cost = calc_unit_cost * cost_qty
             
             calc_currency = costing_product.currency if costing_product and costing_product.currency else 'TRY'
