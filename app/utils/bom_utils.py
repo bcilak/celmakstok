@@ -38,6 +38,7 @@ MATERIAL_WORD_ALIASES = {
     'ST3237': 'ST37',
     'ST37': 'ST37',
     'ST44': 'ST44',
+    '4140': 'C4140',
     'S235': 'ST37',
     'SIYAH': 'SIYAH',
     'SAC': 'SAC',
@@ -49,6 +50,7 @@ MATERIAL_WORD_ALIASES = {
     'CEKME': 'CEKME',
     'CELIK': 'CELIK',
     'C1040': 'C1040',
+    'C4140': 'C4140',
     'Ç1040': 'C1040',
 }
 
@@ -116,17 +118,100 @@ def _material_tokens(value: str) -> set[str]:
     return tokens
 
 
+def _material_number(value: str) -> str:
+    number = str(value or '').replace(',', '.')
+    if not number:
+        return ''
+    try:
+        return f'{float(number):g}'
+    except ValueError:
+        return number.strip()
+
+
+def _dimension_parts(value: str) -> tuple[str, ...]:
+    return tuple(_material_number(part) for part in re.split(r'\s*[Xx]\s*', value) if part)
+
+
+def _strict_material_signature(value: str):
+    """Return a strict comparable material signature for measured raw materials."""
+    text = _ascii_upper(value).replace(',', '.')
+    tokens = _material_tokens(text)
+
+    family = None
+    if 'SAC' in tokens:
+        family = 'SAC'
+    elif 'LAMA' in tokens:
+        family = 'LAMA'
+    elif 'PROFIL' in tokens:
+        family = 'PROFIL'
+    elif tokens & {'BORU', 'SANAYI', 'CELIK'}:
+        family = 'BORU'
+    elif 'TRANSMISYON' in tokens:
+        family = 'TRANSMISYON'
+    elif tokens & {'C1040', 'C4140', 'CEKME'}:
+        family = 'MIL'
+
+    if not family:
+        return None
+
+    grades = tuple(sorted(tokens & {'ST37', 'ST44', 'S235', 'C1040', 'C4140', 'GG25', 'GGG45', 'GGG50'}))
+    dimensions = []
+
+    x_matches = re.findall(r'(\d+(?:\.\d+)?\s*[Xx]\s*\d+(?:\.\d+)?(?:\s*[Xx]\s*\d+(?:\.\d+)?)*)', text)
+    for match in x_matches:
+        dimensions.append('X'.join(_dimension_parts(match)))
+
+    cap_matches = re.findall(r'\bCAP\s*(\d+(?:\.\d+)?)', text)
+    for match in cap_matches:
+        dimensions.append(f'CAP{_material_number(match)}')
+
+    if family == 'SAC':
+        thickness_matches = re.findall(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*MM\b', text)
+        if thickness_matches:
+            dimensions = [f'T{_material_number(thickness_matches[-1])}']
+
+    if not dimensions:
+        return None
+
+    return {
+        'family': family,
+        'grades': grades,
+        'dimensions': tuple(sorted(set(dimensions))),
+    }
+
+
+def _strict_signatures_match(source_sig, candidate_sig) -> bool:
+    if not source_sig:
+        return True
+    if not candidate_sig:
+        return False
+    if source_sig['family'] != candidate_sig['family']:
+        return False
+    if source_sig['dimensions'] != candidate_sig['dimensions']:
+        return False
+    if source_sig['grades'] and candidate_sig['grades'] and source_sig['grades'] != candidate_sig['grades']:
+        return False
+    return True
+
+
 def _material_match_score(source: str, product, require_name_match: bool = True) -> int:
+    candidate_text = ' '.join([
+        product.name or '',
+        product.material or '',
+        product.code or '',
+        product.notes or '',
+    ])
+    source_sig = _strict_material_signature(source)
+    candidate_sig = _strict_material_signature(candidate_text)
+    if not _strict_signatures_match(source_sig, candidate_sig):
+        return 0
+
     source_tokens = _material_tokens(source)
     if not source_tokens:
         return 0
 
     name_tokens = _material_tokens(product.name or '')
-    detail_tokens = _material_tokens(' '.join([
-        product.material or '',
-        product.code or '',
-        product.notes or '',
-    ]))
+    detail_tokens = _material_tokens(candidate_text)
     if require_name_match and not (source_tokens & name_tokens):
         return 0
     candidate_tokens = name_tokens | detail_tokens
