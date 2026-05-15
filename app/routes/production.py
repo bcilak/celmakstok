@@ -620,6 +620,8 @@ def api_bom_node(node_id):
             'quantity_net': float(node.quantity_net) if node.quantity_net else 0,
             'piece_count': float(node.piece_count) if getattr(node, 'piece_count', None) is not None else 1,
             'product_code': product.code if product else '',
+            'unit_cost': float(product.unit_cost) if product and product.unit_cost is not None else 0,
+            'currency': product.currency if product and product.currency else 'TRY',
             'unit': node.unit_type
         })
     elif request.method == 'POST':
@@ -650,6 +652,13 @@ def api_bom_node(node_id):
                     product.material = data['material']
                 if 'type' in data and data['type'] in ['hammadde', 'yarimamul', 'mamul', 'standart_parca', 'hazir_parca']:
                     product.type = data['type']
+                if 'unit_cost' in data:
+                    unit_cost = float(data.get('unit_cost') or 0)
+                    if unit_cost < 0:
+                        return jsonify({'success': False, 'error': 'Birim maliyet negatif olamaz!'})
+                    product.unit_cost = unit_cost
+                if 'currency' in data and data['currency']:
+                    product.currency = str(data['currency']).strip().upper()[:10]
                 if 'product_code' in data and data['product_code']:
                     existing = Product.query.filter(Product.code == data['product_code'], Product.id != product.id).first()
                     if not existing:
