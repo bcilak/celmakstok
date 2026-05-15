@@ -234,6 +234,11 @@ def _is_priceable_raw_material_name(name: str) -> bool:
     return bool(tokens & raw_markers)
 
 
+def _is_ready_purchase_text(value: str) -> bool:
+    text = _ascii_upper(value)
+    return any(token in text for token in ('HAZIR', 'STANDART PARCA', 'STANDART'))
+
+
 def _c(v) -> str:
     """None → '' temizleyici."""
     return '' if v is None else str(v).strip()
@@ -980,16 +985,19 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
         
         is_assembly = mat_str.lower() in ('montaj', 'assembly', 'alt montaj', 'submontaj', 'montage')
         is_standard = c_prefix in STANDARD_PREFIXES or mat_str.lower() == 'standart parça'
+        is_ready_purchase = _is_ready_purchase_text(mat_str)
         
         # Eğer bir montaj/seviye 0 değilse, standart parça değilse ve malzemesi varsa:
-        needs_child = not is_assembly and not is_standard and bool(mat_str) and r['level'] > 0
+        needs_child = not is_assembly and not is_standard and not is_ready_purchase and bool(mat_str) and r['level'] > 0
         
-        if is_standard:
+        if is_standard or is_ready_purchase:
             # Standart Parçaların birimi her zaman "adet" olmalıdır
             parent_qty = r.get('piece_count', 1.0)
             r['quantity'] = parent_qty
             r['quantity_net'] = parent_qty
             r['unit_type'] = 'adet'
+            if is_ready_purchase and not is_standard:
+                r['is_ready_purchase'] = True
             transformed_rows.append(r)
 
         elif needs_child:
@@ -1063,6 +1071,8 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
             item_type = 'standart_parca'
         elif row['level'] == 0:
             item_type = 'mamul'
+        elif row.get('is_ready_purchase') or _is_ready_purchase_text(row.get('material') or ''):
+            item_type = 'hazir_parca'
         elif row.get('is_auto_hammadde'): 
             item_type = 'hammadde'
         else:
@@ -1443,6 +1453,8 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
             item_type = 'standart_parca'
         elif row['level'] == 0:
             item_type = 'mamul'
+        elif row.get('is_ready_purchase') or _is_ready_purchase_text(row.get('material') or ''):
+            item_type = 'hazir_parca'
         elif row.get('is_auto_hammadde'):
             item_type = 'hammadde'
         else:
@@ -1683,20 +1695,38 @@ def get_bom_tree(bom_id: int, db) -> dict:
         # item_type: eğer altında çocuk varsa 'yarimamul', yoksa item kaydından al
         has_children = bool(children_ids)
         raw_type = product.type if product and product.type else (item.type if item else 'hammadde')
+        ready_purchase = _is_ready_purchase_text(
+            ' '.join(
+                _c(value)
+                for value in [
+                    n.display_name,
+                    item.name if item else '',
+                    product.material if product else '',
+                    product.name if product else '',
+                ]
+            )
+        )
         
         code_str = str(item.code) if (item and item.code) else (str(product.code) if product else '')
         code_prefix = code_str[:3]
         
         if code_prefix in STANDARD_PREFIXES:
             display_type = 'standart_parca'
+        elif ready_purchase and n.level > 0:
+            display_type = 'hazir_parca'
         elif has_children and n.level > 0:
             display_type = 'yarimamul'
         else:
             display_type = raw_type
 
         built_children = [build(cid) for cid in children_ids]
+        is_hazir = (
+            raw_type in ['hazir_parca', 'standart_parca']
+            or display_type in ['hazir_parca', 'standart_parca']
+            or ready_purchase
+        )
 
-        if built_children:
+        if built_children and not is_hazir:
             # sum can fail if total_cost is None
             calc_total_cost = sum((c.get('total_cost') or 0.0) for c in built_children)
             
@@ -1708,9 +1738,6 @@ def get_bom_tree(bom_id: int, db) -> dict:
             calc_currency = costing_product.currency if costing_product and costing_product.currency else 'TRY'
         else:
             calc_unit_cost = costing_product.unit_cost if costing_product and costing_product.unit_cost else 0.0
-            
-            # Dışarıdan alınan hazır parça / standart parça (adetle fiyatlanan)
-            is_hazir = (raw_type in ['hazir_parca', 'standart_parca'] or display_type in ['hazir_parca', 'standart_parca'])
             
             if is_hazir:
                 p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0
