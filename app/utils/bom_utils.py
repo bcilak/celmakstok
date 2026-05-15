@@ -365,6 +365,14 @@ def _cost_quantity_for_unit(product_unit: str, row_unit: str, quantity: float, p
     return qty
 
 
+def _cost_basis_quantity(quantity: float, quantity_net: float = None) -> float:
+    """Use net (firesiz) quantity for costing when available."""
+    net = float(quantity_net or 0)
+    if net > 0:
+        return net
+    return float(quantity or 0)
+
+
 # ---------------------------------------------------------------------------
 # FORMAT TESPİTİ
 # ---------------------------------------------------------------------------
@@ -1353,7 +1361,7 @@ def estimate_bom_rows_cost(rows: list[dict]) -> float:
         qty = _cost_quantity_for_unit(
             product.unit_type,
             row.get('unit_type'),
-            row.get('quantity') or 0,
+            _cost_basis_quantity(row.get('quantity') or 0, row.get('quantity_net')),
             row.get('piece_count') or 1,
             row.get('weight_per_unit') or 0
         )
@@ -1733,8 +1741,9 @@ def get_bom_tree(bom_id: int, db) -> dict:
             # Eğer Lama veya hesaplaması kg üzerinden yapılan bir hammaddeyse ve weight_per_unit varsa
             # Üst kırılma da kendi qty_fireli metrajını vs uygulayabilir ancak
             # Alt kırılımların toplamı üst kırılımın 1 ADET (veya toplam) maliyetini oluşturur.
-            # q_fireli 'adet' veya 'metre' olabilir. Birim maliyeti bölerken kullanıyoruz:
-            calc_unit_cost = (calc_total_cost / q_fireli) if q_fireli and q_fireli > 0 else 0.0
+            # Maliyet firesiz miktar üzerinden hesaplanır; fire oranı sadece bilgi olarak gösterilir.
+            cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
+            calc_unit_cost = (calc_total_cost / cost_basis_qty) if cost_basis_qty and cost_basis_qty > 0 else 0.0
             calc_currency = costing_product.currency if costing_product and costing_product.currency else 'TRY'
         else:
             calc_unit_cost = costing_product.unit_cost if costing_product and costing_product.unit_cost else 0.0
@@ -1746,7 +1755,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 cost_qty = _cost_quantity_for_unit(
                     costing_product.unit_type if costing_product else n.unit_type,
                     n.unit_type,
-                    q_fireli or 0,
+                    _cost_basis_quantity(q_fireli or 0, q_firesiz),
                     float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0,
                     w_per_unit or 0
                 )
