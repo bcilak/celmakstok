@@ -116,7 +116,7 @@ def _material_tokens(value: str) -> set[str]:
     return tokens
 
 
-def _material_match_score(source: str, product) -> int:
+def _material_match_score(source: str, product, require_name_match: bool = True) -> int:
     source_tokens = _material_tokens(source)
     if not source_tokens:
         return 0
@@ -127,7 +127,7 @@ def _material_match_score(source: str, product) -> int:
         product.code or '',
         product.notes or '',
     ]))
-    if not (source_tokens & name_tokens):
+    if require_name_match and not (source_tokens & name_tokens):
         return 0
     candidate_tokens = name_tokens | detail_tokens
     common = source_tokens & candidate_tokens
@@ -174,6 +174,39 @@ def _find_matching_raw_material(row: dict):
             score += 8
         elif wanted_unit and product.unit_type != wanted_unit:
             score -= 15
+        scored.append((score, product))
+
+    if not scored:
+        return None
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_product = scored[0]
+    return best_product if best_score >= 20 else None
+
+
+def _find_costing_raw_material(row: dict):
+    """Cost-only material match; allows legacy part-coded hammadde cards as a fallback."""
+    from app.models import Product
+
+    wanted_name = row.get('name') or ''
+    wanted_unit = row.get('unit_type') or ''
+    candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
+
+    scored = []
+    for product in candidates:
+        score = _material_match_score(wanted_name, product, require_name_match=False)
+        if score <= 0:
+            continue
+        if wanted_unit and product.unit_type == wanted_unit:
+            score += 25
+        elif wanted_unit and _units_compatible(product.unit_type, wanted_unit, row.get('weight_per_unit') or 0):
+            score += 12
+        elif wanted_unit and product.unit_type != wanted_unit:
+            score -= 20
+        if product.unit_cost and product.unit_cost > 0:
+            score += 30
+        if not (product.code or '').upper().startswith('3TB-'):
+            score += 10
         scored.append((score, product))
 
     if not scored:
@@ -1210,7 +1243,7 @@ def _existing_bom_rows(bom_id: int) -> list[dict]:
     return rows
 
 
-def _find_product_for_row(row: dict):
+def _find_product_for_row(row: dict, for_cost: bool = False):
     from app.models import Product
 
     excel_code = row.get('code') or ''
@@ -1224,6 +1257,8 @@ def _find_product_for_row(row: dict):
                 break
     if not product and row.get('is_auto_hammadde'):
         product = _find_matching_raw_material(row)
+    if not product and for_cost and (row.get('is_auto_hammadde') or str(row.get('material') or '').lower() == 'hammadde'):
+        product = _find_costing_raw_material(row)
     return product
 
 
@@ -1234,7 +1269,7 @@ def estimate_bom_rows_cost(rows: list[dict]) -> float:
     for row in rows:
         if row.get('num') in parent_nums:
             continue
-        product = _find_product_for_row(row)
+        product = _find_product_for_row(row, for_cost=True)
         if not product:
             continue
         unit_cost = float(product.unit_cost or 0)
@@ -1254,6 +1289,11 @@ def compare_bom_update(existing_bom_id: int, new_rows: list[dict], db) -> dict:
     old_rows = _existing_bom_rows(existing_bom_id)
     old_index = _indexed_compare_rows(old_rows)
     new_index = _indexed_compare_rows(new_rows)
+    new_children_by_parent = {}
+    for row in new_rows:
+        parent_num = row.get('parent_num')
+        if parent_num:
+            new_children_by_parent.setdefault(parent_num, []).append(row)
 
     added = []
     removed = []
@@ -1264,7 +1304,21 @@ def compare_bom_update(existing_bom_id: int, new_rows: list[dict], db) -> dict:
         if not old_row:
             added.append(new_row)
             continue
-        changes = _row_changed_fields(old_row, new_row)
+        compare_row = new_row
+        if old_row.get('unit_type') != new_row.get('unit_type') and new_row.get('unit_type') == 'adet':
+            raw_children = new_children_by_parent.get(new_row.get('num'), [])
+            raw_child = next((child for child in raw_children if child.get('unit_type') == old_row.get('unit_type')), None)
+            if raw_child:
+                compare_row = dict(new_row)
+                compare_row.update({
+                    'name': old_row.get('name'),
+                    'quantity': raw_child.get('quantity'),
+                    'quantity_net': raw_child.get('quantity_net'),
+                    'piece_count': old_row.get('piece_count'),
+                    'unit_type': raw_child.get('unit_type'),
+                    'material': raw_child.get('name'),
+                })
+        changes = _row_changed_fields(old_row, compare_row)
         if changes:
             changed.append({'old': old_row, 'new': new_row, 'changes': changes})
 
@@ -1512,6 +1566,15 @@ def get_bom_tree(bom_id: int, db) -> dict:
         n = node_map[nid]
         item    = n.item
         product = item.product if item else None
+        costing_product = product
+        if not costing_product and item and item.type == 'hammadde':
+            costing_product = _find_costing_raw_material({
+                'name': n.display_name or item.name,
+                'unit_type': n.unit_type,
+                'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
+                'material': 'Hammadde',
+                'is_auto_hammadde': True,
+            })
         children_ids = sorted(parent_to_children.get(nid, []),
                               key=lambda i: _num_key(node_map[i].num))
         # fireli / firesiz
@@ -1554,9 +1617,9 @@ def get_bom_tree(bom_id: int, db) -> dict:
             # Alt kırılımların toplamı üst kırılımın 1 ADET (veya toplam) maliyetini oluşturur.
             # q_fireli 'adet' veya 'metre' olabilir. Birim maliyeti bölerken kullanıyoruz:
             calc_unit_cost = (calc_total_cost / q_fireli) if q_fireli and q_fireli > 0 else 0.0
-            calc_currency = product.currency if product and product.currency else 'TRY'
+            calc_currency = costing_product.currency if costing_product and costing_product.currency else 'TRY'
         else:
-            calc_unit_cost = product.unit_cost if product and product.unit_cost else 0.0
+            calc_unit_cost = costing_product.unit_cost if costing_product and costing_product.unit_cost else 0.0
             
             # Dışarıdan alınan hazır parça / standart parça (adetle fiyatlanan)
             is_hazir = (raw_type in ['hazir_parca', 'standart_parca'] or display_type in ['hazir_parca', 'standart_parca'])
@@ -1566,7 +1629,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 calc_total_cost = calc_unit_cost * p_count
             else:
                 cost_qty = _cost_quantity_for_unit(
-                    product.unit_type if product else n.unit_type,
+                    costing_product.unit_type if costing_product else n.unit_type,
                     n.unit_type,
                     q_fireli or 0,
                     float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0,
@@ -1574,7 +1637,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 )
                 calc_total_cost = calc_unit_cost * cost_qty
             
-            calc_currency = product.currency if product and product.currency else 'TRY'
+            calc_currency = costing_product.currency if costing_product and costing_product.currency else 'TRY'
 
         return {
             'id': n.id, 'num': n.num, 'level': n.level,
@@ -1588,7 +1651,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
             'weight_unit': n.weight_unit or '',
             'unit': n.unit_type, 'item_id': n.item_id,
             'product_id': item.product_id if item else None,
-            'material': product.material if product else None,
+            'material': product.material if product else (costing_product.material if costing_product else None),
             'item_type': display_type,
             'stock_qty': product.current_stock if product else 0,
             'unit_cost': calc_unit_cost,
