@@ -184,7 +184,7 @@ def _find_matching_raw_material(row: dict):
     return best_product if best_score >= 20 else None
 
 
-def _find_costing_raw_material(row: dict):
+def _find_costing_raw_material(row: dict, exclude_product_id: int = None):
     """Cost-only material match; allows legacy part-coded hammadde cards as a fallback."""
     from app.models import Product
 
@@ -198,6 +198,8 @@ def _find_costing_raw_material(row: dict):
 
     scored = []
     for product in candidates:
+        if exclude_product_id and product.id == exclude_product_id:
+            continue
         score = _material_match_score(wanted_name, product, require_name_match=False)
         if score <= 0:
             continue
@@ -1300,9 +1302,23 @@ def _find_product_for_row(row: dict, for_cost: bool = False):
                 break
     if not product and row.get('is_auto_hammadde'):
         product = _find_matching_raw_material(row)
-    if product and for_cost and not (product.unit_cost and product.unit_cost > 0):
-        priced_product = _find_costing_raw_material(row)
-        if priced_product and priced_product.unit_cost and priced_product.unit_cost > 0:
+    if product and for_cost:
+        costing_row = dict(row)
+        if product.material:
+            costing_row['material'] = product.material
+        priced_product = _find_costing_raw_material(costing_row, exclude_product_id=product.id)
+        product_code = (product.code or '').upper()
+        priced_code = (priced_product.code or '').upper() if priced_product else ''
+        should_use_priced = (
+            priced_product
+            and priced_product.unit_cost
+            and priced_product.unit_cost > 0
+            and (
+                not (product.unit_cost and product.unit_cost > 0)
+                or (product_code.startswith('3TB-') and not priced_code.startswith('3TB-'))
+            )
+        )
+        if should_use_priced:
             product = priced_product
     if not product and for_cost and (
         row.get('is_auto_hammadde')
@@ -1626,8 +1642,26 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
                 'material': (product.material if product else None) or item.name or n.display_name or '',
                 'is_auto_hammadde': True,
-            })
+            }, exclude_product_id=product.id if product else None)
             if fallback_product and (not costing_product or fallback_product.unit_cost and fallback_product.unit_cost > 0):
+                costing_product = fallback_product
+        elif item and item.type == 'hammadde' and costing_product:
+            fallback_product = _find_costing_raw_material({
+                'name': n.display_name or item.name,
+                'unit_type': n.unit_type,
+                'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
+                'material': (product.material if product else None) or item.name or n.display_name or '',
+                'is_auto_hammadde': True,
+            }, exclude_product_id=product.id if product else None)
+            costing_code = (costing_product.code or '').upper()
+            fallback_code = (fallback_product.code or '').upper() if fallback_product else ''
+            if (
+                fallback_product
+                and fallback_product.unit_cost
+                and fallback_product.unit_cost > 0
+                and costing_code.startswith('3TB-')
+                and not fallback_code.startswith('3TB-')
+            ):
                 costing_product = fallback_product
         children_ids = sorted(parent_to_children.get(nid, []),
                               key=lambda i: _num_key(node_map[i].num))
