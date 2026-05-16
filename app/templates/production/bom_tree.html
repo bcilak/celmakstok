@@ -326,6 +326,12 @@
         <button id="btn-no-price" class="btn btn-sm btn-outline-warning">
             <i class="bi bi-tag-fill me-1"></i>Fiyatsız Ürünler <span id="no-price-count" class="badge bg-warning text-dark ms-1" style="display:none;"></span>
         </button>
+        <form id="price-sync-form" action="{{ url_for('production.bom_sync_prices', bom_id=bom_id) }}" method="POST" class="d-inline"
+            onsubmit="return confirm('Bu ürün ağacındaki bağlı tüm ürün fiyatları satınalma API üzerinden güncellensin mi?');">
+            <button type="submit" class="btn btn-sm btn-outline-success">
+                <i class="bi bi-cash-coin me-1"></i>Fiyatları Güncelle
+            </button>
+        </form>
         <a href="{{ url_for('production.bom_material_audit', bom_id=bom_id) }}" class="btn btn-sm btn-outline-info">
             <i class="bi bi-shield-check me-1"></i>Hammadde Kontrol
         </a>
@@ -391,8 +397,8 @@
                         <span id="det-code-info" class="text-muted small font-monospace"></span>
                         <span id="det-cost-info" class="badge bg-success" style="display:none;"></span>
                         <div class="ms-auto d-flex gap-2">
-                            <button id="det-price-edit-btn" type="button" class="btn btn-sm btn-outline-success d-none">
-                                <i class="bi bi-cash-coin me-1"></i>Fiyat Güncelle
+                            <button id="det-price-edit-btn" type="button" class="btn btn-sm btn-outline-success">
+                                <i class="bi bi-cash-coin me-1"></i>Fiyatları Güncelle
                             </button>
                             <a id="det-produce-link" href="#" class="btn btn-sm btn-success d-none">
                                 <i class="bi bi-hammer me-1"></i>Üretim
@@ -785,12 +791,22 @@
         if (node.product_id) {
             linkEl.href = '/products/' + node.product_id;
             linkEl.classList.remove('d-none');
-            priceBtn.onclick = function () { openEditNodeModal(node.id); };
+            priceBtn.onclick = function () {
+                const form = document.getElementById('price-sync-form');
+                if (form && confirm('Bu ürün ağacındaki bağlı tüm ürün fiyatları satınalma API üzerinden güncellensin mi?')) {
+                    form.submit();
+                }
+            };
             priceBtn.classList.remove('d-none');
         } else {
             linkEl.classList.add('d-none');
-            priceBtn.classList.add('d-none');
-            priceBtn.onclick = null;
+            priceBtn.onclick = function () {
+                const form = document.getElementById('price-sync-form');
+                if (form && confirm('Bu ürün ağacındaki bağlı tüm ürün fiyatları satınalma API üzerinden güncellensin mi?')) {
+                    form.submit();
+                }
+            };
+            priceBtn.classList.remove('d-none');
         }
 
         /* Üretim linki */

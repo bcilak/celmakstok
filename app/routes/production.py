@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, session, send_file
+from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, session, send_file, current_app
 from flask_login import login_required, current_user
 from app.models import Category, StockMovement, Product, ProductionRecord, ProductionConsumption
 from app import db
@@ -20,8 +20,72 @@ from app.utils.bom_utils import (
 import pickle
 import os
 import uuid
+import json
+import urllib.parse
+import urllib.request
+import urllib.error
 
 production_bp = Blueprint('production', __name__)
+
+
+def _extract_price_payload(payload):
+    data = payload.get('data') if isinstance(payload, dict) and isinstance(payload.get('data'), dict) else payload
+    if not isinstance(data, dict):
+        return None
+
+    cost = (
+        data.get('unit_cost')
+        or data.get('cost')
+        or data.get('price')
+        or data.get('unit_price')
+        or data.get('last_purchase_price')
+    )
+    if cost is None and isinstance(data.get('purchasing_info'), dict):
+        cost = data['purchasing_info'].get('unit_cost') or data['purchasing_info'].get('price')
+    if cost is None:
+        return None
+
+    return {
+        'unit_cost': float(cost),
+        'currency': data.get('currency') or data.get('currency_code') or 'TRY',
+        'vat_rate': data.get('vat_rate'),
+    }
+
+
+def _fetch_purchasing_price(product_code):
+    base_url = current_app.config.get('PURCHASING_API_BASE_URL')
+    if not base_url:
+        raise RuntimeError('PURCHASING_API_BASE_URL tanımlı değil')
+
+    quoted_code = urllib.parse.quote(str(product_code), safe='')
+    urls = [
+        f'{base_url}/api/v1/products/{quoted_code}/price',
+        f'{base_url}/api/v1/purchasing/product/{quoted_code}',
+        f'{base_url}/api/products/{quoted_code}/price',
+    ]
+    headers = {'Accept': 'application/json'}
+    api_key = current_app.config.get('PURCHASING_API_KEY')
+    if api_key:
+        headers['X-API-Key'] = api_key
+
+    last_error = None
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers=headers, method='GET')
+            with urllib.request.urlopen(req, timeout=10) as response:
+                payload = json.loads(response.read().decode('utf-8'))
+            price = _extract_price_payload(payload)
+            if price:
+                return price
+            last_error = 'Fiyat alanı bulunamadı'
+        except urllib.error.HTTPError as exc:
+            last_error = f'HTTP {exc.code}'
+            if exc.code not in (404, 405):
+                break
+        except Exception as exc:
+            last_error = str(exc)
+            break
+    raise RuntimeError(last_error or 'Satınalma API yanıt vermedi')
 
 # BOM import için geçici dosya yönetimi
 def _save_bom_temp_data(data):
@@ -709,6 +773,65 @@ def bom_material_audit(bom_id):
         root_name=root_node.display_name,
         audit=audit
     )
+
+
+@production_bp.route('/bom/<int:bom_id>/sync-prices', methods=['POST'])
+@login_required
+@roles_required('YÃ¶netici', 'Genel')
+def bom_sync_prices(bom_id):
+    from app.models import BomNode, BomItem, Product
+
+    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root_node:
+        flash(f'BOM #{bom_id} bulunamadÄ±.', 'error')
+        return redirect(url_for('production.bom_list'))
+    if not current_app.config.get('PURCHASING_API_BASE_URL'):
+        flash('SatÄ±nalma API adresi tanÄ±mlÄ± deÄŸil. PURCHASING_API_BASE_URL ayarÄ±nÄ± ekleyin.', 'error')
+        return redirect(url_for('production.bom_tree', bom_id=bom_id))
+
+    products = (
+        Product.query
+        .join(BomItem, BomItem.product_id == Product.id)
+        .join(BomNode, BomNode.item_id == BomItem.id)
+        .filter(BomNode.bom_id == bom_id, Product.is_active == True)
+        .distinct()
+        .all()
+    )
+
+    updated = 0
+    failed = []
+    skipped = 0
+    for product in products:
+        if not product.code:
+            skipped += 1
+            continue
+        try:
+            price = _fetch_purchasing_price(product.code)
+            product.unit_cost = price['unit_cost']
+            product.currency = price.get('currency') or product.currency or 'TRY'
+            if price.get('vat_rate') is not None:
+                product.vat_rate = float(price['vat_rate'])
+            updated += 1
+        except Exception as exc:
+            failed.append(f'{product.code}: {exc}')
+
+    if updated:
+        db.session.commit()
+    else:
+        db.session.rollback()
+
+    if updated:
+        flash(f'{updated} ürünün fiyatı satınalma API üzerinden güncellendi.', 'success')
+    if skipped:
+        flash(f'{skipped} ürün kodu olmadığı için atlandı.', 'warning')
+    if failed:
+        sample = '; '.join(failed[:5])
+        more = f' (+{len(failed) - 5} kayıt)' if len(failed) > 5 else ''
+        flash(f'{len(failed)} ürün için fiyat alınamadı: {sample}{more}', 'warning')
+    if not updated and not skipped and not failed:
+        flash('Bu BOM için güncellenecek bağlı ürün bulunamadı.', 'info')
+
+    return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
 
 @production_bp.route('/bom/<int:bom_id>/download_excel')

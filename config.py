@@ -49,3 +49,7 @@ class Config:
     AI_API_KEY = os.environ.get('AI_API_KEY') or 'change-me-ai-key'
     # Optional comma-separated list of allowed IPs for AI internal endpoints
     AI_ALLOWED_IPS = [ip.strip() for ip in os.environ.get('AI_ALLOWED_IPS', '').split(',') if ip.strip()]
+
+    # Optional external purchasing app integration for pulling latest product prices
+    PURCHASING_API_BASE_URL = os.environ.get('PURCHASING_API_BASE_URL', '').rstrip('/')
+    PURCHASING_API_KEY = os.environ.get('PURCHASING_API_KEY') or os.environ.get('API_KEY')
