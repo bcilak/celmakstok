@@ -88,6 +88,7 @@ def _ascii_upper(value: str) -> str:
     for tr, en in _TR_MAP.items():
         text = text.replace(tr, en)
     text = text.replace('Ø', ' CAP ').replace('ø', ' CAP ')
+    text = text.replace('×', 'X').replace('✕', 'X').replace('✖', 'X')
     text = unicodedata.normalize('NFKD', text)
     text = ''.join(ch for ch in text if not unicodedata.combining(ch))
     return text.upper()
