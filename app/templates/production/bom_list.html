@@ -146,6 +146,10 @@
                                     class="btn btn-sm btn-outline-success" title="Excel ile Yeni Revizyon Oluştur">
                                     <i class="bi bi-arrow-repeat"></i> Güncelle
                                 </a>
+                                <a href="{{ url_for('production.bom_material_audit', bom_id=bom.bom_id) }}"
+                                    class="btn btn-sm btn-outline-info" title="Hammadde bağlantılarını kontrol et">
+                                    <i class="bi bi-shield-check"></i>
+                                </a>
                                 <form action="{{ url_for('production.bom_delete', bom_id=bom.bom_id) }}" method="POST"
                                     class="d-inline"
                                     onsubmit="return confirm('Bu BOM ağacını ve tüm alt öğelerini silmek istediğinizden emin misiniz?');">

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h2 class="mb-1">
+                <i class="bi bi-shield-check text-primary me-2"></i>Hammadde Bağlantı Kontrolü
+            </h2>
+            <div class="text-muted">BOM #{{ bom_id }} - {{ root_name }}</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('production.bom_tree', bom_id=bom_id) }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i>Ürün Ağacı
+            </a>
+            <form method="POST" onsubmit="return confirm('Önerilen hammadde bağlantıları uygulanacak. Devam edilsin mi?');">
+                <button type="submit" class="btn btn-success" {% if audit.stats.suggested == 0 %}disabled{% endif %}>
+                    <i class="bi bi-check2-circle me-1"></i>Önerilenleri Uygula
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0">{{ audit.stats.total }}</div><div class="text-muted small">Kontrol Edilen</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-success">{{ audit.stats.ok }}</div><div class="text-muted small">Uygun</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-primary">{{ audit.stats.suggested }}</div><div class="text-muted small">Öneri Var</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-danger">{{ audit.stats.mismatch }}</div><div class="text-muted small">Uyumsuz</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-warning">{{ audit.stats.missing }}</div><div class="text-muted small">Kart Yok</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-info">{{ audit.stats.fixed }}</div><div class="text-muted small">Düzeltildi</div>
+            </div></div>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        Bu ekran sadece katı ölçü kuralına göre güvenli önerileri uygular. Uygun kart bulunamayan satırlar elle fiyat/kart düzenlemesi için bekletilir.
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Satır</th>
+                        <th>BOM Malzeme</th>
+                        <th>Mevcut Kart</th>
+                        <th>Önerilen Kart</th>
+                        <th>Durum</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in audit.rows %}
+                    {% if row.status != 'ok' %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('production.bom_tree', bom_id=bom_id) }}#node-{{ row.node_id }}" class="fw-semibold text-decoration-none">
+                                {{ row.num }}
+                            </a>
+                            <div class="small text-muted">{{ row.name }}</div>
+                        </td>
+                        <td>
+                            <div class="fw-semibold">{{ row.source }}</div>
+                            <div class="small text-muted">
+                                {{ row.quantity_net if row.quantity_net else row.quantity }} {{ row.unit_type }}
+                                {% if row.weight_per_unit %} | {{ row.weight_per_unit }} kg{% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            {% if row.current %}
+                            <div>{{ row.current.name }}</div>
+                            <code class="small">{{ row.current.code }}</code>
+                            <div class="small text-muted">{{ row.current.material }} | {{ row.current.unit_type }} | {{ "%.2f"|format(row.current.unit_cost) }}</div>
+                            {% else %}
+                            <span class="text-muted">Bağlı kart yok</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.suggested %}
+                            <div class="fw-semibold text-success">{{ row.suggested.name }}</div>
+                            <code class="small">{{ row.suggested.code }}</code>
+                            <div class="small text-muted">{{ row.suggested.material }} | {{ row.suggested.unit_type }} | {{ "%.2f"|format(row.suggested.unit_cost) }}</div>
+                            {% else %}
+                            <span class="text-muted">Uygun kart bulunamadı</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.status == 'suggested' %}
+                            <span class="badge bg-primary">Öneri</span>
+                            {% elif row.status == 'mismatch' %}
+                            <span class="badge bg-danger">Uyumsuz</span>
+                            {% elif row.status == 'missing' %}
+                            <span class="badge bg-warning text-dark">Kart Yok</span>
+                            {% elif row.status == 'fixed' %}
+                            <span class="badge bg-success">Düzeltildi</span>
+                            {% endif %}
+                            <div class="small text-muted mt-1">{{ row.reason }}</div>
+                            {% if row.affected_nodes > 1 %}
+                            <div class="small text-muted">{{ row.affected_nodes }} satır etkilenir</div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                    {% if audit.rows|selectattr('status', 'ne', 'ok')|list|length == 0 %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-5">
+                            <i class="bi bi-check-circle fs-1 text-success d-block mb-2"></i>
+                            Hatalı veya eksik hammadde bağlantısı bulunamadı.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

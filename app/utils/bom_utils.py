@@ -309,6 +309,178 @@ def _find_costing_raw_material(row: dict, exclude_product_id: int = None):
     return best_product if best_score >= 20 else None
 
 
+def _raw_source_text_for_node(node) -> str:
+    from app.models import Product
+    item = node.item
+    product = item.product if item else None
+    code_product = None
+    if item and item.code:
+        code_product = Product.query.filter(Product.code == item.code).first()
+    candidates = [
+        code_product.material if code_product else '',
+        product.material if product else '',
+        item.name if item else '',
+        node.display_name or '',
+        product.name if product else '',
+    ]
+    for value in candidates:
+        text = _c(value)
+        if _strict_material_signature(text):
+            return text
+    return ''
+
+
+def _product_snapshot(product):
+    if not product:
+        return None
+    return {
+        'id': product.id,
+        'code': product.code or '',
+        'name': product.name or '',
+        'material': product.material or '',
+        'type': product.type or '',
+        'unit_type': product.unit_type or '',
+        'unit_cost': float(product.unit_cost or 0),
+    }
+
+
+def audit_bom_material_links(bom_id: int, db, apply: bool = False) -> dict:
+    """Audit and optionally repair BOM raw-material product links using strict material matching."""
+    from app.models import BomNode, BomItem, Product
+
+    nodes = (
+        BomNode.query
+        .join(BomItem, BomNode.item_id == BomItem.id)
+        .filter(BomNode.bom_id == bom_id)
+        .order_by(BomNode.num)
+        .all()
+    )
+
+    rows = []
+    fixed = 0
+    skipped = 0
+    for node in nodes:
+        item = node.item
+        if not item:
+            continue
+        product = item.product
+        code_product = Product.query.filter(Product.code == item.code).first() if item.code else None
+        raw_type = (product.type if product else item.type) or ''
+        source = _raw_source_text_for_node(node)
+        if not source:
+            continue
+        source_sig = _strict_material_signature(source)
+        looks_raw = (
+            raw_type == 'hammadde'
+            or item.type == 'hammadde'
+            or bool(source_sig)
+            or _is_priceable_raw_material_name(source)
+        )
+        if not looks_raw:
+            continue
+
+        current_sig = _strict_material_signature(' '.join(_c(v) for v in [
+            product.name if product else '',
+            product.material if product else '',
+            product.code if product else '',
+            product.notes if product else '',
+        ]))
+        current_valid = bool(product and _strict_signatures_match(source_sig, current_sig))
+
+        suggested = _find_matching_raw_material({
+            'is_auto_hammadde': True,
+            'name': source,
+            'unit_type': node.unit_type,
+            'weight_per_unit': float(node.weight_per_unit or 0),
+        })
+        if not suggested and not current_valid and code_product and code_product.id != (product.id if product else None):
+            code_sig = _strict_material_signature(' '.join(_c(v) for v in [
+                code_product.name,
+                code_product.material,
+                code_product.code,
+                code_product.notes,
+            ]))
+            if code_product.type == 'hammadde' and _strict_signatures_match(source_sig, code_sig):
+                suggested = code_product
+
+        current_code = (product.code or '').upper() if product else ''
+        suggested_code = (suggested.code or '').upper() if suggested else ''
+        suggested_id = suggested.id if suggested else None
+        current_id = product.id if product else None
+        needs_relink = bool(
+            suggested
+            and suggested_id != current_id
+            and (
+                not product
+                or not current_valid
+                or (current_code.startswith('3TB-') and not suggested_code.startswith('3TB-'))
+                or (product.unit_cost or 0) <= 0 < (suggested.unit_cost or 0)
+            )
+        )
+
+        status = 'ok'
+        reason = 'Bağlantı uygun'
+        if needs_relink:
+            status = 'suggested'
+            reason = 'Daha uygun hammadde kartı bulundu'
+        elif not product:
+            status = 'missing'
+            reason = 'Bağlı stok kartı yok'
+        elif source_sig and not current_valid:
+            status = 'mismatch'
+            reason = 'Bağlı kart ölçü/malzeme imzasıyla uyuşmuyor'
+        elif not suggested and not current_valid and (source_sig or _is_priceable_raw_material_name(source)):
+            status = 'missing'
+            reason = 'Katı kurala uygun hammadde kartı bulunamadı'
+
+        affected_nodes = item.nodes.count() if item and item.id else 1
+        if apply and needs_relink:
+            item.product_id = suggested.id
+            fixed += affected_nodes
+            status = 'fixed'
+            reason = 'Bağlantı önerilen hammadde kartına taşındı'
+        elif apply and status in {'missing', 'mismatch'}:
+            skipped += 1
+
+        rows.append({
+            'node_id': node.id,
+            'bom_id': node.bom_id,
+            'num': node.num,
+            'name': node.display_name or item.name,
+            'source': source,
+            'unit_type': node.unit_type,
+            'quantity': float(node.quantity or 0),
+            'quantity_net': float(node.quantity_net or 0) if node.quantity_net is not None else None,
+            'weight_per_unit': float(node.weight_per_unit or 0),
+            'current': _product_snapshot(product),
+            'suggested': _product_snapshot(suggested),
+            'status': status,
+            'reason': reason,
+            'affected_nodes': affected_nodes,
+        })
+
+    if apply and fixed:
+        db.session.commit()
+    elif apply:
+        db.session.rollback()
+
+    stats = Counter(row['status'] for row in rows)
+    return {
+        'bom_id': bom_id,
+        'rows': rows,
+        'stats': {
+            'total': len(rows),
+            'ok': stats.get('ok', 0),
+            'suggested': stats.get('suggested', 0),
+            'mismatch': stats.get('mismatch', 0),
+            'missing': stats.get('missing', 0),
+            'fixed': stats.get('fixed', 0),
+            'fixed_nodes': fixed,
+            'skipped': skipped,
+        }
+    }
+
+
 def _is_priceable_raw_material_name(name: str) -> bool:
     tokens = _material_tokens(name)
     if tokens & {'STANDART', 'HAZIR', 'DOVME', 'DÖVME'}:

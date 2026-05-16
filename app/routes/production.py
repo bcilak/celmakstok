@@ -15,6 +15,7 @@ from app.utils.bom_utils import (
     next_bom_id,
     analyze_bom_for_import,
     compare_bom_update,
+    audit_bom_material_links,
 )
 import pickle
 import os
@@ -680,6 +681,34 @@ def api_bom_tree(bom_id):
     """BOM ağacını JSON olarak döndür."""
     tree = get_bom_tree(bom_id, db)
     return jsonify(tree)
+
+
+@production_bp.route('/bom/<int:bom_id>/material-audit', methods=['GET', 'POST'])
+@login_required
+@roles_required('YÃ¶netici', 'Genel')
+def bom_material_audit(bom_id):
+    from app.models import BomNode
+    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root_node:
+        flash(f'BOM #{bom_id} bulunamadÄ±.', 'error')
+        return redirect(url_for('production.bom_list'))
+
+    apply_changes = request.method == 'POST'
+    audit = audit_bom_material_links(bom_id, db, apply=apply_changes)
+    if apply_changes:
+        fixed_nodes = audit['stats'].get('fixed_nodes', 0)
+        if fixed_nodes:
+            flash(f'{fixed_nodes} BOM satÄ±rÄ±nÄ±n hammadde kartÄ± baÄŸlantÄ±sÄ± gÃ¼ncellendi.', 'success')
+        else:
+            flash('Uygulanacak otomatik hammadde baÄŸlantÄ± dÃ¼zeltmesi bulunamadÄ±.', 'info')
+        return redirect(url_for('production.bom_material_audit', bom_id=bom_id))
+
+    return render_template(
+        'production/bom_material_audit.html',
+        bom_id=bom_id,
+        root_name=root_node.display_name,
+        audit=audit
+    )
 
 
 @production_bp.route('/bom/<int:bom_id>/download_excel')
