@@ -2035,7 +2035,15 @@ def get_bom_tree(bom_id: int, db) -> dict:
             
             if is_hazir:
                 p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0
-                calc_total_cost = calc_unit_cost * p_count
+                cost_basis_qty = _cost_basis_quantity(q_fireli or p_count, q_firesiz)
+                cost_qty = _cost_quantity_for_unit(
+                    costing_product.unit_type if costing_product else n.unit_type,
+                    n.unit_type,
+                    cost_basis_qty,
+                    p_count,
+                    w_per_unit or 0
+                )
+                calc_total_cost = calc_unit_cost * cost_qty
             else:
                 cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
                 if _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0):
