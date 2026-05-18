@@ -21,6 +21,11 @@ SEARCH_STOPWORDS = {
     'bu', 'hafta', 'ay', 'yil', 'yıl'
 }
 
+SEARCH_STOPWORDS.update({
+    'urunler', 'urunleri', 'ürünler', 'ürünleri', 'neler', 'hangileri',
+    'durumu', 'durum', 'biten', 'tukenen', 'tükenen', 'stoksuz'
+})
+
 
 def _normalize_search_keyword(keyword):
     """Keep likely product/code terms from a natural-language question."""
@@ -49,6 +54,7 @@ def _fold_search_text(value):
         .replace('ö', 'o')
         .replace('ç', 'c')
     )
+    text = text.translate(str.maketrans('ıİğĞüÜşŞöÖçÇ', 'iIgGuUsSoOcC')).lower()
     return unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
 
 
@@ -88,7 +94,31 @@ def _product_search_query(keyword):
     strict_query = query.filter(*filters)
     if strict_query.first():
         return strict_query, terms
-    return query.filter(db.or_(*filters)), terms
+
+    loose_query = query.filter(db.or_(*filters))
+    if loose_query.first():
+        return loose_query, terms
+
+    folded_terms = _search_terms(terms)
+    scored = []
+    for product in query.limit(2000).all():
+        haystack = _search_haystack(
+            product.name,
+            product.code,
+            product.barcode,
+            product.material,
+            product.notes,
+            product.category.name if product.category else '',
+        )
+        score = sum(1 for term in folded_terms if term and term in haystack)
+        if score:
+            scored.append((score, product.id))
+
+    if scored:
+        ids = [product_id for _, product_id in sorted(scored, reverse=True)[:100]]
+        return query.filter(Product.id.in_(ids)), terms
+
+    return loose_query, terms
 
 
 def _format_product_for_ai(p, include_cost=True):
@@ -630,7 +660,9 @@ def _select_main_product(query, family):
             ])
             return all(term in haystack for term in terms)
 
-        products = [product for product in products if matches_all(product)]
+        strict_products = [product for product in products if matches_all(product)]
+        if strict_products:
+            products = strict_products
 
     type_order = {'mamul': 0, 'mamul ': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
     if products:
@@ -764,6 +796,10 @@ def _should_answer_locally(query):
         'recete', 'bom', 'analiz', 'rapor', 'uretim', 'giris', 'cikti', 'cikan',
         'elde', 'kac tane', 'kaç tane'
     ]
+    local_keywords.extend([
+        'kritik', 'biten', 'stoksuz', 'tukenen', 'tukenmis', 'son hareket',
+        'hareketler', 'envanter', 'yardim', 'help', 'sorabilirim'
+    ])
     if any(word in q for word in local_keywords):
         return True
     if 1 <= len(terms) <= 3:
@@ -782,18 +818,126 @@ def _should_answer_locally(query):
     return False
 
 
+def _product_line(product, include_cost=True):
+    cost = ""
+    if include_cost:
+        cost = f", maliyet **{_fmt_money(product.unit_cost, product.currency)}**" if product.unit_cost and product.unit_cost > 0 else ", maliyet yok"
+    return f"- **{product.name}** ({product.code}): stok **{_fmt_qty(product.current_stock)} {product.unit_type}**{cost}"
+
+
+def _local_quick_answer(query):
+    q = _fold_search_text(query)
+
+    if any(word in q for word in ['yardim', 'help', 'ne sorabilirim', 'neler sorabilirim', 'sorabilirim', 'ornek soru']):
+        return (
+            "**Hizli sorular**\n"
+            "- Stokta biten urunler neler?\n"
+            "- Kritik stokta neler var?\n"
+            "- Toplam stok degeri ne kadar?\n"
+            "- Son stok hareketleri neler?\n"
+            "- 165 tamburlu maliyeti nedir?\n"
+            "- Elimde 165 tamburlu kac tane var?\n"
+            "- Uretim durumu nedir?"
+        )
+
+    if any(word in q for word in ['kritik', 'stoksuz', 'biten', 'tukenen', 'tukenmis']):
+        only_empty = any(word in q for word in ['stoksuz', 'biten', 'tukenen', 'tukenmis'])
+        product_query = Product.query.filter(Product.is_active == True)
+        if only_empty:
+            products = product_query.filter(Product.current_stock <= 0).order_by(Product.name).limit(12).all()
+            title = "Stokta biten urunler"
+        else:
+            products = product_query.filter(
+                db.or_(
+                    Product.current_stock <= 0,
+                    db.and_(Product.minimum_stock > 0, Product.current_stock < Product.minimum_stock)
+                )
+            ).order_by((Product.minimum_stock - Product.current_stock).desc()).limit(12).all()
+            title = "Kritik stok ozeti"
+        if not products:
+            return f"**{title}**\nSu an bu kritere giren urun gorunmuyor."
+        total_count = Product.query.filter(Product.is_active == True, Product.current_stock <= 0).count() if only_empty else len(products)
+        lines = [f"**{title}**", f"Ilk {len(products)} kaydi gosteriyorum."]
+        lines.extend(_product_line(p, include_cost=False) for p in products)
+        if only_empty:
+            lines.append(f"Toplam stoksuz urun sayisi: **{total_count}**")
+        return "\n".join(lines)
+
+    if 'stok deger' in q or 'stok maliyet' in q or 'envanter' in q:
+        products = Product.query.filter(Product.is_active == True).all()
+        total_value = sum(float(p.current_stock or 0) * float(p.unit_cost or 0) for p in products)
+        priced = [p for p in products if p.unit_cost and p.unit_cost > 0]
+        missing = len(products) - len(priced)
+        top = sorted(priced, key=lambda p: (p.current_stock or 0) * (p.unit_cost or 0), reverse=True)[:5]
+        lines = [
+            "**Toplam stok degeri**",
+            f"- Hesaplanan stok degeri: **{_fmt_money(total_value, 'TRY')}**",
+            f"- Fiyatli urun karti: **{len(priced)}**",
+            f"- Fiyati olmayan urun karti: **{missing}**",
+        ]
+        if top:
+            lines.append("")
+            lines.append("**Degeri en yuksek kalemler**")
+            lines.extend(
+                f"- {p.name}: **{_fmt_money((p.current_stock or 0) * (p.unit_cost or 0), p.currency)}**"
+                for p in top
+            )
+        return "\n".join(lines)
+
+    if 'son hareket' in q or 'hareketler' in q:
+        movements = StockMovement.query.order_by(StockMovement.date.desc()).limit(8).all()
+        if not movements:
+            return "Son stok hareketi bulunamadi."
+        lines = ["**Son stok hareketleri**"]
+        for m in movements:
+            product = m.product
+            date_str = m.date.strftime('%d.%m.%Y %H:%M') if m.date else "-"
+            unit = product.unit_type if product else ''
+            name = product.name if product else '-'
+            lines.append(f"- {date_str}: **{name}**, {m.movement_type}, **{_fmt_qty(m.quantity)} {unit}**")
+        return "\n".join(lines)
+
+    if 'uretim' in q or 'üretim' in query.lower():
+        categories = Category.query.filter_by(is_active=True).all()
+        if not categories:
+            return "Aktif uretim hatti/kategori bulunamadi."
+        lines = ["**Uretim durumu**"]
+        for cat in categories[:10]:
+            product_count = cat.products.filter_by(is_active=True).count()
+            lines.append(f"- {cat.name}: **{product_count}** aktif urun")
+        return "\n".join(lines)
+
+    return None
+
+
+def _not_found_answer(query):
+    terms = _normalize_search_keyword(query)
+    sample = Product.query.filter(Product.is_active == True).order_by(Product.name).limit(5).all()
+    lines = [f"'{query}' icin net eslesme cikmadi; en yakin kayitlara gore ilerleyebilirim."]
+    if terms:
+        lines.append(f"Aradigim anahtar kelimeler: **{', '.join(terms)}**")
+    if sample:
+        lines.append("Daha net yakalamam icin kod/ad parcasiyla sorabilirsin. Ornek kayitlar:")
+        lines.extend(f"- {p.code} - {p.name}" for p in sample)
+    return "\n".join(lines)
+
+
 def _local_analysis_answer(query, quota_limited=False):
+    quick_answer = _local_quick_answer(query)
+    if quick_answer:
+        return quick_answer
+
     family = analyze_product_family(query).get('result')
     if isinstance(family, str):
         product_result = search_product(query).get('result')
         if isinstance(product_result, list) and product_result:
             prefix = "AI kotasi dolu oldugu icin veritabanindan direkt hesapladim.\n\n" if quota_limited else ""
             return prefix + "\n".join(f"- {item}" for item in product_result[:5])
-        return family
+        return _not_found_answer(query)
 
     snapshot = _verified_product_snapshot(query, family)
     if not snapshot:
-        return f"'{query}' icin mamul bulunamadi."
+        return _not_found_answer(query)
 
     product = snapshot["product"]
     best_bom = snapshot.get("bom")
