@@ -434,11 +434,13 @@ def api_critical_stock_for_purchasing():
 
 
 @api_bp.route('/v1/purchasing/critical-products', methods=['GET'])
+@api_bp.route('/v1/purchasing/products', methods=['GET'])
 @require_api_key
 def api_critical_products():
     """
     Satın alma birimi için kritik stok listesi (alias endpoint)
-    /v1/purchasing/critical-stock ile aynı veriyi döndürür
+    /v1/purchasing/critical-stock ile aynı veriyi döndürür.
+    Fiyat yönetimi bu payload ile tüm aktif ürünleri alır.
     """
     # Tüm aktif ürünleri al
     all_products = Product.query.filter(
