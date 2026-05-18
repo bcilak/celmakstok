@@ -16,7 +16,9 @@ SEARCH_STOPWORDS = {
     'nedir', 'ne', 'kadar', 'kac', 'adet', 'stok', 'stogu', 'stokta',
     'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'kdv', 'bilgi', 'detay',
     'urun', 'urunu', 'malzeme', 'malzemesi', 'var', 'mi', 'mu', 'mı', 'mü',
-    'icin', 'için', 'olan', 'listele', 'rapor', 'raporu'
+    'icin', 'için', 'olan', 'listele', 'rapor', 'raporu', 'kaç', 'tane',
+    'elimde', 'elde', 'sattim', 'sattik', 'sattık', 'satildi', 'satıldı',
+    'bu', 'hafta', 'ay', 'yil', 'yıl'
 }
 
 
@@ -32,6 +34,36 @@ def _normalize_search_keyword(keyword):
             continue
         cleaned.append(token.strip(" .,:;!?()[]{}'\""))
     return cleaned or ([raw] if raw else [])
+
+
+def _fold_search_text(value):
+    import unicodedata
+
+    text = str(value or '').lower()
+    text = (
+        text.replace('ı', 'i')
+        .replace('İ'.lower(), 'i')
+        .replace('ğ', 'g')
+        .replace('ü', 'u')
+        .replace('ş', 's')
+        .replace('ö', 'o')
+        .replace('ç', 'c')
+    )
+    return unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
+
+
+def _search_haystack(*values):
+    raw = " ".join(str(value or '') for value in values).lower()
+    return f"{raw} {_fold_search_text(raw)}"
+
+
+def _search_terms(terms):
+    expanded = []
+    for term in terms or []:
+        raw = str(term or '').lower()
+        folded = _fold_search_text(raw)
+        expanded.append(folded or raw)
+    return expanded
 
 
 def _product_search_query(keyword):
@@ -345,15 +377,15 @@ def get_bom_costs(keyword: str = "", limit: int = 25) -> dict:
         wanted_id = int(bom_id_match.group(1))
         boms = [b for b in boms if b.get('bom_id') == wanted_id]
     elif terms:
-        lowered_terms = [t.lower() for t in terms]
+        lowered_terms = _search_terms(terms)
         filtered = []
         for bom in boms:
-            haystack = " ".join(str(bom.get(k) or '') for k in ('bom_id', 'root_name', 'category_name')).lower()
+            haystack = _search_haystack(*(bom.get(k) for k in ('bom_id', 'root_name', 'category_name')))
             if all(term in haystack for term in lowered_terms):
                 filtered.append(bom)
         if not filtered:
             for bom in boms:
-                haystack = " ".join(str(bom.get(k) or '') for k in ('bom_id', 'root_name', 'category_name')).lower()
+                haystack = _search_haystack(*(bom.get(k) for k in ('bom_id', 'root_name', 'category_name')))
                 if any(term in haystack for term in lowered_terms):
                     filtered.append(bom)
         boms = filtered
@@ -406,9 +438,6 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
 
     query, terms = _product_search_query(keyword)
     products = query.order_by(Product.name).limit(200).all()
-    if not products:
-        term_text = ", ".join(terms) if terms else keyword
-        return {"result": f"'{term_text}' icin urun ailesi bulunamadi."}
 
     product_ids = [p.id for p in products]
     total_stock = sum((p.current_stock or 0) for p in products)
@@ -420,12 +449,14 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
     total_inventory_cost = sum((p.current_stock or 0) * (p.unit_cost or 0) for p in products)
     priced_count = sum(1 for p in products if p.unit_cost and p.unit_cost > 0)
 
-    movement_totals = dict(
-        db.session.query(StockMovement.movement_type, func.sum(StockMovement.quantity))
-        .filter(StockMovement.product_id.in_(product_ids))
-        .group_by(StockMovement.movement_type)
-        .all()
-    )
+    movement_totals = {}
+    if product_ids:
+        movement_totals = dict(
+            db.session.query(StockMovement.movement_type, func.sum(StockMovement.quantity))
+            .filter(StockMovement.product_id.in_(product_ids))
+            .group_by(StockMovement.movement_type)
+            .all()
+        )
     total_in = float(movement_totals.get('giris') or 0)
     total_out = float(
         (movement_totals.get('cikis') or 0)
@@ -434,9 +465,9 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
     )
 
     boms = []
-    lowered_terms = [t.lower() for t in terms]
+    lowered_terms = _search_terms(terms)
     for bom in list_boms(db):
-        haystack = " ".join(str(bom.get(k) or '') for k in ('bom_id', 'root_name', 'category_name')).lower()
+        haystack = _search_haystack(*(bom.get(k) for k in ('bom_id', 'root_name', 'category_name')))
         if lowered_terms and not any(term in haystack for term in lowered_terms):
             continue
         tree = get_bom_tree(bom["bom_id"], db)
@@ -454,6 +485,37 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
             "kalem_sayisi": bom.get("node_count"),
             "match_score": sum(1 for term in lowered_terms if term in haystack),
         })
+
+    if not boms and lowered_terms:
+        for bom in list_boms(db):
+            tree = get_bom_tree(bom["bom_id"], db)
+            roots = tree.get("roots") or []
+            if not roots:
+                continue
+            node_haystack = _search_haystack(
+                *(
+                    " ".join(str(node.get(k) or '') for k in ('num', 'name', 'code', 'material', 'item_type'))
+                    for node in _iter_bom_nodes(roots)
+                )
+            )
+            match_score = sum(1 for term in lowered_terms if term in node_haystack)
+            if not match_score:
+                continue
+            root = roots[0]
+            boms.append({
+                "bom_id": bom["bom_id"],
+                "urun_agaci": bom.get("root_name"),
+                "product_id": bom.get("product_id"),
+                "kategori": bom.get("category_name"),
+                "yaklasik_toplam_maliyet": root.get("total_cost"),
+                "para_birimi": root.get("currency") or "TRY",
+                "kalem_sayisi": bom.get("node_count"),
+                "match_score": match_score,
+            })
+
+    if not products and not boms:
+        term_text = ", ".join(terms) if terms else keyword
+        return {"result": f"'{term_text}' icin urun ailesi bulunamadi."}
 
     boms = sorted(
         boms,
@@ -543,7 +605,7 @@ def _movement_total(product_id, movement_types, since=None):
 
 
 def _select_main_product(query, family):
-    terms = [term.lower() for term in _normalize_search_keyword(query)]
+    terms = _search_terms(_normalize_search_keyword(query))
     boms = family.get('urun_agaclari') or []
     for bom in boms:
         if len(terms) > 1 and (bom.get('match_score') or 0) < len(terms):
@@ -558,14 +620,14 @@ def _select_main_product(query, family):
     products = product_query.order_by(Product.name).limit(100).all()
     if len(terms) > 1:
         def matches_all(product):
-            haystack = " ".join([
+            haystack = _search_haystack(*[
                 product.name or '',
                 product.code or '',
                 product.barcode or '',
                 product.material or '',
                 product.notes or '',
                 product.category.name if product.category else '',
-            ]).lower()
+            ])
             return all(term in haystack for term in terms)
 
         products = [product for product in products if matches_all(product)]
@@ -575,6 +637,117 @@ def _select_main_product(query, family):
         product = sorted(products, key=lambda p: type_order.get((p.type or '').strip().lower(), 9))[0]
         return product, None
     return None, None
+
+
+def _iter_bom_nodes(nodes):
+    for node in nodes or []:
+        yield node
+        yield from _iter_bom_nodes(node.get('children') or [])
+
+
+def _node_sort_key(node):
+    try:
+        return float(node.get('total_cost') or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _location_summary(product, limit=3):
+    locations = []
+    try:
+        stocks = product.location_stocks
+    except Exception:
+        stocks = []
+    for ls in stocks:
+        if not ls.quantity or ls.quantity <= 0:
+            continue
+        loc_name = ls.location.name if ls.location else "Lokasyon"
+        locations.append(f"{loc_name}: {_fmt_qty(ls.quantity)} {product.unit_type}")
+    return locations[:limit]
+
+
+def _verified_product_snapshot(query, family):
+    from app.utils.bom_utils import audit_bom_material_links, get_bom_tree
+
+    product, best_bom = _select_main_product(query, family)
+    if not product:
+        return None
+
+    currency = product.currency or 'TRY'
+    unit_cost = float(product.unit_cost or 0)
+    cost_source = "urun karti"
+    bom_nodes = []
+    bom_root = None
+    top_components = []
+    missing_cost_nodes = []
+    link_audit = None
+
+    if best_bom:
+        tree = get_bom_tree(best_bom.get("bom_id"), db)
+        roots = tree.get("roots") or []
+        bom_root = roots[0] if roots else None
+        if bom_root:
+            bom_nodes = list(_iter_bom_nodes(roots))
+            root_cost = bom_root.get("total_cost")
+            if root_cost is not None:
+                unit_cost = float(root_cost or 0)
+                currency = bom_root.get("currency") or best_bom.get("para_birimi") or currency
+                cost_source = f"BOM #{best_bom.get('bom_id')}"
+
+            first_level = bom_root.get("children") or []
+            top_components = sorted(
+                [node for node in first_level if (node.get("total_cost") or 0) > 0],
+                key=_node_sort_key,
+                reverse=True
+            )[:5]
+
+            leaf_nodes = [node for node in bom_nodes if not node.get("children")]
+            missing_cost_nodes = [
+                node for node in leaf_nodes
+                if not (node.get("unit_cost") and node.get("unit_cost") > 0)
+                and not (node.get("total_cost") and node.get("total_cost") > 0)
+            ]
+
+        try:
+            link_audit = audit_bom_material_links(best_bom.get("bom_id"), db, apply=False)
+        except Exception:
+            link_audit = None
+
+    week_start, month_start, year_start = _period_starts()
+    out_types = ['cikis', 'transfer', 'fire']
+    movement = {
+        "week_out": _movement_total(product.id, out_types, week_start),
+        "month_out": _movement_total(product.id, out_types, month_start),
+        "year_out": _movement_total(product.id, out_types, year_start),
+        "total_out": _movement_total(product.id, out_types),
+        "month_in": _movement_total(product.id, ['giris'], month_start),
+    }
+
+    audit_stats = (link_audit or {}).get("stats") or {}
+    issue_count = (
+        len(missing_cost_nodes)
+        + int(audit_stats.get("mismatch") or 0)
+        + int(audit_stats.get("missing") or 0)
+        + int(audit_stats.get("suggested") or 0)
+    )
+    confidence = "Yuksek" if issue_count == 0 and unit_cost > 0 else ("Orta" if unit_cost > 0 else "Dusuk")
+
+    return {
+        "product": product,
+        "bom": best_bom,
+        "bom_root": bom_root,
+        "unit_cost": unit_cost,
+        "currency": currency,
+        "cost_source": cost_source,
+        "stock_value": float(product.current_stock or 0) * unit_cost,
+        "movement": movement,
+        "top_components": top_components,
+        "missing_cost_nodes": missing_cost_nodes,
+        "link_audit_stats": audit_stats,
+        "confidence": confidence,
+        "issue_count": issue_count,
+        "locations": _location_summary(product),
+    }
 
 
 def _is_quota_error(error):
@@ -588,13 +761,24 @@ def _should_answer_locally(query):
     local_keywords = [
         'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'stok', 'satış', 'satis',
         'çıkış', 'cikis', 'sarfiyat', 'ürün ağacı', 'urun agaci', 'reçete',
-        'recete', 'bom'
+        'recete', 'bom', 'analiz', 'rapor', 'uretim', 'giris', 'cikti', 'cikan',
+        'elde', 'kac tane', 'kaç tane'
     ]
     if any(word in q for word in local_keywords):
         return True
     if 1 <= len(terms) <= 3:
         product_query, _ = _product_search_query(query)
-        return product_query.first() is not None
+        if product_query.first() is not None:
+            return True
+        folded_terms = _search_terms(terms)
+        try:
+            from app.utils.bom_utils import list_boms
+            for bom in list_boms(db):
+                haystack = _search_haystack(*(bom.get(k) for k in ('bom_id', 'root_name', 'category_name')))
+                if any(term in haystack for term in folded_terms):
+                    return True
+        except Exception:
+            pass
     return False
 
 
@@ -607,23 +791,15 @@ def _local_analysis_answer(query, quota_limited=False):
             return prefix + "\n".join(f"- {item}" for item in product_result[:5])
         return family
 
-    product, best_bom = _select_main_product(query, family)
-    if not product:
+    snapshot = _verified_product_snapshot(query, family)
+    if not snapshot:
         return f"'{query}' icin mamul bulunamadi."
 
-    currency = (best_bom or {}).get('para_birimi') or product.currency or 'TRY'
-    unit_cost = (best_bom or {}).get('yaklasik_toplam_maliyet')
-    if not unit_cost:
-        unit_cost = product.unit_cost or 0
-
-    week_start, month_start, year_start = _period_starts()
-    out_types = ['cikis', 'transfer', 'fire']
-    sold_week = _movement_total(product.id, out_types, week_start)
-    sold_month = _movement_total(product.id, out_types, month_start)
-    sold_year = _movement_total(product.id, out_types, year_start)
-    sold_total = _movement_total(product.id, out_types)
-    in_month = _movement_total(product.id, ['giris'], month_start)
-    stock_value = (product.current_stock or 0) * (unit_cost or 0)
+    product = snapshot["product"]
+    best_bom = snapshot.get("bom")
+    currency = snapshot["currency"]
+    unit_cost = snapshot["unit_cost"]
+    movement = snapshot["movement"]
 
     lines = []
     if quota_limited:
@@ -637,19 +813,49 @@ def _local_analysis_answer(query, quota_limited=False):
     lines.append("**Big boss ozeti**")
     lines.append(f"- Yaklasik birim maliyet: **{_fmt_money(unit_cost, currency)}**")
     lines.append(f"- Elimizdeki mamul stogu: **{_fmt_qty(product.current_stock)} {product.unit_type}**")
-    lines.append(f"- Eldeki stok maliyeti: **{_fmt_money(stock_value, currency)}**")
+    lines.append(f"- Eldeki stok maliyeti: **{_fmt_money(snapshot['stock_value'], currency)}**")
+    lines.append(f"- Maliyet kaynagi: **{snapshot['cost_source']}**")
     if best_bom:
-        lines.append(f"- Maliyet kaynagi: **{best_bom.get('urun_agaci')}** urun agaci")
-    else:
-        lines.append("- Maliyet kaynagi: urun kartindaki birim maliyet")
+        lines.append(f"- Secilen urun agaci: **{best_bom.get('urun_agaci')}**")
+    if snapshot.get("locations"):
+        lines.append(f"- Stok lokasyonlari: {', '.join(snapshot['locations'])}")
 
     lines.append("")
     lines.append("**Satis / cikis hareketi**")
-    lines.append(f"- Bu hafta: **{_fmt_qty(sold_week)} {product.unit_type}**")
-    lines.append(f"- Bu ay: **{_fmt_qty(sold_month)} {product.unit_type}**")
-    lines.append(f"- Bu yil: **{_fmt_qty(sold_year)} {product.unit_type}**")
-    lines.append(f"- Toplam kayitli cikis: **{_fmt_qty(sold_total)} {product.unit_type}**")
-    lines.append(f"- Bu ay giris/uretim: **{_fmt_qty(in_month)} {product.unit_type}**")
+    lines.append(f"- Bu hafta: **{_fmt_qty(movement['week_out'])} {product.unit_type}**")
+    lines.append(f"- Bu ay: **{_fmt_qty(movement['month_out'])} {product.unit_type}**")
+    lines.append(f"- Bu yil: **{_fmt_qty(movement['year_out'])} {product.unit_type}**")
+    lines.append(f"- Toplam kayitli cikis: **{_fmt_qty(movement['total_out'])} {product.unit_type}**")
+    lines.append(f"- Bu ay giris/uretim: **{_fmt_qty(movement['month_in'])} {product.unit_type}**")
+
+    if snapshot.get("top_components"):
+        lines.append("")
+        lines.append("**Maliyeti en cok etkileyen ana kirilimlar**")
+        for node in snapshot["top_components"][:3]:
+            lines.append(
+                f"- {node.get('name')}: **{_fmt_money(node.get('total_cost'), node.get('currency') or currency)}**"
+            )
+
+    audit_stats = snapshot.get("link_audit_stats") or {}
+    warnings = []
+    if unit_cost <= 0:
+        warnings.append("mamul maliyeti hesaplanamadi")
+    if snapshot.get("missing_cost_nodes"):
+        warnings.append(f"{len(snapshot['missing_cost_nodes'])} alt kalemde fiyat/maliyet yok")
+    link_issue_count = int(audit_stats.get("mismatch") or 0) + int(audit_stats.get("missing") or 0)
+    suggested_count = int(audit_stats.get("suggested") or 0)
+    if link_issue_count:
+        warnings.append(f"{link_issue_count} hammadde baglantisi hatali/eksik")
+    if suggested_count:
+        warnings.append(f"{suggested_count} hammadde icin daha iyi eslesme onerisi var")
+
+    lines.append("")
+    lines.append("**Dogruluk kontrolu**")
+    lines.append(f"- Guven seviyesi: **{snapshot['confidence']}**")
+    if warnings:
+        lines.append(f"- Dikkat: {', '.join(warnings)}. Bu kayitlar duzeltilmeden maliyet kesin kabul edilmemeli.")
+    else:
+        lines.append("- Fiyat ve hammadde baglantisi tarafinda belirgin eksik/eslesme sorunu gorunmuyor.")
     lines.append("")
     lines.append("> Sistemde ayri satis modulu olmadigi icin satis bilgisini stok cikisi/transfer/fire hareketlerinden okudum.")
 
@@ -692,12 +898,12 @@ def ai_assistant_ask():
     try:
         if _should_answer_locally(query):
             answer = _local_analysis_answer(query)
-            return jsonify({'success': True, 'answer': answer, 'source': 'local'})
+            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified'})
 
         api_key = current_app.config.get('GEMINI_API_KEY')
         if not api_key:
             answer = _local_analysis_answer(query)
-            return jsonify({'success': True, 'answer': answer, 'source': 'local'})
+            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified'})
 
         genai.configure(api_key=api_key)
 
@@ -789,7 +995,7 @@ BIG BOSS KURALLARI:
         print(traceback.format_exc())
         if _is_quota_error(e):
             answer = _local_analysis_answer(query, quota_limited=True)
-            return jsonify({'success': True, 'answer': answer, 'source': 'local_quota_fallback'})
+            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified_quota_fallback'})
         return jsonify({'success': False, 'error': f'Bir hata oluştu: {str(e)}'}), 500
 
 
