@@ -624,11 +624,11 @@ def _cost_quantity_for_unit(product_unit: str, row_unit: str, quantity: float, p
 
 
 def _cost_basis_quantity(quantity: float, quantity_net: float = None) -> float:
-    """Use net (firesiz) quantity for costing when available."""
-    net = float(quantity_net or 0)
-    if net > 0:
-        return net
-    return float(quantity or 0)
+    """Use gross (fireli) quantity for costing when available."""
+    gross = float(quantity or 0)
+    if gross > 0:
+        return gross
+    return float(quantity_net or 0)
 
 
 def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: float = 0.0) -> bool:
@@ -670,8 +670,9 @@ def _detect_format(ws) -> str:
     if num_hits >= 2:
         return 'numbered'
 
-    # FORMAT C tespiti: ÇOK KESİN — aynı satırda hem "fireli" hem "firesiz"
-    for row in ws.iter_rows(max_row=3, values_only=True):
+    # FORMAT C tespiti: aynı satırda hem "fireli" hem "firesiz".
+    # Bazı Excel'lerde başlık ilk 3 satırdan sonra geldiği için daha geniş tarıyoruz.
+    for row in ws.iter_rows(max_row=min(ws.max_row, 30), values_only=True):
         vals = [_c(v).lower() for v in row if v]
         if len(vals) < 5:
             continue
@@ -1088,10 +1089,11 @@ def _parse_format_c(ws, override_root_name=None) -> tuple[list[dict], list[dict]
     rows   = []
     errors = []
 
-    # İlk 3 satırı tara: başlık satırı satır numarasını bul, ürün adını tespit et
+    # İlk satırları tara: başlık satırı satır numarasını bul, ürün adını tespit et.
+    # Bazı şablonlarda başlık 3. satırdan sonra geldiği için daha geniş bakıyoruz.
     header_row_idx = None
     root_name      = 'ANA ÜRÜN'
-    for i, row_vals in enumerate(ws.iter_rows(max_row=3, values_only=True), start=1):
+    for i, row_vals in enumerate(ws.iter_rows(max_row=min(ws.max_row, 30), values_only=True), start=1):
         sv = [_c(v) for v in row_vals]
         if _is_format_c_header(sv):
             header_row_idx = i
@@ -1099,7 +1101,7 @@ def _parse_format_c(ws, override_root_name=None) -> tuple[list[dict], list[dict]
         else:
             # Başlık değil → ürün adı adayı
             non_empty = [v for v in sv if v]
-            if non_empty:
+            if non_empty and root_name == 'ANA ÜRÜN':
                 root_name = non_empty[0]
                 
     if override_root_name:
@@ -2024,7 +2026,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
             # Eğer Lama veya hesaplaması kg üzerinden yapılan bir hammaddeyse ve weight_per_unit varsa
             # Üst kırılma da kendi qty_fireli metrajını vs uygulayabilir ancak
             # Alt kırılımların toplamı üst kırılımın 1 ADET (veya toplam) maliyetini oluşturur.
-            # Maliyet firesiz miktar üzerinden hesaplanır; fire oranı sadece bilgi olarak gösterilir.
+            # Maliyet fireli miktar üzerinden hesaplanır; firesiz miktar ve fire oranı bilgi olarak gösterilir.
             cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
             calc_unit_cost = (calc_total_cost / cost_basis_qty) if cost_basis_qty and cost_basis_qty > 0 else 0.0
             calc_currency = costing_product.currency if costing_product and costing_product.currency else 'TRY'
