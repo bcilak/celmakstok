@@ -45,11 +45,46 @@ def _extract_price_payload(payload):
     if cost is None:
         return None
 
+    try:
+        unit_cost = float(cost)
+    except (TypeError, ValueError):
+        return None
+
     return {
-        'unit_cost': float(cost),
+        'unit_cost': unit_cost,
         'currency': data.get('currency') or data.get('currency_code') or 'TRY',
         'vat_rate': data.get('vat_rate'),
     }
+
+
+def _purchasing_headers():
+    headers = {'Accept': 'application/json'}
+    api_key = current_app.config.get('PURCHASING_API_KEY')
+    if api_key:
+        headers['X-API-Key'] = api_key
+    return headers
+
+
+def _fetch_purchasing_price_map(product_codes):
+    base_url = current_app.config.get('PURCHASING_API_BASE_URL')
+    if not base_url:
+        raise RuntimeError('PURCHASING_API_BASE_URL tanimli degil')
+
+    url = f'{base_url}/api/v1/products/prices'
+    req = urllib.request.Request(url, headers=_purchasing_headers(), method='GET')
+    with urllib.request.urlopen(req, timeout=20) as response:
+        payload = json.loads(response.read().decode('utf-8'))
+
+    prices = payload.get('prices') if isinstance(payload, dict) else None
+    if not isinstance(prices, dict):
+        raise RuntimeError('Satinalma API fiyat listesi donmedi')
+
+    result = {}
+    for code in product_codes:
+        price = _extract_price_payload(prices.get(code))
+        if price:
+            result[code] = price
+    return result
 
 
 def _fetch_purchasing_price(product_code):
@@ -63,10 +98,7 @@ def _fetch_purchasing_price(product_code):
         f'{base_url}/api/v1/purchasing/product/{quoted_code}',
         f'{base_url}/api/products/{quoted_code}/price',
     ]
-    headers = {'Accept': 'application/json'}
-    api_key = current_app.config.get('PURCHASING_API_KEY')
-    if api_key:
-        headers['X-API-Key'] = api_key
+    headers = _purchasing_headers()
 
     last_error = None
     for url in urls:
@@ -781,58 +813,79 @@ def bom_material_audit(bom_id):
 def bom_sync_prices(bom_id):
     from app.models import BomNode, BomItem, Product
 
-    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
-    if not root_node:
-        flash(f'BOM #{bom_id} bulunamadÄ±.', 'error')
-        return redirect(url_for('production.bom_list'))
-    if not current_app.config.get('PURCHASING_API_BASE_URL'):
-        flash('SatÄ±nalma API adresi tanÄ±mlÄ± deÄŸil. PURCHASING_API_BASE_URL ayarÄ±nÄ± ekleyin.', 'error')
-        return redirect(url_for('production.bom_tree', bom_id=bom_id))
+    try:
+        root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+        if not root_node:
+            flash(f'BOM #{bom_id} bulunamadi.', 'error')
+            return redirect(url_for('production.bom_list'))
+        if not current_app.config.get('PURCHASING_API_BASE_URL'):
+            flash('Satinalma API adresi tanimli degil. PURCHASING_API_BASE_URL ayarini ekleyin.', 'error')
+            return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
-    products = (
-        Product.query
-        .join(BomItem, BomItem.product_id == Product.id)
-        .join(BomNode, BomNode.item_id == BomItem.id)
-        .filter(BomNode.bom_id == bom_id, Product.is_active == True)
-        .distinct()
-        .all()
-    )
+        products = (
+            Product.query
+            .join(BomItem, BomItem.product_id == Product.id)
+            .join(BomNode, BomNode.item_id == BomItem.id)
+            .filter(BomNode.bom_id == bom_id, Product.is_active == True)
+            .distinct()
+            .all()
+        )
 
-    updated = 0
-    failed = []
-    skipped = 0
-    for product in products:
-        if not product.code:
-            skipped += 1
-            continue
+        product_codes = [product.code for product in products if product.code]
+        price_map = {}
+        price_map_loaded = False
         try:
-            price = _fetch_purchasing_price(product.code)
+            price_map = _fetch_purchasing_price_map(product_codes)
+            price_map_loaded = True
+        except Exception as exc:
+            current_app.logger.warning("Bulk purchasing price fetch failed: %s", exc)
+            flash(f'Toplu fiyat listesi alinamadi, urunler tek tek kontrol ediliyor: {exc}', 'warning')
+
+        updated = 0
+        failed = []
+        skipped = 0
+        for product in products:
+            if not product.code:
+                skipped += 1
+                continue
+            try:
+                price = price_map.get(product.code)
+                if not price and price_map_loaded:
+                    failed.append(f'{product.code}: Satinalma fiyat kaydi bulunamadi')
+                    continue
+                if not price:
+                    price = _fetch_purchasing_price(product.code)
+            except Exception as exc:
+                failed.append(f'{product.code}: {exc}')
+                continue
+
             product.unit_cost = price['unit_cost']
             product.currency = price.get('currency') or product.currency or 'TRY'
             if price.get('vat_rate') is not None:
                 product.vat_rate = float(price['vat_rate'])
             updated += 1
-        except Exception as exc:
-            failed.append(f'{product.code}: {exc}')
 
-    if updated:
-        db.session.commit()
-    else:
+        if updated:
+            db.session.commit()
+        else:
+            db.session.rollback()
+
+        if updated:
+            flash(f'{updated} urunun fiyati satinalma API uzerinden guncellendi.', 'success')
+        if skipped:
+            flash(f'{skipped} urun kodu olmadigi icin atlandi.', 'warning')
+        if failed:
+            sample = '; '.join(failed[:5])
+            more = f' (+{len(failed) - 5} kayit)' if len(failed) > 5 else ''
+            flash(f'{len(failed)} urun icin fiyat alinamadi: {sample}{more}', 'warning')
+        if not updated and not skipped and not failed:
+            flash('Bu BOM icin guncellenecek bagli urun bulunamadi.', 'info')
+    except Exception as exc:
         db.session.rollback()
-
-    if updated:
-        flash(f'{updated} ürünün fiyatı satınalma API üzerinden güncellendi.', 'success')
-    if skipped:
-        flash(f'{skipped} ürün kodu olmadığı için atlandı.', 'warning')
-    if failed:
-        sample = '; '.join(failed[:5])
-        more = f' (+{len(failed) - 5} kayıt)' if len(failed) > 5 else ''
-        flash(f'{len(failed)} ürün için fiyat alınamadı: {sample}{more}', 'warning')
-    if not updated and not skipped and not failed:
-        flash('Bu BOM için güncellenecek bağlı ürün bulunamadı.', 'info')
+        current_app.logger.exception("BOM price sync failed")
+        flash(f'Fiyat guncelleme sirasinda hata olustu: {exc}', 'error')
 
     return redirect(url_for('production.bom_tree', bom_id=bom_id))
-
 
 @production_bp.route('/bom/<int:bom_id>/download_excel')
 @production_bp.route('/bom/<int:bom_id>/download_excel/<int:node_id>')
