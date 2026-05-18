@@ -30,6 +30,7 @@ def require_api_key(f):
 
 
 def _product_payload(p):
+    material_info = _split_material_info(p.material)
     return {
         'id': p.id,
         'code': p.code,
@@ -43,6 +44,8 @@ def _product_payload(p):
         'barcode': p.barcode,
         'notes': p.notes,
         'material': p.material,
+        'material_feature': material_info['feature'],
+        'material_type': material_info['type'],
         'unit_cost': float(p.unit_cost or 0),
         'currency': p.currency,
         'vat_rate': float(p.vat_rate or 0),
@@ -51,6 +54,31 @@ def _product_payload(p):
         'created_at': p.created_at.isoformat() if p.created_at else None,
         'updated_at': p.updated_at.isoformat() if p.updated_at else None
     }
+
+
+def _split_material_info(material):
+    """Best-effort split for imported BOM material text: feature + size/type."""
+    import re
+
+    text = (material or '').strip()
+    if not text:
+        return {'feature': '', 'type': ''}
+
+    patterns = [
+        r'(.+?)\s+([Øø]?\s*\d+(?:[.,]\d+)?\s*[xX×]\s*\d+(?:[.,]\d+)?(?:\s*[xX×]\s*\d+(?:[.,]\d+)?)?\s*(?:mm)?)$',
+        r'(.+?)\s+(\d+(?:[.,]\d+)?\s*mm)$',
+        r'(.+?)\s+([Øø]\s*\d+(?:[.,]\d+)?)$',
+        r'(.+?)\s+(\d+(?:[.,]\d+)?)$',
+    ]
+    for pattern in patterns:
+        match = re.match(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return {
+                'feature': match.group(1).strip(),
+                'type': match.group(2).strip(),
+            }
+
+    return {'feature': text, 'type': ''}
 
 @api_bp.route('/products')
 @login_required
@@ -443,16 +471,25 @@ def api_critical_products():
         
         # Önerilen sipariş = Eksik + 1 aylık tüketim
         suggested_order = shortage + monthly_consumption
+        material_info = _split_material_info(p.material)
         
         result.append({
             'id': p.id,
             'code': p.code,
             'name': p.name,
+            'type': p.type,
             'category': p.category.name if p.category else None,
+            'material': p.material,
+            'material_feature': material_info['feature'],
+            'material_type': material_info['type'],
             'current_stock': float(p.current_stock),
             'minimum_stock': float(p.minimum_stock),
             'shortage': float(shortage),
             'unit_type': p.unit_type,
+            'unit': p.unit_type,
+            'unit_cost': float(p.unit_cost or 0),
+            'currency': p.currency,
+            'vat_rate': float(p.vat_rate or 0),
             'suggested_order': float(suggested_order),
             'monthly_consumption': float(monthly_consumption),
             'locations': locations
