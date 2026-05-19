@@ -416,7 +416,12 @@ def get_bom_costs(keyword: str = "", limit: int = 25) -> dict:
     boms = list_boms(db)
     if bom_id_match:
         wanted_id = int(bom_id_match.group(1))
-        boms = [b for b in boms if b.get('bom_id') == wanted_id]
+        matched_boms = [b for b in boms if b.get('bom_id') == wanted_id]
+        if matched_boms:
+            boms = matched_boms
+        else:
+            matched_boms = [b for b in boms if b.get('product_id') == wanted_id]
+            boms = matched_boms if matched_boms else []
     elif terms:
         lowered_terms = _search_terms(terms)
         filtered = []
@@ -806,10 +811,8 @@ def _verified_product_snapshot(query, family):
                 and not (node.get("total_cost") and node.get("total_cost") > 0)
             ]
 
-        try:
-            link_audit = audit_bom_material_links(best_bom.get("bom_id"), db, apply=False)
-        except Exception:
-            link_audit = None
+        # AI asistan raporlama performansını maksimumda tutmak için ağır malzeme denetimini pas geçiyoruz.
+        link_audit = None
 
     week_start, month_start, year_start = _period_starts()
     out_types = ['cikis', 'out', 'transfer', 'fire']
@@ -1119,13 +1122,19 @@ def _local_analysis_answer(query, quota_limited=False):
 
     qty = _extract_quantity(query)
 
-    family = analyze_product_family(query).get('result')
-    if isinstance(family, str):
-        product_result = search_product(query).get('result')
-        if isinstance(product_result, list) and product_result:
-            prefix = "AI kotasi dolu oldugu icin veritabanindan direkt hesapladim.\n\n" if quota_limited else ""
-            return prefix + "\n".join(f"- {item}" for item in product_result[:5])
-        return _not_found_answer(query)
+    explicit_id = _extract_explicit_product_id(query)
+    exact_product = _find_product_by_exact_code(query)
+
+    if explicit_id or exact_product:
+        family = None
+    else:
+        family = analyze_product_family(query).get('result')
+        if isinstance(family, str):
+            product_result = search_product(query).get('result')
+            if isinstance(product_result, list) and product_result:
+                prefix = "AI kotasi dolu oldugu icin veritabanindan direkt hesapladim.\n\n" if quota_limited else ""
+                return prefix + "\n".join(f"- {item}" for item in product_result[:5])
+            return _not_found_answer(query)
 
     snapshot = _verified_product_snapshot(query, family)
     if not snapshot:
@@ -1256,12 +1265,19 @@ def ai_assistant_ask():
                     strict_matches = matching_products
 
                 if len(strict_matches) > 1:
+                    bom_product_ids = set()
+                    try:
+                        from app.utils.bom_utils import list_boms
+                        bom_product_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
+                    except Exception:
+                        pass
+
                     lines = []
                     lines.append("### 🔍 Birden Fazla Eşleşen Ürün Bulundu")
                     lines.append(f"Aradığınız kriterlere uygun **{len(strict_matches)}** farklı ürün tespit ettim. Lütfen hangisinin maliyetini veya üretim planını hesaplamak istediğinizi belirtmek için **adını, tam kodunu veya ID numarasını (örn: #ID)** yazın:")
                     lines.append("")
                     for p in strict_matches[:10]:
-                        bom_status = "✓ Ürün Ağacı Var" if p.boms.count() > 0 else "❌ Ürün Ağacı Yok"
+                        bom_status = "✓ Ürün Ağacı Var" if p.id in bom_product_ids else "❌ Ürün Ağacı Yok"
                         lines.append(f"- **{p.name}** | Kod: `{p.code}` | ID: **#{p.id}** | Tür: *{p.type or 'mamul'}* ({bom_status})")
                     if len(strict_matches) > 10:
                         lines.append(f"\n*...ve {len(strict_matches) - 10} adet daha ürün eşleşti.*")

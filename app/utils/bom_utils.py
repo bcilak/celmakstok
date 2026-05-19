@@ -237,7 +237,7 @@ def _material_match_score(source: str, product, require_name_match: bool = True)
     return score
 
 
-def _find_matching_raw_material(row: dict):
+def _find_matching_raw_material(row: dict, candidates=None):
     """Find an existing raw material card for auto-generated material rows."""
     from app.models import Product
 
@@ -246,7 +246,8 @@ def _find_matching_raw_material(row: dict):
 
     wanted_name = row.get('name') or ''
     wanted_unit = row.get('unit_type') or ''
-    candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
+    if candidates is None:
+        candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
 
     scored = []
     for product in candidates:
@@ -271,7 +272,7 @@ def _find_matching_raw_material(row: dict):
     return best_product if best_score >= 20 else None
 
 
-def _find_costing_raw_material(row: dict, exclude_product_id: int = None):
+def _find_costing_raw_material(row: dict, exclude_product_id: int = None, candidates=None):
     """Cost-only material match; allows legacy part-coded hammadde cards as a fallback."""
     from app.models import Product
 
@@ -281,7 +282,8 @@ def _find_costing_raw_material(row: dict, exclude_product_id: int = None):
     if name_text and material_text and material_text.lower() not in {'hammadde', 'hazır', 'hazir'}:
         wanted_name = f'{wanted_name} {name_text}'
     wanted_unit = row.get('unit_type') or ''
-    candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
+    if candidates is None:
+        candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
 
     scored = []
     for product in candidates:
@@ -348,14 +350,21 @@ def _product_snapshot(product):
 def audit_bom_material_links(bom_id: int, db, apply: bool = False) -> dict:
     """Audit and optionally repair BOM raw-material product links using strict material matching."""
     from app.models import BomNode, BomItem, Product
+    from sqlalchemy.orm import joinedload
 
     nodes = (
         BomNode.query
+        .options(joinedload(BomNode.item).joinedload(BomItem.product))
         .join(BomItem, BomNode.item_id == BomItem.id)
         .filter(BomNode.bom_id == bom_id)
         .order_by(BomNode.num)
         .all()
     )
+
+    # N+1 sorguları engellemek için tüm aday ham maddeleri ve aktif ürünleri tek seferde çekip önbelleğe alıyoruz.
+    candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
+    all_active_products = Product.query.filter(Product.is_active == True).all()
+    code_to_product = {p.code.upper(): p for p in all_active_products if p.code}
 
     rows = []
     fixed = 0
@@ -365,7 +374,7 @@ def audit_bom_material_links(bom_id: int, db, apply: bool = False) -> dict:
         if not item:
             continue
         product = item.product
-        code_product = Product.query.filter(Product.code == item.code).first() if item.code else None
+        code_product = code_to_product.get(item.code.upper()) if item.code else None
         raw_type = (product.type if product else item.type) or ''
         source = _raw_source_text_for_node(node)
         if not source:
@@ -393,7 +402,7 @@ def audit_bom_material_links(bom_id: int, db, apply: bool = False) -> dict:
             'name': source,
             'unit_type': node.unit_type,
             'weight_per_unit': float(node.weight_per_unit or 0),
-        })
+        }, candidates=candidates)
         if not suggested and not current_valid and code_product and code_product.id != (product.id if product else None):
             code_sig = _strict_material_signature(' '.join(_c(v) for v in [
                 code_product.name,
@@ -1913,14 +1922,22 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
 # ---------------------------------------------------------------------------
 
 def get_bom_tree(bom_id: int, db) -> dict:
-    from app.models import BomNode, BomEdge
+    from app.models import BomNode, BomEdge, Product, BomItem
+    from sqlalchemy.orm import joinedload
 
-    nodes = BomNode.query.filter_by(bom_id=bom_id).order_by(BomNode.num).all()
+    nodes = (BomNode.query
+             .filter_by(bom_id=bom_id)
+             .options(joinedload(BomNode.item).joinedload(BomItem.product))
+             .order_by(BomNode.num)
+             .all())
     edges = BomEdge.query.filter_by(bom_id=bom_id).all()
 
     if not nodes:
         return {'bom_id': bom_id, 'roots': [],
                 'error': 'Bu bom_id için kayıt bulunamadı.'}
+
+    # N+1 sorgularını engellemek için aday ham maddeleri önceden tek seferde yüklüyoruz.
+    candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
 
     child_to_parent: dict = {}
     child_qty: dict = {}
@@ -1954,7 +1971,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
                 'material': (product.material if product else None) or item.name or n.display_name or '',
                 'is_auto_hammadde': True,
-            }, exclude_product_id=product.id if product else None)
+            }, exclude_product_id=product.id if product else None, candidates=candidates)
             if fallback_product and (not costing_product or fallback_product.unit_cost and fallback_product.unit_cost > 0):
                 costing_product = fallback_product
         elif item and item.type == 'hammadde' and costing_product:
@@ -1964,7 +1981,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
                 'material': (product.material if product else None) or item.name or n.display_name or '',
                 'is_auto_hammadde': True,
-            }, exclude_product_id=product.id if product else None)
+            }, exclude_product_id=product.id if product else None, candidates=candidates)
             costing_code = (costing_product.code or '').upper()
             fallback_code = (fallback_product.code or '').upper() if fallback_product else ''
             if (
@@ -2153,13 +2170,24 @@ def get_bom_subtree(bom_id: int, node_id: int, db) -> dict:
 def list_boms(db) -> list[dict]:
     from app.models import BomNode, BomItem, Product, Category
     from sqlalchemy import func
+    from sqlalchemy.orm import joinedload
+
+    # N+1 sorgularını tamamen engellemek için tüm level=0 kök düğümlerini ve ilişkili verilerini tek bir JOIN sorgusunda çekiyoruz.
+    roots = (db.session.query(BomNode)
+             .filter(BomNode.level == 0)
+             .options(joinedload(BomNode.item)
+                      .joinedload(BomItem.product)
+                      .joinedload(Product.category))
+             .all())
+    roots_by_bom_id = {root.bom_id: root for root in roots}
+
     result = (db.session.query(BomNode.bom_id,
                func.count(BomNode.id).label('node_count'),
                func.min(BomNode.created_at).label('created_at'))
               .group_by(BomNode.bom_id).order_by(BomNode.bom_id).all())
     boms = []
     for r in result:
-        root = BomNode.query.filter_by(bom_id=r.bom_id, level=0).first()
+        root = roots_by_bom_id.get(r.bom_id)
         
         # Determine the underlying Product to display Category
         root_product = None
