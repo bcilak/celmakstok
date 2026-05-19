@@ -4,9 +4,18 @@ from app.models import Product, StockMovement, Category, Location, LocationStock
 from app import db
 from datetime import datetime, date
 import json
+from sqlalchemy import inspect
 from app.utils.decorators import roles_required
 
 stock_bp = Blueprint('stock', __name__)
+
+
+def _production_records_support_product_id():
+    try:
+        columns = inspect(db.engine).get_columns('production_records')
+    except Exception:
+        return False
+    return any(column.get('name') == 'product_id' for column in columns)
 
 
 def _product_payload(product):
@@ -417,13 +426,14 @@ def bulk_entry():
                     note=note or 'Toplu uretim girisi',
                     user_id=current_user.id
                 )
-                production = ProductionRecord(
-                    product_id=product.id,
-                    quantity=quantity,
-                    user_id=current_user.id,
-                    note=note or 'Toplu uretim girisi'
-                )
-                db.session.add(production)
+                if _production_records_support_product_id():
+                    production = ProductionRecord(
+                        product_id=product.id,
+                        quantity=quantity,
+                        user_id=current_user.id,
+                        note=note or 'Toplu uretim girisi'
+                    )
+                    db.session.add(production)
             else:
                 product.current_stock = float(product.current_stock or 0) - quantity
                 if loc_stock:

@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from app.models import Category, StockMovement, Product, ProductionRecord, ProductionConsumption
 from app import db
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from datetime import datetime, timedelta
 from app.utils.decorators import roles_required
 from app.utils.excel_utils import parse_bom_excel, create_bom_tree_excel
@@ -33,6 +33,14 @@ def _limited_flash_list(prefix, items, category='error', limit=8):
     if len(items) > limit:
         shown.append(f'{len(items) - limit} kalem daha var')
     flash(prefix + ' ' + ' | '.join(shown), category)
+
+
+def _production_records_support_product_id():
+    try:
+        columns = inspect(db.engine).get_columns('production_records')
+    except Exception:
+        return False
+    return any(column.get('name') == 'product_id' for column in columns)
 
 
 def _extract_price_payload(payload):
@@ -1047,16 +1055,18 @@ def bom_produce(bom_id, node_id):
         return redirect(url_for('production.bom_produce', bom_id=bom_id, node_id=node_id))
 
     # 2. Üretim kaydı oluştur
-    production = ProductionRecord(
-        bom_id=bom_id,
-        bom_node_id=node_id,
-        product_id=target_product.id,
-        quantity=quantity,
-        user_id=current_user.id,
-        note=note
-    )
-    db.session.add(production)
-    db.session.flush()
+    production = None
+    if _production_records_support_product_id():
+        production = ProductionRecord(
+            bom_id=bom_id,
+            bom_node_id=node_id,
+            product_id=target_product.id,
+            quantity=quantity,
+            user_id=current_user.id,
+            note=note
+        )
+        db.session.add(production)
+        db.session.flush()
 
     # 3. Stoğu Düş ve Tüketim Kaydı oluştur (Kullanılan Alt Bileşenler İçin)
     for c_product, total_req, child_node in required_consumptions:
@@ -1064,12 +1074,13 @@ def bom_produce(bom_id, node_id):
         c_product.current_stock -= total_req
         
         # Tüketim detayı (Üretim emri ile ilişkilendirme)
-        consumption = ProductionConsumption(
-            production_id=production.id,
-            product_id=c_product.id,
-            quantity=total_req
-        )
-        db.session.add(consumption)
+        if production:
+            consumption = ProductionConsumption(
+                production_id=production.id,
+                product_id=c_product.id,
+                quantity=total_req
+            )
+            db.session.add(consumption)
         
         # Stok hareketi (Çıkış)
         movement_out = StockMovement(
@@ -1200,24 +1211,27 @@ def work_order():
     db.session.add(mov_in)
     
     # 3. Production Record
-    pr = ProductionRecord(
-        bom_id=bom_id,
-        bom_node_id=root_node.id,
-        product_id=target_product.id,
-        quantity=quantity,
-        note=note,
-        user_id=current_user.id
-    )
-    db.session.add(pr)
-    db.session.flush()
-    
-    for p, req in consume_list:
-        pc = ProductionConsumption(
-            production_id=pr.id,
-            product_id=p.id,
-            quantity=float(req)
+    pr = None
+    if _production_records_support_product_id():
+        pr = ProductionRecord(
+            bom_id=bom_id,
+            bom_node_id=root_node.id,
+            product_id=target_product.id,
+            quantity=quantity,
+            note=note,
+            user_id=current_user.id
         )
-        db.session.add(pc)
+        db.session.add(pr)
+        db.session.flush()
+
+    if pr:
+        for p, req in consume_list:
+            pc = ProductionConsumption(
+                production_id=pr.id,
+                product_id=p.id,
+                quantity=float(req)
+            )
+            db.session.add(pc)
         
     db.session.commit()
     flash(f"{target_product.name} için {quantity} adet üretim başarıyla tamamlandı.", 'success')

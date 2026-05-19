@@ -634,15 +634,6 @@ def _movement_total(product_id, movement_types, since=None):
     return float(query.scalar() or 0)
 
 
-def _production_total(product_id, since=None):
-    query = db.session.query(func.sum(ProductionRecord.quantity)).filter(
-        ProductionRecord.product_id == product_id
-    )
-    if since:
-        query = query.filter(ProductionRecord.date >= since)
-    return float(query.scalar() or 0)
-
-
 def _select_main_product(query, family):
     terms = _search_terms(_normalize_search_keyword(query))
     boms = family.get('urun_agaclari') or []
@@ -758,13 +749,12 @@ def _verified_product_snapshot(query, family):
     out_types = ['cikis', 'out', 'transfer', 'fire']
     in_types = ['giris', 'in']
     month_in_movement = _movement_total(product.id, in_types, month_start)
-    month_production = _production_total(product.id, month_start)
     movement = {
         "week_out": _movement_total(product.id, out_types, week_start),
         "month_out": _movement_total(product.id, out_types, month_start),
         "year_out": _movement_total(product.id, out_types, year_start),
         "total_out": _movement_total(product.id, out_types),
-        "month_in": max(month_in_movement, month_production),
+        "month_in": month_in_movement,
     }
 
     audit_stats = (link_audit or {}).get("stats") or {}
