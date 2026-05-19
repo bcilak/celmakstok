@@ -876,6 +876,134 @@ def get_stock_recommendation(keyword: str) -> dict:
     }
 
 
+def market_research_web(product_description: str) -> dict:
+    """
+    Search the web for competitor products and market prices for the given product.
+
+    USE THIS when user asks about external market information:
+    - Competitors: "rakipleri", "rakip ürünler / markalar", "alternatifleri", "benzerleri", "kim üretiyor"
+    - Market prices: "piyasa fiyatı", "kaça satılıyor", "dışarıda ne kadar", "market price"
+    - Brand comparison: "hangi firmalar var", "başka firmalar"
+
+    CRITICAL — product_description MUST be the TOP-LEVEL finished product only:
+    - GOOD: "165 tamburlu çim biçme makinası", "tamburlu biçer döver"
+    - BAD: sub-component names, spare parts, raw materials, semi-finished parts
+    - Extract the main product name from the user query; ignore sub-components.
+
+    Returns a list of web results (title, snippet, URL, price if found).
+    Gemini should summarize competitor names, models and prices from these results.
+    """
+    import requests as _req
+
+    desc = (product_description or '').strip()
+    if not desc:
+        return {"result": "Urun aciklamasi bos olamaz."}
+
+    api_key  = current_app.config.get('GOOGLE_CSE_KEY', '')
+    cse_id   = current_app.config.get('GOOGLE_CSE_ID', '')
+    serp_key = current_app.config.get('SERPAPI_KEY', '')
+
+    if not api_key and not serp_key:
+        return {
+            "result": (
+                "Web aramasi yapilamadi: Arama API anahtari yapilandirilmamis. "
+                "GOOGLE_CSE_KEY + GOOGLE_CSE_ID veya SERPAPI_KEY degerlerini .env dosyasina ekleyin."
+            )
+        }
+
+    results = []
+
+    # --- Google Custom Search API ---
+    if api_key and cse_id and not results:
+        queries = [
+            f"{desc} fiyat",
+            f"{desc} rakip marka karsilastirma",
+        ]
+        for q in queries:
+            try:
+                resp = _req.get(
+                    'https://www.googleapis.com/customsearch/v1',
+                    params={'key': api_key, 'cx': cse_id, 'q': q, 'num': 5, 'gl': 'tr', 'hl': 'tr'},
+                    timeout=8,
+                )
+                if resp.status_code == 200:
+                    for item in resp.json().get('items', []):
+                        price = None
+                        pagemap = item.get('pagemap') or {}
+                        offers = pagemap.get('offer') or []
+                        if offers:
+                            price = offers[0].get('price')
+                        if not price:
+                            meta = (pagemap.get('metatags') or [{}])[0]
+                            price = (
+                                meta.get('product:price:amount')
+                                or meta.get('og:price:amount')
+                                or meta.get('twitter:data1')
+                            )
+                        results.append({
+                            'baslik': item.get('title', ''),
+                            'ozet':   item.get('snippet', ''),
+                            'url':    item.get('link', ''),
+                            'fiyat':  price,
+                        })
+            except Exception:
+                pass
+        if results:
+            return {
+                "result": {
+                    "aranan_urun": desc,
+                    "kaynak": "Google Custom Search",
+                    "sonuclar": results[:12],
+                    "not": (
+                        "Bu veriler web arama sonucudur. Fiyatlar tahminidir; "
+                        "guncel bilgi icin ilgili siteleri ziyaret edin."
+                    ),
+                }
+            }
+
+    # --- SerpAPI ---
+    if serp_key and not results:
+        for q in [f"{desc} fiyat rakip", f"{desc} satın al"]:
+            try:
+                resp = _req.get(
+                    'https://serpapi.com/search',
+                    params={'api_key': serp_key, 'q': q, 'gl': 'tr', 'hl': 'tr', 'num': 10},
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for item in (data.get('organic_results') or []):
+                        results.append({
+                            'baslik': item.get('title', ''),
+                            'ozet':   item.get('snippet', ''),
+                            'url':    item.get('link', ''),
+                            'fiyat':  None,
+                        })
+                    for item in (data.get('shopping_results') or []):
+                        results.append({
+                            'baslik': item.get('title', ''),
+                            'ozet':   item.get('source', ''),
+                            'url':    item.get('link', ''),
+                            'fiyat':  item.get('price'),
+                        })
+            except Exception:
+                pass
+        if results:
+            return {
+                "result": {
+                    "aranan_urun": desc,
+                    "kaynak": "SerpAPI",
+                    "sonuclar": results[:12],
+                    "not": (
+                        "Bu veriler web arama sonucudur. Fiyatlar tahminidir; "
+                        "guncel bilgi icin ilgili siteleri ziyaret edin."
+                    ),
+                }
+            }
+
+    return {"result": f"'{desc}' icin web aramasi sonuc dondurmedi veya API limiti asildi."}
+
+
 def _fmt_money(value, currency='TRY'):
     try:
         amount = float(value or 0)
@@ -1707,6 +1835,17 @@ ARAÇ SEÇİM KURALLARI — bu tabloyu KESINLIKLE uygula:
 8. get_critical_stock() / get_stock_overview()
    KULLAN: Genel stok durumu, biten/kritik ürünler
 
+9. market_research_web(product_description)
+   KULLAN: Kullanıcı PAZARDAKI rakip / dış fiyat / başka firmalar sorduğunda
+   Örnekler: "165 tamburlunun rakiplerini getir", "piyasada ne kadar satılıyor",
+             "hangi firmalar benzer ürün yapıyor", "alternatifleri neler"
+   → product_description = YALNIZCA ANA ürün adı (mamul/bitmiş ürün)
+   → Alt parça, yedek parça, hammadde, yarımamul adlarını ASLA verme
+   → Kullanıcı "165 tamburlu biçer döver" diyorsa → "165 tamburlu biçer döver"
+   → Kullanıcı "tamburlu dingil yatağı rakipleri" diyorsa → "tamburlu biçer döver" (ana ürünü kullan)
+   → Dönen web sonuçlarından rakip firma adlarını, model isimlerini ve fiyatlarını çıkar
+   → Sonuçları Türkçe, kısa ve öz özetle; URL'leri listele
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ANA ÜRÜN SEÇİMİ KURALI ("165 tamburlu maliyeti" tipi sorgular):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1739,6 +1878,7 @@ SİSTEM BİLGİLERİ:
         tools = [
             calculate_cost_for_quantity,
             get_stock_recommendation,
+            market_research_web,
             get_product_costs,
             get_bom_costs,
             search_product,

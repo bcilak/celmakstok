@@ -53,3 +53,13 @@ class Config:
     # Optional external purchasing app integration for pulling latest product prices
     PURCHASING_API_BASE_URL = os.environ.get('PURCHASING_API_BASE_URL', '').rstrip('/')
     PURCHASING_API_KEY = os.environ.get('PURCHASING_API_KEY') or os.environ.get('API_KEY')
+
+    # Pazar araştırması / web arama entegrasyonu
+    # Seçenek 1: Google Custom Search Engine (ücretsiz 100 sorgu/gün)
+    #   → https://programmablesearchengine.google.com/  adresinden CSE oluştur
+    #   → https://console.cloud.google.com/  adresinden Custom Search JSON API key al
+    GOOGLE_CSE_KEY = os.environ.get('GOOGLE_CSE_KEY', '')
+    GOOGLE_CSE_ID  = os.environ.get('GOOGLE_CSE_ID', '')
+    # Seçenek 2: SerpAPI (ücretli, daha kapsamlı — alışveriş sonuçları dahil)
+    #   → https://serpapi.com/
+    SERPAPI_KEY = os.environ.get('SERPAPI_KEY', '')

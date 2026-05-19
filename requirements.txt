@@ -11,3 +11,4 @@ python-dotenv==1.0.0
 flasgger==0.9.7.1
 psycopg2-binary>=2.9.9
 google-generativeai>=0.8.6
+requests>=2.31.0
