@@ -59,6 +59,11 @@
     .row-has-qty {
         background: #f0fdf4;
     }
+
+    .paste-result {
+        max-height: 220px;
+        overflow: auto;
+    }
 </style>
 {% endblock %}
 
@@ -125,6 +130,9 @@
                     <input type="number" id="applyAllQty" class="form-control text-end" min="0" step="0.0001" placeholder="Miktar">
                     <button type="button" id="applyAllBtn" class="btn btn-outline-primary">Uygula</button>
                 </div>
+                <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#pasteProductionModal">
+                    <i class="bi bi-magic me-1"></i> Liste Yapıştır
+                </button>
                 <input type="text" id="productFilter" class="form-control form-control-sm" style="width: 280px;"
                     placeholder="Kod veya ürün adı filtrele...">
                 <button type="button" id="clearQtyBtn" class="btn btn-sm btn-outline-danger">
@@ -177,6 +185,31 @@
     </div>
 </form>
 
+<div class="modal fade" id="pasteProductionModal" tabindex="-1" aria-labelledby="pasteProductionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="pasteProductionModalLabel">Aylık Üretim Listesi Yapıştır</h5>
+                    <div class="text-muted small">Örn: 135-24 adet, 165-195 adet, bağarası-17 adet</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body">
+                <textarea id="pasteProductionText" class="form-control" rows="8"
+                    placeholder="135-24 adet&#10;165-195 adet&#10;bağarası-17 adet&#10;195-21 adet"></textarea>
+                <div id="pasteProductionResult" class="paste-result mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Kapat</button>
+                <button type="button" id="parseProductionBtn" class="btn btn-success">
+                    <i class="bi bi-check2-square me-1"></i> Tabloya Uygula
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script id="productsData" type="application/json">{{ products_json | safe }}</script>
 {% endblock %}
 
@@ -196,9 +229,27 @@ document.addEventListener('DOMContentLoaded', function () {
     const clearQtyBtn = document.getElementById('clearQtyBtn');
     const applyAllQty = document.getElementById('applyAllQty');
     const applyAllBtn = document.getElementById('applyAllBtn');
+    const pasteProductionModal = document.getElementById('pasteProductionModal');
+    const pasteProductionText = document.getElementById('pasteProductionText');
+    const pasteProductionResult = document.getElementById('pasteProductionResult');
+    const parseProductionBtn = document.getElementById('parseProductionBtn');
 
     function normalize(value) {
         return String(value || '').toLocaleLowerCase('tr-TR');
+    }
+
+    function searchKey(value) {
+        return normalize(value)
+            .replace(/ı/g, 'i')
+            .replace(/i̇/g, 'i')
+            .replace(/ğ/g, 'g')
+            .replace(/ü/g, 'u')
+            .replace(/ş/g, 's')
+            .replace(/ö/g, 'o')
+            .replace(/ç/g, 'c')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim()
+            .replace(/\s+/g, ' ');
     }
 
     function fmt(value) {
@@ -239,6 +290,89 @@ document.addEventListener('DOMContentLoaded', function () {
         visibleInfo.textContent = `${visible} / ${products.length} ürün`;
     }
 
+    function parseQuantity(value) {
+        const quantity = Number(String(value || '').replace(',', '.'));
+        return Number.isFinite(quantity) ? quantity : 0;
+    }
+
+    function parseProductionLine(line) {
+        const cleaned = String(line || '').trim();
+        if (!cleaned) return null;
+        const match = cleaned.match(/^(.+?)[\s:-]+([0-9]+(?:[.,][0-9]+)?)\s*(?:adet|ad|pcs)?\s*$/i);
+        if (!match) return { raw: cleaned, key: cleaned, quantity: 0, error: 'Format okunamadı' };
+        return {
+            raw: cleaned,
+            key: match[1].trim(),
+            quantity: parseQuantity(match[2])
+        };
+    }
+
+    function productCandidates() {
+        return products.map(product => {
+            const row = document.querySelector(`#productsBody tr[data-product-id="${product.id}"]`);
+            return {
+                product,
+                row,
+                input: row ? row.querySelector('.qty-input') : null,
+                codeKey: searchKey(product.code),
+                nameKey: searchKey(product.name),
+                typeKey: searchKey(product.type)
+            };
+        }).filter(item => item.input);
+    }
+
+    function scoreProduct(candidate, key) {
+        if (!key) return 0;
+        const isMamul = candidate.typeKey === 'mamul';
+        const isShortNumber = /^[0-9]{1,3}$/.test(key);
+        const isFinishedLike = isMamul || candidate.nameKey.includes('makine') || candidate.codeKey.includes('makine');
+        let score = 0;
+        if (candidate.codeKey === key) score = 100;
+        else if (candidate.nameKey === key) score = 95;
+        else if (candidate.codeKey.startsWith(key)) score = 80;
+        else if (candidate.nameKey.startsWith(key)) score = 75;
+        else if (key.length >= 3 && candidate.codeKey.includes(key)) score = 55;
+        else if (key.length >= 3 && candidate.nameKey.includes(key)) score = 50;
+        else if (key.length >= 2 && candidate.nameKey.split(' ').includes(key)) score = 45;
+        if (!score) return 0;
+        if (isShortNumber && !isFinishedLike && score < 95) return 0;
+        return score + (isMamul ? 10 : 0);
+    }
+
+    function findBestProduct(key) {
+        const normalizedKey = searchKey(key);
+        const matches = productCandidates()
+            .map(candidate => ({ ...candidate, score: scoreProduct(candidate, normalizedKey) }))
+            .filter(candidate => candidate.score > 0)
+            .sort((a, b) => b.score - a.score);
+        if (!matches.length) return null;
+        if (matches.length > 1 && matches[0].score === matches[1].score) {
+            return { ambiguous: true, matches: matches.slice(0, 4) };
+        }
+        return matches[0];
+    }
+
+    function renderPasteResult(applied, notApplied) {
+        const appliedHtml = applied.map(item => `
+            <div class="d-flex justify-content-between border-bottom py-1">
+                <span><strong>${item.key}</strong> -> ${item.product.name}</span>
+                <span>${fmt(item.quantity)} ${item.product.unit || 'adet'}</span>
+            </div>
+        `).join('');
+        const notAppliedHtml = notApplied.map(item => `
+            <div class="text-danger border-bottom py-1">
+                <strong>${item.raw || item.key}</strong>: ${item.error}
+            </div>
+        `).join('');
+        pasteProductionResult.innerHTML = `
+            <div class="alert alert-${notApplied.length ? 'warning' : 'success'} py-2 mb-2">
+                ${applied.length} satır tabloya uygulandı${notApplied.length ? `, ${notApplied.length} satır eşleşmedi` : ''}.
+            </div>
+            ${appliedHtml ? `<div class="small mb-2">${appliedHtml}</div>` : ''}
+            ${notAppliedHtml ? `<div class="small">${notAppliedHtml}</div>` : ''}
+        `;
+    }
+
     qtyInputs.forEach(input => {
         input.addEventListener('input', collectItems);
     });
@@ -262,6 +396,44 @@ document.addEventListener('DOMContentLoaded', function () {
             input.value = quantity;
         });
         collectItems();
+    });
+
+    parseProductionBtn.addEventListener('click', function () {
+        const parsedRows = pasteProductionText.value.split(/\r?\n/)
+            .map(parseProductionLine)
+            .filter(Boolean);
+        const applied = [];
+        const notApplied = [];
+
+        parsedRows.forEach(item => {
+            if (item.error || item.quantity <= 0) {
+                notApplied.push({ ...item, error: item.error || 'Miktar sıfırdan büyük olmalı' });
+                return;
+            }
+
+            const match = findBestProduct(item.key);
+            if (!match) {
+                notApplied.push({ ...item, error: 'Ürün bulunamadı' });
+                return;
+            }
+            if (match.ambiguous) {
+                notApplied.push({
+                    ...item,
+                    error: `Birden fazla ürün eşleşti: ${match.matches.map(row => row.product.name).join(', ')}`
+                });
+                return;
+            }
+
+            match.input.value = item.quantity;
+            applied.push({ ...item, product: match.product });
+        });
+
+        collectItems();
+        applyFilter();
+        renderPasteResult(applied, notApplied);
+        if (applied.length && !notApplied.length && window.bootstrap && pasteProductionModal) {
+            window.bootstrap.Modal.getOrCreateInstance(pasteProductionModal).hide();
+        }
     });
 
     modeButtons.forEach(button => {
