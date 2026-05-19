@@ -31,17 +31,17 @@
         </div>
     </div>
     <div class="col-md-3">
-        <div class="metric-card warning">
-            <span>Fiyatı Eksik Ürün</span>
-            <strong>{{ stats.missing_cost_count }}</strong>
-            <small>Maliyeti düşük gösterebilir</small>
+        <div class="metric-card">
+            <span>Ortalama Birim Maliyet</span>
+            <strong>{{ "%.2f"|format(stats.avg_unit_cost) }} ₺</strong>
+            <small>Fiyatı olan ürün kartları</small>
         </div>
     </div>
     <div class="col-md-3">
-        <div class="metric-card danger">
-            <span>BOM Fiyat Eksiği</span>
-            <strong>{{ stats.bom_missing_cost_count }}</strong>
-            <small>Yaprak kalem bazında</small>
+        <div class="metric-card">
+            <span>Ürün Ağacı</span>
+            <strong>{{ stats.bom_count }}</strong>
+            <small>Maliyet grafiğine dahil</small>
         </div>
     </div>
 </div>
@@ -306,8 +306,8 @@
         data: {
             labels: bomData.map(item => `#${item.bom_id} ${item.name}`),
             datasets: [{
-                label: bomUsesCost ? 'BOM Maliyeti' : 'Fiyat Eksiği',
-                data: bomUsesCost ? bomValues : bomData.map(item => item.missing_cost_count || 0),
+                label: bomUsesCost ? 'BOM Maliyeti' : 'Kalem Sayısı',
+                data: bomUsesCost ? bomValues : bomData.map(item => item.node_count || 0),
                 backgroundColor: '#14b8a6',
                 borderRadius: 6
             }]
@@ -317,7 +317,7 @@
             responsive: true,
             maintainAspectRatio: false,
             scales: { x: { ticks: { callback: value => bomUsesCost ? moneyLabel(value) : value } } },
-            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => bomUsesCost ? moneyLabel(ctx.raw) : `${ctx.raw} eksik kalem` } } }
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => bomUsesCost ? moneyLabel(ctx.raw) : `${ctx.raw} kalem` } } }
         }
     });
 </script>

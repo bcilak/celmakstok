@@ -1159,22 +1159,16 @@ def index():
 
 def _cost_report_analysis(stats):
     notes = []
-    if stats['missing_cost_count']:
-        notes.append(
-            f"{stats['missing_cost_count']} aktif urunde birim maliyet yok. Bu kalemler stok degeri ve BOM maliyetini dusuk gosterir."
-        )
     if stats['priced_count'] and stats['total_products']:
         coverage = (stats['priced_count'] / stats['total_products']) * 100
-        notes.append(f"Fiyat kapsami %{coverage:.1f}; fiyat kartlari tamamlandikca rapor daha guvenilir olur.")
+        notes.append(f"Fiyat kapsami %{coverage:.1f}; rapor fiyat girilen urunler uzerinden hesaplandi.")
     if stats['top_inventory']:
         leader = stats['top_inventory'][0]
         notes.append(
             f"Stok degerinde en buyuk kalem {leader['name']} ({_fmt_money(leader['value'], leader['currency'])})."
         )
-    if stats['bom_missing_cost_count']:
-        notes.append(
-            f"Urun agaclarinda {stats['bom_missing_cost_count']} yaprak kalemde maliyet eksigi var; once bu kalemler fiyatlandirilmali."
-        )
+    if stats['bom_count']:
+        notes.append(f"{stats['bom_count']} urun agaci maliyet karsilastirmasina dahil edildi.")
     if not notes:
         notes.append("Maliyet verisi genel olarak tamam gorunuyor; duzenli fiyat guncellemesiyle takip edilebilir.")
     return notes
@@ -1193,6 +1187,10 @@ def cost_report():
 
     total_inventory_value = sum(float(p.current_stock or 0) * float(p.unit_cost or 0) for p in products)
     total_stock_qty = sum(float(p.current_stock or 0) for p in products)
+    avg_unit_cost = (
+        sum(float(p.unit_cost or 0) for p in priced_products) / len(priced_products)
+        if priced_products else 0
+    )
 
     by_type = {}
     by_category = {}
@@ -1277,12 +1275,14 @@ def cost_report():
         'missing_cost_count': len(missing_cost_products),
         'total_inventory_value': total_inventory_value,
         'total_stock_qty': total_stock_qty,
+        'avg_unit_cost': avg_unit_cost,
         'by_type': by_type,
         'by_category': dict(sorted(by_category.items(), key=lambda item: item[1], reverse=True)[:8]),
         'by_category_count': dict(sorted(by_category_count.items(), key=lambda item: item[1], reverse=True)[:8]),
         'top_inventory': top_inventory,
         'top_unit_costs': top_unit_costs,
         'bom_costs': bom_costs,
+        'bom_count': len(bom_costs),
         'bom_missing_cost_count': bom_missing_cost_count,
         'analysis': [],
     }
