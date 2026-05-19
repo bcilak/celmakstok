@@ -346,7 +346,16 @@ def get_production_info() -> dict:
 
 
 def get_product_costs(keyword: str = "") -> dict:
-    """Return product costs and VAT. Keyword can be a full natural-language question."""
+    """
+    Return unit cost and VAT info for a product or product list.
+
+    USE THIS when user asks about cost/price of a product WITHOUT specifying a quantity:
+    - "tamburlu maliyeti nedir", "X fiyatı ne kadar", "KDV dahil maliyeti"
+    - For multi-unit cost (e.g. "15 tanesinin maliyeti") use calculate_cost_for_quantity instead.
+
+    IMPORTANT: Results are BOM-root (mamul) products first, then sub-components.
+    The first result is almost always the main top-level product the user is asking about.
+    """
     if keyword:
         query, terms = _product_search_query(keyword)
     else:
@@ -357,6 +366,22 @@ def get_product_costs(keyword: str = "") -> dict:
     if not products:
         term_text = ", ".join(terms) if terms else keyword
         return {"result": f"'{term_text}' icin maliyet bilgisi bulunamadi."}
+
+    # BOM kökü olan ürünleri öne al (mamul tipinde ve BOM'da kök olarak yer alanlar)
+    try:
+        from app.utils.bom_utils import list_boms
+        bom_product_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
+    except Exception:
+        bom_product_ids = set()
+
+    type_order = {'mamul': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
+
+    def _sort_key(p):
+        is_bom_root = 0 if p.id in bom_product_ids else 1
+        type_rank = type_order.get((p.type or '').strip().lower(), 9)
+        return (is_bom_root, type_rank, p.name or '')
+
+    products = sorted(products, key=_sort_key)
 
     return {"result": [_format_product_for_ai(p, include_cost=True) for p in products]}
 
@@ -607,6 +632,246 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
                 _format_product_for_ai(p, include_cost=True) for p in stock_risks
             ],
             "not": "Cikis/sarfiyat/transfer toplami satis anlamina gelmeyebilir; sistemde ayri satis kaydi yoksa bunu stok cikisi olarak yorumla."
+        }
+    }
+
+
+def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
+    """
+    Calculate the total cost and BOM component requirements for producing or purchasing N units.
+
+    USE THIS whenever the user specifies a quantity together with a cost question:
+    - "15 tanesinin maliyeti nedir"
+    - "200 adet tamburlu üretmek için ne lazım / ne kadar tutar"
+    - "50 adet [ürün] maliyeti"
+    - Production planning with a target quantity
+
+    Pass the product name/description as `keyword` and the integer count as `quantity`.
+    Returns: unit_cost, total_cost=N×unit_cost, per-component required/available/shortage/shortage_cost.
+    Do NOT compute manually — always call this function for quantity-based cost questions.
+    """
+    from app.utils.bom_utils import get_bom_tree
+
+    try:
+        qty = max(1, int(float(quantity or 1)))
+    except (TypeError, ValueError):
+        qty = 1
+
+    # Ana ürünü bul — BOM kökü (mamul) öncelikli
+    family_result = analyze_product_family(keyword).get('result')
+    snapshot = None
+    if not isinstance(family_result, str):
+        snapshot = _verified_product_snapshot(keyword, family_result)
+
+    if not snapshot:
+        pq, _ = _product_search_query(keyword)
+        try:
+            from app.utils.bom_utils import list_boms
+            bom_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
+        except Exception:
+            bom_ids = set()
+        type_order = {'mamul': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
+        candidates = sorted(
+            pq.limit(50).all(),
+            key=lambda p: (0 if p.id in bom_ids else 1, type_order.get((p.type or '').strip().lower(), 9))
+        )
+        product = candidates[0] if candidates else None
+        if not product:
+            return {"result": f"'{keyword}' icin urun bulunamadi."}
+        unit_cost = float(product.unit_cost or 0)
+        currency = product.currency or 'TRY'
+        return {
+            "result": {
+                "urun": product.name,
+                "kod": product.code,
+                "hedef_miktar": qty,
+                "birim_maliyet": unit_cost,
+                "toplam_maliyet": qty * unit_cost,
+                "para_birimi": currency,
+                "mevcut_mamul_stok": float(product.current_stock or 0),
+                "bilesenler": [],
+                "toplam_eksik_tedarik_maliyeti": 0.0,
+                "not": "Bu urun icin urun agaci bulunamadi; yalnizca urun karti maliyeti kullanildi.",
+            }
+        }
+
+    product = snapshot["product"]
+    best_bom = snapshot.get("bom")
+    unit_cost = snapshot["unit_cost"]
+    currency = snapshot["currency"]
+
+    components = []
+    total_shortage_cost = 0.0
+
+    if best_bom:
+        tree = get_bom_tree(best_bom["bom_id"], db)
+        roots = tree.get("roots") or []
+
+        def _flatten_children(nodes, lst):
+            for node in nodes:
+                lst.append(node)
+                _flatten_children(node.get("children") or [], lst)
+
+        all_comps = []
+        if roots:
+            _flatten_children(roots[0].get("children") or [], all_comps)
+
+        grouped = {}
+        for node in all_comps:
+            key = node.get("code") or node.get("name") or "?"
+            if key not in grouped:
+                grouped[key] = {
+                    "name": node.get("name"),
+                    "code": node.get("code"),
+                    "unit": node.get("unit") or "adet",
+                    "recipe_qty": 0.0,
+                    "stock": float(node.get("stock_qty") or 0.0),
+                    "unit_cost": float(node.get("unit_cost") or 0.0),
+                    "currency": node.get("currency") or currency,
+                }
+            grouped[key]["recipe_qty"] += float(node.get("quantity") or 1.0)
+
+        for comp in grouped.values():
+            required = comp["recipe_qty"] * qty
+            available = comp["stock"]
+            shortage = max(0.0, required - available)
+            shortage_cost = shortage * comp["unit_cost"]
+            total_shortage_cost += shortage_cost
+            components.append({
+                "ad": comp["name"],
+                "kod": comp["code"],
+                "birim": comp["unit"],
+                "recete_miktari": comp["recipe_qty"],
+                "gerekli_miktar": required,
+                "mevcut_stok": available,
+                "eksik_miktar": shortage,
+                "birim_maliyet": comp["unit_cost"],
+                "eksik_tedarik_maliyeti": shortage_cost,
+                "durum": "Yeterli" if shortage == 0 else f"{shortage:.2f} {comp['unit']} eksik",
+            })
+
+    return {
+        "result": {
+            "urun": product.name,
+            "kod": product.code,
+            "tip": product.type,
+            "hedef_miktar": qty,
+            "birim_maliyet": unit_cost,
+            "toplam_maliyet": qty * unit_cost,
+            "para_birimi": currency,
+            "maliyet_kaynagi": snapshot["cost_source"],
+            "mevcut_mamul_stok": float(product.current_stock or 0),
+            "bilesenler": components,
+            "toplam_eksik_tedarik_maliyeti": total_shortage_cost,
+        }
+    }
+
+
+def get_stock_recommendation(keyword: str) -> dict:
+    """
+    Analyze historical consumption and recommend appropriate stock levels for a product.
+
+    USE THIS when user asks:
+    - "ne kadar stok tutmam gerekiyor"
+    - "minimum stok seviyesi ne olmalı"
+    - "guvenlik stogu ne olmali"
+    - "stok ne zaman biter / ne zaman siparis versem"
+    - "stok seviyemi optimize et / ayarla"
+    - "reorder point", "siparis noktasi"
+
+    Returns: daily/weekly/monthly avg consumption, days of stock remaining,
+    recommended minimum stock, safety stock, and estimated stockout date.
+    """
+    pq, terms = _product_search_query(keyword)
+
+    # BOM kökü / mamul öncelikli
+    try:
+        from app.utils.bom_utils import list_boms
+        bom_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
+    except Exception:
+        bom_ids = set()
+
+    type_order = {'mamul': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
+    candidates = sorted(
+        pq.limit(50).all(),
+        key=lambda p: (0 if p.id in bom_ids else 1, type_order.get((p.type or '').strip().lower(), 9))
+    )
+    product = candidates[0] if candidates else None
+    if not product:
+        term_text = ", ".join(terms) if terms else keyword
+        return {"result": f"'{term_text}' icin urun bulunamadi."}
+
+    now = datetime.utcnow()
+    p3m = now - timedelta(days=90)
+    p1m = now - timedelta(days=30)
+    out_types = ['cikis', 'out', 'transfer', 'fire']
+
+    def _qty_sum(since, types):
+        return float(db.session.query(func.sum(StockMovement.quantity)).filter(
+            StockMovement.product_id == product.id,
+            StockMovement.movement_type.in_(types),
+            StockMovement.date >= since
+        ).scalar() or 0)
+
+    out_3m = _qty_sum(p3m, out_types)
+    out_1m = _qty_sum(p1m, out_types)
+    in_3m  = _qty_sum(p3m, ['giris'])
+
+    daily_avg   = out_3m / 90 if out_3m > 0 else 0
+    weekly_avg  = daily_avg * 7
+    monthly_avg = daily_avg * 30
+
+    current_stock = float(product.current_stock or 0)
+    days_remaining = (current_stock / daily_avg) if daily_avg > 0 else None
+
+    stockout_date = None
+    if days_remaining is not None and days_remaining < 730:
+        stockout_date = (now + timedelta(days=days_remaining)).strftime('%Y-%m-%d')
+
+    recommended_min = round(monthly_avg, 2)
+    safety_stock    = round(weekly_avg * 2, 2)
+    reorder_point   = round(weekly_avg * 2, 2)
+
+    if monthly_avg == 0:
+        aciklama = "Son 3 ayda tüketim hareketi bulunamadı; öneri üretilemiyor."
+    elif (product.minimum_stock or 0) < monthly_avg:
+        aciklama = (
+            f"Aylık ortalama tüketim {round(monthly_avg, 1)} {product.unit_type}. "
+            f"Mevcut minimum stok ({product.minimum_stock}) bu değerin altında; "
+            f"en az {round(monthly_avg, 1)} {product.unit_type} olarak güncellenmesi önerilir."
+        )
+    else:
+        aciklama = (
+            f"Aylık ortalama tüketim {round(monthly_avg, 1)} {product.unit_type}. "
+            f"Mevcut minimum stok ({product.minimum_stock}) yeterli görünüyor."
+        )
+
+    return {
+        "result": {
+            "urun": product.name,
+            "kod": product.code,
+            "birim": product.unit_type,
+            "mevcut_stok": current_stock,
+            "mevcut_minimum_stok": float(product.minimum_stock or 0),
+            "tuketim": {
+                "son_3_ay_cikis": out_3m,
+                "son_1_ay_cikis": out_1m,
+                "son_3_ay_giris": in_3m,
+                "gunluk_ortalama": round(daily_avg, 4),
+                "haftalik_ortalama": round(weekly_avg, 2),
+                "aylik_ortalama": round(monthly_avg, 2),
+            },
+            "stok_tahmini": {
+                "kalan_gun": round(days_remaining, 1) if days_remaining is not None else None,
+                "tahmini_bitis_tarihi": stockout_date,
+            },
+            "oneri": {
+                "onerilen_minimum_stok": recommended_min,
+                "guvenlik_stogu": safety_stock,
+                "siparis_noktasi": reorder_point,
+                "aciklama": aciklama,
+            },
+            "not": "Hesaplama son 90 gun stok cikis hareketlerine dayanir. Mevsimsellik ve tedarik suresi dikkate alinmamistir.",
         }
     }
 
@@ -911,7 +1176,11 @@ def _should_answer_locally(query):
         'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'stok', 'satış', 'satis',
         'çıkış', 'cikis', 'sarfiyat', 'ürün ağacı', 'urun agaci', 'reçete',
         'recete', 'bom', 'analiz', 'rapor', 'uretim', 'giris', 'cikti', 'cikan',
-        'elde', 'kac tane', 'kaç tane'
+        'elde', 'kac tane', 'kaç tane',
+        'ne kadar stok', 'minimum stok', 'guvenlik stogu', 'güvenlik stoğu',
+        'stok onerim', 'stok önerim', 'ne zaman siparis', 'ne zaman sipariş',
+        'stok biter', 'reorder', 'siparis noktasi', 'sipariş noktası',
+        'ne kadar tutmam', 'ne kadar tutmalı',
     ]
     local_keywords.extend([
         'kritik', 'biten', 'stoksuz', 'tukenen', 'tukenmis', 'son hareket',
@@ -1024,6 +1293,46 @@ def _local_quick_answer(query):
             lines.append(f"- {cat.name}: **{product_count}** aktif urun")
         return "\n".join(lines)
 
+    # Stok öneri / "ne kadar stok tutmalıyım"
+    stok_oneri_words = [
+        'ne kadar stok', 'kac stok', 'kaç stok', 'minimum stok ne olmali', 'minimum stok ne olmalı',
+        'guvenlik stogu', 'güvenlik stoğu', 'stok onerim', 'stok önerim', 'ne zaman siparis',
+        'ne zaman sipariş', 'stok biter', 'stok ne zaman', 'reorder', 'siparis noktasi', 'sipariş noktası',
+        'stok seviyem', 'stok seviyesi ne', 'ne kadar tutmam', 'ne kadar tutmaliyim', 'ne kadar tutmalıyım',
+    ]
+    if any(w in q for w in stok_oneri_words):
+        # Keyword çıkar
+        terms = _normalize_search_keyword(query)
+        stok_noise = {
+            'ne', 'kadar', 'stok', 'tutmam', 'gerekiyor', 'lazim', 'lazım', 'olmali', 'olmalı',
+            'minimum', 'guvenlik', 'güvenlik', 'stogu', 'stoğu', 'oneri', 'öneri', 'seviyesi',
+            'ne zaman', 'siparis', 'sipariş', 'noktasi', 'noktası', 'reorder', 'biter', 'seviyem'
+        }
+        product_terms = [t for t in terms if t.lower() not in stok_noise]
+        if product_terms:
+            kw = " ".join(product_terms)
+            rec = get_stock_recommendation(kw).get('result')
+            if isinstance(rec, str):
+                return rec
+            urun = rec.get('urun', '')
+            birim = rec.get('birim', '')
+            t = rec.get('tuketim', {})
+            o = rec.get('oneri', {})
+            s = rec.get('stok_tahmini', {})
+            lines = [f"### {urun} — Stok Öneri"]
+            lines.append(f"- Mevcut stok: **{_fmt_qty(rec.get('mevcut_stok', 0))} {birim}**")
+            lines.append(f"- Aylık ortalama tüketim: **{_fmt_qty(t.get('aylik_ortalama', 0))} {birim}**")
+            lines.append(f"- Günlük ortalama: **{_fmt_qty(t.get('gunluk_ortalama', 0))} {birim}**")
+            if s.get('kalan_gun') is not None:
+                lines.append(f"- Tahmini stok bitişi: **{s['kalan_gun']} gün** ({s.get('tahmini_bitis_tarihi', '?')})")
+            lines.append("")
+            lines.append(f"**Öneri:**")
+            lines.append(f"- Minimum stok: **{_fmt_qty(o.get('onerilen_minimum_stok', 0))} {birim}**")
+            lines.append(f"- Güvenlik stoğu: **{_fmt_qty(o.get('guvenlik_stogu', 0))} {birim}**")
+            lines.append(f"- Sipariş noktası: **{_fmt_qty(o.get('siparis_noktasi', 0))} {birim}** (bu seviyeye düşünce sipariş ver)")
+            lines.append(f"\n_{o.get('aciklama', '')}_")
+            return "\n".join(lines)
+
     return None
 
 
@@ -1053,10 +1362,14 @@ def _is_cost_only_query(query):
 def _extract_quantity(query):
     import re
     q = (query or '').lower()
-    assoc_match = re.search(r'\b(\d+)\s*(?:tane|adet|parca|parça|set|palet|kg|metre|ton|kutu|uretim|üretim|siparis|sipariş)\b', q)
+    # "15 tane", "15 tanesinin", "15 tanesini", "15 tanesinden" gibi Türkçe ekleri de yakala
+    assoc_match = re.search(
+        r'\b(\d+)\s*(?:tanes?(?:in(?:in|i|den)?|i(?:ni|nden)?)?|adet|parca|parça|set|palet|kg|metre|ton|kutu|uretim|üretim|siparis|sipariş)\b',
+        q
+    )
     if assoc_match:
         return int(assoc_match.group(1))
-    
+
     assoc_match_rev = re.search(r'\b(?:tane|adet|uretim|üretim|siparis|sipariş)\s+(\d+)\b', q)
     if assoc_match_rev:
         return int(assoc_match_rev.group(1))
@@ -1349,77 +1662,92 @@ def ai_assistant_ask():
 
         system_instruction = """
 Sen ÇELMAK firmasının Stok ve Üretim Takip sisteminde (MRP) çalışan, Türkçe konuşan Raporlama Asistanısın.
+Veritabanına erişmek için sağlanan fonksiyonları (tools) kullan. Tahmin yürütme — veriyi fonksiyondan çek.
 
-VERİ ÇEKME:
-- Kullanıcı veritabanı hakkında soru sorduğunda fonksiyonları (tools) kullan.
-- Maliyet/fiyat soruları için get_product_costs fonksiyonunu kullan.
-- Fonksiyonları sadece gerektiğinde çağır, gereksiz yere çağırma.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ARAÇ SEÇİM KURALLARI — bu tabloyu KESINLIKLE uygula:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. calculate_cost_for_quantity(keyword, quantity)
+   KULLAN: Kullanıcı belirli bir SAYI + maliyet/üretim sorarsa
+   Örnekler: "15 tanesinin maliyeti", "200 adet tamburlu üretmek için ne gerekiyor",
+             "50 adet X ne kadar tutar", "N tane üretirsem ne kadar"
+   → keyword = ürün adı/açıklaması, quantity = tam sayı
+   → Bu durumlarda BAŞKA ARAÇ KULLANMA, manuel hesap YAPMA
+
+2. get_stock_recommendation(keyword)
+   KULLAN: Stok seviyesi tavsiyesi / sipariş noktası soruları
+   Örnekler: "ne kadar stok tutmam gerekiyor", "minimum stok ne olmalı",
+             "güvenlik stoğu ne olmalı", "stok ne zaman biter", "ne zaman sipariş versem"
+   → keyword = ürün adı
+
+3. get_product_costs(keyword)
+   KULLAN: Tek ürün, adet BELİRTMEKSİZİN maliyet/fiyat sorusu
+   Örnekler: "165 tamburlu maliyeti nedir", "X fiyatı ne kadar", "KDV dahil maliyeti"
+   → Dönen listede ilk kayıt ana üründür (BOM kökü / mamul öncelikli)
+   → Sadece maliyet sorulmuşsa tek satır cevap yeterli: "ÜRÜN maliyeti: X TRY"
+
+4. get_bom_costs(keyword)
+   KULLAN: Ürünün ALT PARÇALARININ maliyeti / reçete detayı sorulduğunda
+   Örnekler: "tamburlunun alt parçaları ne kadar", "reçete kalemleri maliyeti",
+             "ürün ağacı maliyeti", "bileşenlerinin maliyeti"
+
+5. search_product(keyword)
+   KULLAN: Stok miktarı, lokasyon, ürün detayı (maliyet SORMADAN)
+   Örnekler: "elimde kaç tane X var", "X stokta mı", "X nerede"
+
+6. analyze_product_family(keyword)
+   KULLAN: Ürün ailesi / genel analiz
+   Örnekler: "tamburlu durumu nasıl", "tamburlu ürünleri analiz et"
+
+7. get_product_movements(keyword, limit)
+   KULLAN: Hareket geçmişi soruları
+   Örnekler: "X'in son hareketleri", "bu ay X'ten ne kadar çıktı"
+
+8. get_critical_stock() / get_stock_overview()
+   KULLAN: Genel stok durumu, biten/kritik ürünler
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ANA ÜRÜN SEÇİMİ KURALI ("165 tamburlu maliyeti" tipi sorgular):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Kullanıcı bir ürün adı + "maliyeti" dediğinde, sisteme kayıtlı ürünlerden ÖNCELİK SIRASI:
+  1. BOM kökü olan mamul ürün (ürün ağacının en tepesi)
+  2. Mamul tipindeki ürün (BOM olmasa bile)
+  3. Yarımamul
+  4. Alt parça / hammadde (son çare)
+- get_product_costs fonksiyonu bu sıralamayı zaten yaparak ilk sonucu döner.
+- Eğer sistem zaten kullanıcıya "birden fazla eşleşme" sorusu sorduysa, kullanıcının seçimini dikkate al.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CEVAP FORMATI:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Doğrudan bil­gi ver; "Merhaba, sorunuzu anlıyorum..." tarzı giriş yok.
+- Sadece maliyet sorulmuşsa → tek satır: "**ÜRÜN ADI** maliyeti: **X.XXX,XX TRY**"
+- N adet maliyet sorulmuşsa → birim maliyet + toplam + eksik bileşenler (varsa)
+- Stok öneri sorulmuşsa → tüketim + öneri + tahmini bitiş tarihi
+- Alt parça maliyeti sorulmuşsa → kısa bileşen listesi (en pahalı 5'i yeter)
+- Önemli sayıları **kalın** yaz. Tablo KULLANMA. Ham JSON gösterme.
+- Çok fazla eşleşme varsa tamamını sıralama, önemli 3-5'ini seç.
 
 SİSTEM BİLGİLERİ:
-- Ürün Tipleri: "hammadde" (dışarıdan alınan), "yarimamul" (atölyede işlenen), "mamul" (bitmiş/satılabilir)
-- Stoklar lokasyonlara bölünmüştür (üretim hattı, depo vb.)
-- Birim Maliyet satın alma uygulamasından senkronize edilir
+- Ürün Tipleri: "hammadde" (satın alınan), "yarimamul" (atölyede işlenen), "mamul" (bitmiş)
 - KDV Dahil = Birim Maliyet × (1 + KDV/100)
-
-CEVAP FORMATI:
-- Kısa, net, doğrudan ve analiz gibi cevap ver. Gereksiz tekrar YAPMA.
-- Kullanici yalnizca maliyet/fiyat sorarsa sadece ilgili urunun maliyetini yaz; stok, satis, not, uyari, kirilim veya alt kalem verme.
-- Tek bir ürün sorulduğunda madde işareti (•) ile önemli bilgileri alt alta yaz.
-- Excel gibi tablo oluşturma. Çok ürün çıksa bile tablo KULLANMA.
-- Kullanıcı tek kelime/aile adı yazarsa (örn. "tamburlu") liste dökme; önce özet analiz ver.
-- "Maliyet şu kadar, stok şu kadar, çıkış/sarfiyat şu kadar, risk şu" gibi yönetici özeti yaz.
-- Çok fazla ürün varsa en önemli 3-5 ürünü veya riski seçip anlat; tamamını sıralama.
-- Önemli sayıları **kalın** yap.
-- Asla ham json veya liste formatı gösterme, insan dostu yaz.
-- Cevaba gereksiz giriş cümlesi ekleme, direkt bilgiyi ver.
-        """
-
-        system_instruction += """
-
-ÜRETİM PLANLAMA VE HESAPLAMA KURALLARI:
-- Kullanıcı belirli bir miktarda (örn. 200 adet) üretim yapılması durumundaki maliyeti veya gerekli stok/tedarik miktarını sorduğunda:
-  1. Önce ilgili ürünün ürün ağacını/reçetesini almak için `get_bom_costs` fonksiyonunu çağır.
-  2. Ürünün birim reçete maliyetini (yaklaşık toplam maliyet) bul ve bunu hedef üretim miktarı (N) ile çarparak **Toplam Üretim Maliyeti**'ni hesapla.
-  3. Reçete kalemlerindeki (recete_kalemleri) alt bileşenleri (hammadde ve yarımamuller) analiz et. Her bir bileşen için:
-     - Reçetedeki birim miktarı × hedef üretim miktarı (N) = **Gerekli Toplam Miktar**'ı hesapla.
-     - Bu bileşenin eldeki mevcut stoğunu (`stok`) verilerden bul.
-     - Eğer Gerekli Toplam Miktar, eldeki mevcut stoktan fazlaysa, **Eksik Miktar (Açık)** = Gerekli Toplam Miktar - Mevcut Stok olarak hesapla. Eldeki stok yeterliyse eksik miktar 0'dır.
-     - Eksik Miktar > 0 olan bileşenler için **Tedarik/Satın Alma Maliyeti** = Eksik Miktar × Bileşenin Birim Maliyeti (`birim_maliyet`) olarak hesapla.
-  4. Kullanıcıya şu bilgileri son derece profesyonel, okunaklı ve düzenli bir şekilde sun:
-     - **Hedef Üretim**: Ürün adı, hedef adet (örn. 200 adet) ve toplam üretim maliyeti.
-     - **Mevcut Stok Durumu**: Ürünün kendisinden şu an elimizde kaç adet hazır bulunduğu (eğer varsa, üretim ihtiyacını azaltabilir).
-     - **Eksik Bileşenler ve Tedarik Listesi**: Gerekli olan ancak eldeki stoğu yetersiz kalan hammaddelerin/yarımamullerin listesi. Her biri için: Gerekli miktar, eldeki stok, eksik kalan miktar ve bu eksik kalan miktarın satın alma/tedarik maliyeti.
-     - **Toplam Tedarik Maliyeti**: Sadece eksik kalan bileşenleri satın almak için yapılması gereken toplam harcama tutarı.
-- Bu tür üretim planlama sorularında, "Mamul sorularında alt parçaları listeleme" genel kuralını esnet; çünkü kullanıcı doğrudan alt parçaların stok yeterliliğini ve tedarik ihtiyacını sormaktadır!
-
-EK VERI KURALLARI:
-- Genel stok durumu, toplam, kritik veya tukenen urun sorularinda get_stock_overview veya get_critical_stock kullan.
-- Urun adi/kodu gecen stok, lokasyon, malzeme veya detay sorularinda search_product kullan.
-- Kullanici tek bir urun ailesi/kelime yazarsa veya analiz isterse analyze_product_family kullan; tablo gibi listeleme yapma.
-- Bir urunun hareket gecmisi sorulursa get_product_movements kullan.
-- Maliyet/fiyat/KDV sorulari icin get_product_costs fonksiyonunu kullan.
-- Urun agaci, BOM, recete, parca listesi veya yaklasik urun agaci maliyeti sorularinda get_bom_costs kullan.
-- Satis kelimesi gecerse sistemde ayri satis kaydi yoksa stok cikisi/sarfiyat/transfer toplamlarini "cikis/sarfiyat" diye belirt, kesin satis gibi sunma.
-- Veritabaniyla ilgili sorularda tahmin etme; once uygun fonksiyonu cagir.
-
-BIG BOSS KURALLARI:
-- Mamul sorularinda alt parcalari listeleme; sadece mamul seviyesi onemli bilgileri ver (Üretim planlama ve stok tedarik hesaplamaları hariç).
-- Oncelik sirasi: yaklasik maliyet, eldeki stok, bu hafta/ay/yil satis veya stok cikisi.
-- Cok fazla eslesme varsa mamul/BOM kokunu sec; tum urunleri ve parcalari siralama.
-- BOM ve recete bilgisini sadece sonuc maliyeti hesaplamak icin kullan (Üretim planlama ve stok tedarik hesaplamaları hariç).
-- Sadece maliyet istenirse cevap tek satir olsun: "URUN ADI maliyeti: TUTAR TRY".
+- Hareket tipleri: giris (alış), cikis (kullanım/sarfiyat), transfer, fire
+- "Satış" olarak sunma; sistemde satış kaydı yok, stok çıkışı/sarfiyat var
         """
 
         tools = [
+            calculate_cost_for_quantity,
+            get_stock_recommendation,
+            get_product_costs,
+            get_bom_costs,
+            search_product,
             get_stock_overview,
             get_critical_stock,
-            search_product,
             analyze_product_family,
             get_product_movements,
-            get_bom_costs,
             get_recent_movements,
             get_production_info,
-            get_product_costs,
         ]
         model = genai.GenerativeModel('gemini-3.1-flash-lite', tools=tools, system_instruction=system_instruction)
 
