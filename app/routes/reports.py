@@ -95,11 +95,22 @@ def _product_search_query(keyword):
     if strict_query.first():
         return strict_query, terms
 
-    loose_query = query.filter(db.or_(*filters))
+    # EĞER BİRDEN FAZLA KELİME VARSA VE STRICT EŞLEŞME BULUNAMADIYSA:
+    # Sayısal olmayan anlamlı kelimeleri tercih et (örn: "tamburlu 200" sorgusunda sadece "tamburlu"yu ara).
+    non_numeric_filters = [f for f, term in zip(filters, terms) if not term.isdigit()]
+    if non_numeric_filters:
+        loose_query = query.filter(db.or_(*non_numeric_filters))
+    else:
+        loose_query = query.filter(db.or_(*filters))
+
     if loose_query.first():
         return loose_query, terms
 
     folded_terms = _search_terms(terms)
+    meaningful_folded_terms = [t for t in folded_terms if not t.isdigit()]
+    if not meaningful_folded_terms:
+        meaningful_folded_terms = folded_terms
+
     scored = []
     for product in query.limit(2000).all():
         haystack = _search_haystack(
@@ -110,7 +121,7 @@ def _product_search_query(keyword):
             product.notes,
             product.category.name if product.category else '',
         )
-        score = sum(1 for term in folded_terms if term and term in haystack)
+        score = sum(1 for term in meaningful_folded_terms if term and term in haystack)
         if score:
             scored.append((score, product.id))
 
@@ -791,6 +802,21 @@ def _is_quota_error(error):
 
 def _should_answer_locally(query):
     q = (query or '').lower()
+    
+    # EĞER HEDEF MİKTAR / ÜRETİM PLANLAMA SORGUSU İSE LOCAL YANIT VERME (GEMINI'YE GİTSİN)
+    # Eğer sorgu sayısal bir değer (örn. 200) içeriyorsa, bu bir üretim/maliyet/stok planlama adedi
+    # olabilir. Bu durumda yerel basit/statik cevap yerine Gemini'nin reçete ve tedarik maliyetlerini
+    # hesaplaması gerekir.
+    import re
+    if re.search(r'\b\d+\b', q):
+        planning_keywords = [
+            'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim', 
+            'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım', 
+            'gerek', 'gerekiyor', 'yapmam', 'yapmalı'
+        ]
+        if any(word in q for word in planning_keywords):
+            return False
+
     terms = _normalize_search_keyword(q)
     local_keywords = [
         'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'stok', 'satış', 'satis',
