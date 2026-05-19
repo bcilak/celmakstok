@@ -1157,6 +1157,140 @@ def index():
     return render_template('reports/index.html')
 
 
+def _cost_report_analysis(stats):
+    notes = []
+    if stats['missing_cost_count']:
+        notes.append(
+            f"{stats['missing_cost_count']} aktif urunde birim maliyet yok. Bu kalemler stok degeri ve BOM maliyetini dusuk gosterir."
+        )
+    if stats['priced_count'] and stats['total_products']:
+        coverage = (stats['priced_count'] / stats['total_products']) * 100
+        notes.append(f"Fiyat kapsami %{coverage:.1f}; fiyat kartlari tamamlandikca rapor daha guvenilir olur.")
+    if stats['top_inventory']:
+        leader = stats['top_inventory'][0]
+        notes.append(
+            f"Stok degerinde en buyuk kalem {leader['name']} ({_fmt_money(leader['value'], leader['currency'])})."
+        )
+    if stats['bom_missing_cost_count']:
+        notes.append(
+            f"Urun agaclarinda {stats['bom_missing_cost_count']} yaprak kalemde maliyet eksigi var; once bu kalemler fiyatlandirilmali."
+        )
+    if not notes:
+        notes.append("Maliyet verisi genel olarak tamam gorunuyor; duzenli fiyat guncellemesiyle takip edilebilir.")
+    return notes
+
+
+@reports_bp.route('/costs')
+@login_required
+@roles_required('Genel')
+def cost_report():
+    """Maliyet raporu ve analizleri"""
+    from app.utils.bom_utils import get_bom_tree, list_boms
+
+    products = Product.query.filter_by(is_active=True).all()
+    priced_products = [p for p in products if p.unit_cost and p.unit_cost > 0]
+    missing_cost_products = [p for p in products if not (p.unit_cost and p.unit_cost > 0)]
+
+    total_inventory_value = sum(float(p.current_stock or 0) * float(p.unit_cost or 0) for p in products)
+    total_stock_qty = sum(float(p.current_stock or 0) for p in products)
+
+    by_type = {}
+    by_category = {}
+    by_category_count = {}
+    for p in products:
+        value = float(p.current_stock or 0) * float(p.unit_cost or 0)
+        ptype = p.type or 'belirsiz'
+        by_type.setdefault(ptype, {'count': 0, 'value': 0.0})
+        by_type[ptype]['count'] += 1
+        by_type[ptype]['value'] += value
+
+        category_name = p.category.name if p.category else 'Kategorisiz'
+        by_category.setdefault(category_name, 0.0)
+        by_category[category_name] += value
+        by_category_count.setdefault(category_name, 0)
+        by_category_count[category_name] += 1
+
+    top_inventory = sorted(
+        [
+            {
+                'code': p.code,
+                'name': p.name,
+                'stock': float(p.current_stock or 0),
+                'unit': p.unit_type,
+                'unit_cost': float(p.unit_cost or 0),
+                'currency': p.currency or 'TRY',
+                'value': float(p.current_stock or 0) * float(p.unit_cost or 0),
+            }
+            for p in priced_products
+            if (p.current_stock or 0) > 0
+        ],
+        key=lambda row: row['value'],
+        reverse=True
+    )[:10]
+
+    top_unit_costs = sorted(
+        [
+            {
+                'code': p.code,
+                'name': p.name,
+                'type': p.type,
+                'unit_cost': float(p.unit_cost or 0),
+                'currency': p.currency or 'TRY',
+                'unit': p.unit_type,
+            }
+            for p in priced_products
+        ],
+        key=lambda row: row['unit_cost'],
+        reverse=True
+    )[:10]
+
+    bom_costs = []
+    bom_missing_cost_count = 0
+    for bom in list_boms(db):
+        tree = get_bom_tree(bom['bom_id'], db)
+        roots = tree.get('roots') or []
+        if not roots:
+            continue
+        nodes = list(_iter_bom_nodes(roots))
+        leaf_nodes = [node for node in nodes if not node.get('children')]
+        missing = sum(
+            1 for node in leaf_nodes
+            if not (node.get('unit_cost') and node.get('unit_cost') > 0)
+            and not (node.get('total_cost') and node.get('total_cost') > 0)
+        )
+        bom_missing_cost_count += missing
+        root = roots[0]
+        bom_costs.append({
+            'bom_id': bom['bom_id'],
+            'name': bom.get('root_name') or f"BOM #{bom['bom_id']}",
+            'total_cost': float(root.get('total_cost') or 0),
+            'currency': root.get('currency') or 'TRY',
+            'node_count': bom.get('node_count') or len(nodes),
+            'missing_cost_count': missing,
+        })
+
+    bom_costs = sorted(bom_costs, key=lambda row: row['total_cost'], reverse=True)[:10]
+
+    stats = {
+        'total_products': len(products),
+        'priced_count': len(priced_products),
+        'missing_cost_count': len(missing_cost_products),
+        'total_inventory_value': total_inventory_value,
+        'total_stock_qty': total_stock_qty,
+        'by_type': by_type,
+        'by_category': dict(sorted(by_category.items(), key=lambda item: item[1], reverse=True)[:8]),
+        'by_category_count': dict(sorted(by_category_count.items(), key=lambda item: item[1], reverse=True)[:8]),
+        'top_inventory': top_inventory,
+        'top_unit_costs': top_unit_costs,
+        'bom_costs': bom_costs,
+        'bom_missing_cost_count': bom_missing_cost_count,
+        'analysis': [],
+    }
+    stats['analysis'] = _cost_report_analysis(stats)
+
+    return render_template('reports/costs.html', stats=stats)
+
+
 # ================== STOK RAPORLARI ==================
 
 @reports_bp.route('/stock')

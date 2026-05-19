@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block title %}Maliyet Raporu - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h1 class="page-title"><i class="bi bi-cash-stack me-2"></i>Maliyet Raporu</h1>
+            <p class="page-subtitle">Stok değeri, ürün ağacı maliyetleri ve maliyet analizi</p>
+        </div>
+        <a href="{{ url_for('reports.index') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Raporlara Dön
+        </a>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="metric-card">
+            <span>Toplam Stok Değeri</span>
+            <strong>{{ "%.2f"|format(stats.total_inventory_value) }} ₺</strong>
+            <small>Fiyatı olan stoklardan hesaplandı</small>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="metric-card">
+            <span>Fiyatlı Ürün</span>
+            <strong>{{ stats.priced_count }}</strong>
+            <small>{{ stats.total_products }} aktif ürün içinde</small>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="metric-card warning">
+            <span>Fiyatı Eksik Ürün</span>
+            <strong>{{ stats.missing_cost_count }}</strong>
+            <small>Maliyeti düşük gösterebilir</small>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="metric-card danger">
+            <span>BOM Fiyat Eksiği</span>
+            <strong>{{ stats.bom_missing_cost_count }}</strong>
+            <small>Yaprak kalem bazında</small>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-xl-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom py-3">
+                <h5 class="mb-0"><i class="bi bi-graph-up-arrow me-2"></i>Maliyet Analizi</h5>
+            </div>
+            <div class="card-body">
+                <div class="analysis-list">
+                    {% for note in stats.analysis %}
+                    <div class="analysis-item">
+                        <i class="bi bi-check2-circle"></i>
+                        <span>{{ note }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom py-3">
+                <h5 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Ürün Tipi Dağılımı</h5>
+            </div>
+            <div class="card-body chart-box">
+                <canvas id="typeChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-xl-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom py-3">
+                <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Kategori Bazlı Stok Değeri</h5>
+            </div>
+            <div class="card-body chart-box wide">
+                <canvas id="categoryChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom py-3">
+                <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Ürün Ağacı Maliyetleri</h5>
+            </div>
+            <div class="card-body chart-box wide">
+                <canvas id="bomChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-7">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom py-3">
+                <h5 class="mb-0"><i class="bi bi-sort-down me-2"></i>Stok Değeri En Yüksek Ürünler</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Ürün</th>
+                            <th class="text-end">Stok</th>
+                            <th class="text-end">Birim Maliyet</th>
+                            <th class="text-end">Stok Değeri</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in stats.top_inventory %}
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">{{ row.name }}</div>
+                                <small class="text-muted">{{ row.code }}</small>
+                            </td>
+                            <td class="text-end">{{ "%.2f"|format(row.stock) }} {{ row.unit }}</td>
+                            <td class="text-end">{{ "%.2f"|format(row.unit_cost) }} {{ row.currency }}</td>
+                            <td class="text-end fw-bold text-success">{{ "%.2f"|format(row.value) }} {{ row.currency }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted py-4">Stok değeri hesaplanabilen ürün yok.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-5">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom py-3">
+                <h5 class="mb-0"><i class="bi bi-tags me-2"></i>Birim Maliyeti En Yüksek Ürünler</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Ürün</th>
+                            <th>Tip</th>
+                            <th class="text-end">Birim Maliyet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in stats.top_unit_costs %}
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">{{ row.name }}</div>
+                                <small class="text-muted">{{ row.code }}</small>
+                            </td>
+                            <td><span class="badge bg-secondary">{{ row.type or '-' }}</span></td>
+                            <td class="text-end fw-bold">{{ "%.2f"|format(row.unit_cost) }} {{ row.currency }}/{{ row.unit }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" class="text-center text-muted py-4">Fiyatlı ürün bulunamadı.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .metric-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-left: 4px solid #0d6efd;
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+        padding: 18px;
+        min-height: 122px;
+    }
+
+    .metric-card span {
+        display: block;
+        color: #64748b;
+        font-size: .86rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+
+    .metric-card strong {
+        display: block;
+        color: #0f172a;
+        font-size: 1.65rem;
+        line-height: 1.2;
+    }
+
+    .metric-card small {
+        color: #64748b;
+    }
+
+    .metric-card.warning {
+        border-left-color: #f59e0b;
+    }
+
+    .metric-card.danger {
+        border-left-color: #dc3545;
+    }
+
+    .analysis-list {
+        display: grid;
+        gap: 12px;
+    }
+
+    .analysis-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #f8fafc;
+        color: #1f2937;
+    }
+
+    .analysis-item i {
+        color: #0f766e;
+        margin-top: 2px;
+    }
+
+    .chart-box {
+        height: 280px;
+        position: relative;
+    }
+
+    .chart-box.wide {
+        height: 320px;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const typeData = {{ stats.by_type|tojson }};
+    const categoryData = {{ stats.by_category|tojson }};
+    const categoryCountData = {{ stats.by_category_count|tojson }};
+    const bomData = {{ stats.bom_costs|tojson }};
+    const typeValues = Object.values(typeData).map(item => item.value || 0);
+    const typeUsesCost = typeValues.some(value => value > 0);
+    const categoryValues = Object.values(categoryData);
+    const categoryUsesCost = categoryValues.some(value => value > 0);
+    const bomValues = bomData.map(item => item.total_cost || 0);
+    const bomUsesCost = bomValues.some(value => value > 0);
+
+    function moneyLabel(value) {
+        return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 }).format(value || 0) + ' ₺';
+    }
+
+    new Chart(document.getElementById('typeChart'), {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(typeData),
+            datasets: [{
+                data: typeUsesCost ? typeValues : Object.values(typeData).map(item => item.count || 0),
+                backgroundColor: ['#0d6efd', '#14b8a6', '#f59e0b', '#dc3545', '#64748b'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: { callbacks: { label: ctx => `${ctx.label}: ${typeUsesCost ? moneyLabel(ctx.raw) : `${ctx.raw} ürün`}` } }
+            }
+        }
+    });
+
+    new Chart(document.getElementById('categoryChart'), {
+        type: 'bar',
+        data: {
+            labels: categoryUsesCost ? Object.keys(categoryData) : Object.keys(categoryCountData),
+            datasets: [{
+                label: categoryUsesCost ? 'Stok Değeri' : 'Ürün Sayısı',
+                data: categoryUsesCost ? categoryValues : Object.values(categoryCountData),
+                backgroundColor: '#0d6efd',
+                borderRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { ticks: { callback: value => categoryUsesCost ? moneyLabel(value) : value } } },
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => categoryUsesCost ? moneyLabel(ctx.raw) : `${ctx.raw} ürün` } } }
+        }
+    });
+
+    new Chart(document.getElementById('bomChart'), {
+        type: 'bar',
+        data: {
+            labels: bomData.map(item => `#${item.bom_id} ${item.name}`),
+            datasets: [{
+                label: bomUsesCost ? 'BOM Maliyeti' : 'Fiyat Eksiği',
+                data: bomUsesCost ? bomValues : bomData.map(item => item.missing_cost_count || 0),
+                backgroundColor: '#14b8a6',
+                borderRadius: 6
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { x: { ticks: { callback: value => bomUsesCost ? moneyLabel(value) : value } } },
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => bomUsesCost ? moneyLabel(ctx.raw) : `${ctx.raw} eksik kalem` } } }
+        }
+    });
+</script>
+{% endblock %}
