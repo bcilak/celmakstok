@@ -1,12 +1,23 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
-from app.models import Product, StockMovement, Category
+from app.models import Product, StockMovement, Category, Location, LocationStock
 from app import db
 from datetime import datetime, date
 import json
 from app.utils.decorators import roles_required
 
 stock_bp = Blueprint('stock', __name__)
+
+
+def _product_payload(product):
+    return {
+        'id': product.id,
+        'code': product.code or '',
+        'name': product.name or '',
+        'stock': float(product.current_stock or 0),
+        'unit': product.unit_type or 'adet',
+        'type': product.type or '',
+    }
 
 @stock_bp.route('/')
 @login_required
@@ -307,6 +318,139 @@ def quick_movement():
     ).order_by(StockMovement.date.desc()).limit(10).all()
     
     return render_template('stock/quick.html', products=products, products_json=products_json, recent_movements=recent_movements)
+
+
+@stock_bp.route('/bulk-entry', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici', 'Personel')
+def bulk_entry():
+    """Uretim ve sevkiyat icin toplu stok giris/cikis ekrani."""
+    if request.method == 'POST':
+        operation = request.form.get('operation', 'production')
+        location_id = request.form.get('location_id', type=int)
+        note = (request.form.get('note') or '').strip()
+        raw_items = request.form.get('items_json') or '[]'
+
+        try:
+            items = json.loads(raw_items)
+        except json.JSONDecodeError:
+            items = []
+
+        if operation not in ['production', 'shipment']:
+            flash('Islem tipi gecersiz.', 'error')
+            return redirect(url_for('stock.bulk_entry'))
+        if not isinstance(items, list) or not items:
+            flash('En az bir urun satiri eklemelisin.', 'error')
+            return redirect(url_for('stock.bulk_entry'))
+
+        location = Location.query.get(location_id) if location_id else None
+        if location_id and (not location or not location.is_active):
+            flash('Secilen lokasyon bulunamadi.', 'error')
+            return redirect(url_for('stock.bulk_entry'))
+
+        valid_rows = []
+        errors = []
+        for index, item in enumerate(items, start=1):
+            try:
+                product_id = int(item.get('product_id'))
+                quantity = float(item.get('quantity'))
+            except (TypeError, ValueError):
+                errors.append(f'{index}. satirda urun veya miktar gecersiz.')
+                continue
+
+            if quantity <= 0:
+                errors.append(f'{index}. satirda miktar sifirdan buyuk olmali.')
+                continue
+
+            product = Product.query.filter_by(id=product_id, is_active=True).first()
+            if not product:
+                errors.append(f'{index}. satirdaki urun bulunamadi.')
+                continue
+
+            loc_stock = None
+            if location:
+                loc_stock = LocationStock.query.filter_by(location_id=location.id, product_id=product.id).first()
+            available_location = float(loc_stock.quantity or 0) if loc_stock else 0
+            available_total = float(product.current_stock or 0)
+            if operation == 'shipment' and quantity > available_total:
+                errors.append(
+                    f'{product.code} - {product.name}: toplam stok yetersiz '
+                    f'(toplam {available_total:g}).'
+                )
+                continue
+            if operation == 'shipment' and location and quantity > available_location:
+                errors.append(
+                    f'{product.code} - {product.name}: stok yetersiz '
+                    f'(lokasyon {available_location:g}, toplam {available_total:g}).'
+                )
+                continue
+
+            valid_rows.append((product, loc_stock, quantity))
+
+        if errors:
+            for message in errors[:8]:
+                flash(message, 'error')
+            if len(errors) > 8:
+                flash(f'{len(errors) - 8} hata daha var.', 'error')
+            return redirect(url_for('stock.bulk_entry'))
+
+        movement_type = 'giris' if operation == 'production' else 'cikis'
+        source = 'Uretim' if operation == 'production' else (location.name if location else 'Genel Stok')
+        destination = (location.name if location else 'Genel Stok') if operation == 'production' else 'Sevkiyat'
+        total_quantity = 0
+
+        for product, loc_stock, quantity in valid_rows:
+            if operation == 'production':
+                product.current_stock = float(product.current_stock or 0) + quantity
+                if location and not loc_stock:
+                    loc_stock = LocationStock(location_id=location.id, product_id=product.id, quantity=0)
+                    db.session.add(loc_stock)
+                if loc_stock:
+                    loc_stock.quantity = float(loc_stock.quantity or 0) + quantity
+                movement = StockMovement(
+                    product_id=product.id,
+                    movement_type=movement_type,
+                    quantity=quantity,
+                    source=source,
+                    destination=destination,
+                    to_location_id=location.id if location else None,
+                    note=note or 'Toplu uretim girisi',
+                    user_id=current_user.id
+                )
+            else:
+                product.current_stock = float(product.current_stock or 0) - quantity
+                if loc_stock:
+                    loc_stock.quantity = float(loc_stock.quantity or 0) - quantity
+                movement = StockMovement(
+                    product_id=product.id,
+                    movement_type=movement_type,
+                    quantity=quantity,
+                    source=source,
+                    destination=destination,
+                    from_location_id=location.id if location else None,
+                    note=note or 'Toplu sevkiyat cikisi',
+                    user_id=current_user.id
+                )
+            db.session.add(movement)
+            total_quantity += quantity
+
+        db.session.commit()
+        label = 'uretim girisi' if operation == 'production' else 'sevkiyat cikisi'
+        flash(f'{len(valid_rows)} satir kaydedildi, toplam {total_quantity:g} miktar {label} islendi.', 'success')
+        return redirect(url_for('stock.bulk_entry'))
+
+    products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
+    locations = Location.query.filter_by(is_active=True).order_by(Location.name).all()
+    recent_movements = StockMovement.query.order_by(StockMovement.date.desc()).limit(12).all()
+    products_json = json.dumps([_product_payload(product) for product in products], ensure_ascii=False)
+
+    return render_template(
+        'stock/bulk_entry.html',
+        products=products,
+        products_json=products_json,
+        locations=locations,
+        recent_movements=recent_movements
+    )
 
 
 @stock_bp.route('/api/search-products')

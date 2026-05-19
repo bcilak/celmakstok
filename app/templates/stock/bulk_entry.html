@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+
+{% block title %}Toplu Üretim / Sevkiyat{% endblock %}
+
+{% block extra_css %}
+<style>
+    .mode-tabs {
+        display: inline-flex;
+        gap: 6px;
+        padding: 4px;
+        background: #eef2f7;
+        border-radius: 8px;
+    }
+
+    .mode-tabs button {
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 14px;
+        background: transparent;
+        color: #475569;
+        font-weight: 600;
+    }
+
+    .mode-tabs button.active {
+        background: #fff;
+        color: #0f172a;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+    }
+
+    .product-search-panel {
+        position: relative;
+    }
+
+    .product-results {
+        position: absolute;
+        z-index: 30;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: #fff;
+        border: 1px solid #dbe3ef;
+        border-radius: 8px;
+        margin-top: 4px;
+        max-height: 300px;
+        overflow: auto;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+    }
+
+    .product-result {
+        width: 100%;
+        border: 0;
+        background: #fff;
+        text-align: left;
+        padding: 10px 12px;
+        border-bottom: 1px solid #eef2f7;
+    }
+
+    .product-result:hover {
+        background: #f8fafc;
+    }
+
+    .bulk-table th {
+        font-size: 12px;
+        color: #64748b;
+        text-transform: uppercase;
+    }
+
+    .bulk-table td {
+        vertical-align: middle;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start gap-3">
+    <div>
+        <h1 class="page-title">Toplu Üretim / Sevkiyat Girişi</h1>
+        <p class="page-subtitle">Ürünleri hızlıca seç, miktarları gir ve tek seferde stok hareketi oluştur.</p>
+    </div>
+    <a href="{{ url_for('stock.index') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-clock-history me-1"></i> Hareketler
+    </a>
+</div>
+
+<form method="POST" id="bulkEntryForm" class="row g-3">
+    <input type="hidden" name="items_json" id="itemsJson">
+    <input type="hidden" name="operation" id="operationInput" value="production">
+
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body d-flex flex-wrap align-items-end gap-3">
+                <div>
+                    <label class="form-label fw-semibold">İşlem</label><br>
+                    <div class="mode-tabs" role="tablist">
+                        <button type="button" class="active" data-mode="production">
+                            <i class="bi bi-plus-circle me-1"></i> Üretim Girişi
+                        </button>
+                        <button type="button" data-mode="shipment">
+                            <i class="bi bi-truck me-1"></i> Sevkiyat Çıkışı
+                        </button>
+                    </div>
+                </div>
+
+                <div style="min-width: 240px;">
+                    <label class="form-label fw-semibold">Lokasyon</label>
+                    <select name="location_id" class="form-select">
+                        <option value="">Genel stok</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.id }}">{{ loc.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="flex-grow-1" style="min-width: 260px;">
+                    <label class="form-label fw-semibold">Not</label>
+                    <input type="text" name="note" class="form-control" placeholder="Örn: 19.05 üretim, sevkiyat irsaliye no...">
+                </div>
+
+                <div class="ms-auto text-end">
+                    <div class="small text-muted">Satır / Toplam</div>
+                    <div class="h5 mb-0"><span id="rowCount">0</span> / <span id="qtyTotal">0</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header">Ürün Ekle</div>
+            <div class="card-body">
+                <div class="product-search-panel">
+                    <label class="form-label">Ürün adı veya kodu</label>
+                    <input type="text" id="productSearch" class="form-control" placeholder="Yazmaya başla...">
+                    <div id="productResults" class="product-results d-none"></div>
+                </div>
+                <div class="mt-3">
+                    <label class="form-label">Hızlı miktar</label>
+                    <input type="number" id="quickQty" class="form-control" min="0.0001" step="0.0001" value="1">
+                </div>
+                <div class="alert alert-info mt-3 mb-0 py-2">
+                    Ürünü seçince satıra eklenir. Aynı ürün tekrar seçilirse miktar üzerine eklenir.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Giriş Satırları</span>
+                <button type="button" id="clearRowsBtn" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-x-lg me-1"></i> Temizle
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm bulk-table mb-0">
+                    <thead>
+                        <tr>
+                            <th>Ürün</th>
+                            <th style="width: 120px;">Stok</th>
+                            <th style="width: 130px;">Miktar</th>
+                            <th style="width: 48px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="entryRows">
+                        <tr>
+                            <td colspan="4" class="text-center text-muted py-4">Henüz ürün seçilmedi.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-body border-top d-flex justify-content-end gap-2">
+                <button type="submit" class="btn btn-primary px-4">
+                    <i class="bi bi-check2-square me-1"></i> Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</form>
+
+<div class="card mt-4">
+    <div class="card-header">Son Hareketler</div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead>
+                <tr>
+                    <th>Tarih</th>
+                    <th>Ürün</th>
+                    <th>Tip</th>
+                    <th>Miktar</th>
+                    <th>Kaynak</th>
+                    <th>Hedef</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for movement in recent_movements %}
+                <tr>
+                    <td>{{ movement.date.strftime('%d.%m.%Y %H:%M') if movement.date else '-' }}</td>
+                    <td>{{ movement.product.code }} - {{ movement.product.name }}</td>
+                    <td><span class="badge bg-secondary">{{ movement.movement_type }}</span></td>
+                    <td>{{ movement.quantity|round(3) }} {{ movement.product.unit_type }}</td>
+                    <td>{{ movement.source or '-' }}</td>
+                    <td>{{ movement.destination or '-' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-3">Hareket yok.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script id="productsData" type="application/json">{{ products_json | safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const products = JSON.parse(document.getElementById('productsData').textContent || '[]');
+    const searchInput = document.getElementById('productSearch');
+    const resultBox = document.getElementById('productResults');
+    const quickQty = document.getElementById('quickQty');
+    const rowsBody = document.getElementById('entryRows');
+    const itemsJson = document.getElementById('itemsJson');
+    const rowCount = document.getElementById('rowCount');
+    const qtyTotal = document.getElementById('qtyTotal');
+    const operationInput = document.getElementById('operationInput');
+    const modeButtons = document.querySelectorAll('[data-mode]');
+    const clearRowsBtn = document.getElementById('clearRowsBtn');
+    const form = document.getElementById('bulkEntryForm');
+    const selected = new Map();
+
+    function normalize(value) {
+        return String(value || '').toLocaleLowerCase('tr-TR');
+    }
+
+    function fmt(value) {
+        const number = Number(value || 0);
+        return Number.isInteger(number) ? String(number) : number.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    }
+
+    function renderResults() {
+        const query = normalize(searchInput.value.trim());
+        if (query.length < 2) {
+            resultBox.classList.add('d-none');
+            resultBox.innerHTML = '';
+            return;
+        }
+
+        const matches = products.filter(product => {
+            return normalize(product.code).includes(query) || normalize(product.name).includes(query);
+        }).slice(0, 30);
+
+        if (!matches.length) {
+            resultBox.innerHTML = '<div class="p-3 text-muted">Ürün bulunamadı.</div>';
+            resultBox.classList.remove('d-none');
+            return;
+        }
+
+        resultBox.innerHTML = matches.map(product => `
+            <button type="button" class="product-result" data-id="${product.id}">
+                <div class="fw-semibold">${product.name}</div>
+                <div class="small text-muted">${product.code} | Stok: ${fmt(product.stock)} ${product.unit}</div>
+            </button>
+        `).join('');
+        resultBox.classList.remove('d-none');
+    }
+
+    function addProduct(product) {
+        const qty = Math.max(Number(quickQty.value || 1), 0);
+        if (!qty) return;
+
+        const current = selected.get(product.id) || { product, quantity: 0 };
+        current.quantity += qty;
+        selected.set(product.id, current);
+        searchInput.value = '';
+        resultBox.classList.add('d-none');
+        renderRows();
+    }
+
+    function updateSummaryAndPayload() {
+        const rows = Array.from(selected.values());
+        let total = 0;
+        selected.forEach(row => { total += Number(row.quantity || 0); });
+        rowCount.textContent = selected.size;
+        qtyTotal.textContent = fmt(total);
+        itemsJson.value = JSON.stringify(rows.map(row => ({
+            product_id: row.product.id,
+            quantity: row.quantity
+        })));
+    }
+
+    function renderRows() {
+        const rows = Array.from(selected.values());
+        if (!rows.length) {
+            rowsBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">Henüz ürün seçilmedi.</td></tr>';
+        } else {
+            rowsBody.innerHTML = rows.map(({ product, quantity }) => `
+                <tr data-id="${product.id}">
+                    <td>
+                        <div class="fw-semibold">${product.name}</div>
+                        <div class="small text-muted">${product.code} | ${product.type || '-'}</div>
+                    </td>
+                    <td>${fmt(product.stock)} ${product.unit}</td>
+                    <td>
+                        <input type="number" class="form-control form-control-sm qty-input" min="0.0001" step="0.0001" value="${quantity}">
+                    </td>
+                    <td>
+                        <button type="button" class="btn btn-sm btn-outline-danger remove-row" title="Sil">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        updateSummaryAndPayload();
+    }
+
+    resultBox.addEventListener('click', function (event) {
+        const button = event.target.closest('[data-id]');
+        if (!button) return;
+        const product = products.find(item => String(item.id) === String(button.dataset.id));
+        if (product) addProduct(product);
+    });
+
+    rowsBody.addEventListener('input', function (event) {
+        const input = event.target.closest('.qty-input');
+        if (!input) return;
+        const row = input.closest('tr[data-id]');
+        const item = selected.get(Number(row.dataset.id));
+        if (!item) return;
+        item.quantity = Math.max(Number(input.value || 0), 0);
+        updateSummaryAndPayload();
+    });
+
+    rowsBody.addEventListener('click', function (event) {
+        const button = event.target.closest('.remove-row');
+        if (!button) return;
+        const row = button.closest('tr[data-id]');
+        selected.delete(Number(row.dataset.id));
+        renderRows();
+    });
+
+    searchInput.addEventListener('input', renderResults);
+    document.addEventListener('click', function (event) {
+        if (!event.target.closest('.product-search-panel')) {
+            resultBox.classList.add('d-none');
+        }
+    });
+
+    modeButtons.forEach(button => {
+        button.addEventListener('click', function () {
+            modeButtons.forEach(item => item.classList.remove('active'));
+            button.classList.add('active');
+            operationInput.value = button.dataset.mode;
+        });
+    });
+
+    clearRowsBtn.addEventListener('click', function () {
+        selected.clear();
+        renderRows();
+    });
+
+    form.addEventListener('submit', function (event) {
+        renderRows();
+        if (!selected.size) {
+            event.preventDefault();
+            alert('En az bir ürün eklemelisin.');
+        }
+    });
+});
+</script>
+{% endblock %}
