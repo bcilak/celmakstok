@@ -1160,7 +1160,20 @@
     --------------------------------------------------------- */
     let noPriceFilterActive = false;
 
+    function normalizedNodeType(node) {
+        return String(node.item_type || node.type || '')
+            .toLocaleLowerCase('tr-TR')
+            .replace(/ı/g, 'i')
+            .replace(/\s+/g, '');
+    }
+
+    function isCalculatedCostNode(node) {
+        const typeText = normalizedNodeType(node);
+        return typeText.includes('yarimamul') || typeText.includes('mamul') || typeText.includes('montaj');
+    }
+
     function hasNoPrice(node) {
+        if (isCalculatedCostNode(node)) return false;
         return !node.unit_cost || parseFloat(node.unit_cost) === 0;
     }
 
