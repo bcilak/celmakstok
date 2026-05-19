@@ -1284,7 +1284,22 @@ def _is_quota_error(error):
 
 def _should_answer_locally(query):
     q = (query or '').lower()
-    
+
+    # PAZAR ARAŞTIRMASI / WEB ARAMA SORGULARI → her zaman Gemini'ye git
+    # (local analizde web search tool'u yok)
+    market_keywords = [
+        'rakip', 'rakibi', 'rakipleri', 'rakipler',
+        'piyasa fiyat', 'piyasada', 'piyasadaki',
+        'alternatif', 'alternatifi', 'alternatifleri',
+        'hangi marka', 'hangi firma', 'hangi firmalar',
+        'kim uretiyor', 'kim üretiyor', 'kim yapiyor', 'kim yapıyor',
+        'benzer urun', 'benzer ürün', 'benzerleri',
+        'market price', 'pazar arastirma', 'pazar araştırma',
+        'disarida', 'dışarıda', 'web ara', 'internetten',
+    ]
+    if any(w in q for w in market_keywords):
+        return False
+
     # EĞER HEDEF MİKTAR / ÜRETİM PLANLAMA SORGUSU İSE LOCAL YANIT VERME (GEMINI'YE GİTSİN)
     # Eğer sorgu sayısal bir değer (örn. 200) içeriyorsa, bu bir üretim/maliyet/stok planlama adedi
     # olabilir. Bu durumda yerel basit/statik cevap yerine Gemini'nin reçete ve tedarik maliyetlerini
@@ -1711,7 +1726,16 @@ def ai_assistant_ask():
     dashboard_keywords = ['kritik', 'biten', 'stoksuz', 'tukenen', 'tukenmis', 'son hareket', 'hareketler', 'envanter', 'yardim', 'help']
     is_general = any(word in query.lower() for word in dashboard_keywords)
 
-    if not is_general:
+    # Pazar araştırması sorguları → ürün ID disambiguation atla, Gemini market_research_web çağırsın
+    market_research_keywords = [
+        'rakip', 'rakibi', 'rakipler', 'piyasa', 'piyasada', 'alternatif',
+        'hangi marka', 'hangi firma', 'kim uretiyor', 'kim üretiyor',
+        'benzer urun', 'benzer ürün', 'benzerleri', 'pazar arastirma', 'pazar araştırma',
+        'web ara', 'internetten', 'disarida ne kadar', 'dışarıda ne kadar',
+    ]
+    is_market_research = any(word in query.lower() for word in market_research_keywords)
+
+    if not is_general and not is_market_research:
         planning_words = ['maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim', 'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım', 'gerek', 'gerekiyor']
         qty = _extract_quantity(query)
         qty_str = str(qty) if qty else None
