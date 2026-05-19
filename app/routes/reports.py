@@ -1085,6 +1085,22 @@ CEVAP FORMATI:
 
         system_instruction += """
 
+ÜRETİM PLANLAMA VE HESAPLAMA KURALLARI:
+- Kullanıcı belirli bir miktarda (örn. 200 adet) üretim yapılması durumundaki maliyeti veya gerekli stok/tedarik miktarını sorduğunda:
+  1. Önce ilgili ürünün ürün ağacını/reçetesini almak için `get_bom_costs` fonksiyonunu çağır.
+  2. Ürünün birim reçete maliyetini (yaklaşık toplam maliyet) bul ve bunu hedef üretim miktarı (N) ile çarparak **Toplam Üretim Maliyeti**'ni hesapla.
+  3. Reçete kalemlerindeki (recete_kalemleri) alt bileşenleri (hammadde ve yarımamuller) analiz et. Her bir bileşen için:
+     - Reçetedeki birim miktarı × hedef üretim miktarı (N) = **Gerekli Toplam Miktar**'ı hesapla.
+     - Bu bileşenin eldeki mevcut stoğunu (`stok`) verilerden bul.
+     - Eğer Gerekli Toplam Miktar, eldeki mevcut stoktan fazlaysa, **Eksik Miktar (Açık)** = Gerekli Toplam Miktar - Mevcut Stok olarak hesapla. Eldeki stok yeterliyse eksik miktar 0'dır.
+     - Eksik Miktar > 0 olan bileşenler için **Tedarik/Satın Alma Maliyeti** = Eksik Miktar × Bileşenin Birim Maliyeti (`birim_maliyet`) olarak hesapla.
+  4. Kullanıcıya şu bilgileri son derece profesyonel, okunaklı ve düzenli bir şekilde sun:
+     - **Hedef Üretim**: Ürün adı, hedef adet (örn. 200 adet) ve toplam üretim maliyeti.
+     - **Mevcut Stok Durumu**: Ürünün kendisinden şu an elimizde kaç adet hazır bulunduğu (eğer varsa, üretim ihtiyacını azaltabilir).
+     - **Eksik Bileşenler ve Tedarik Listesi**: Gerekli olan ancak eldeki stoğu yetersiz kalan hammaddelerin/yarımamullerin listesi. Her biri için: Gerekli miktar, eldeki stok, eksik kalan miktar ve bu eksik kalan miktarın satın alma/tedarik maliyeti.
+     - **Toplam Tedarik Maliyeti**: Sadece eksik kalan bileşenleri satın almak için yapılması gereken toplam harcama tutarı.
+- Bu tür üretim planlama sorularında, "Mamul sorularında alt parçaları listeleme" genel kuralını esnet; çünkü kullanıcı doğrudan alt parçaların stok yeterliliğini ve tedarik ihtiyacını sormaktadır!
+
 EK VERI KURALLARI:
 - Genel stok durumu, toplam, kritik veya tukenen urun sorularinda get_stock_overview veya get_critical_stock kullan.
 - Urun adi/kodu gecen stok, lokasyon, malzeme veya detay sorularinda search_product kullan.
@@ -1096,10 +1112,10 @@ EK VERI KURALLARI:
 - Veritabaniyla ilgili sorularda tahmin etme; once uygun fonksiyonu cagir.
 
 BIG BOSS KURALLARI:
-- Mamul sorularinda alt parcalari listeleme; sadece mamul seviyesi onemli bilgileri ver.
+- Mamul sorularinda alt parcalari listeleme; sadece mamul seviyesi onemli bilgileri ver (Üretim planlama ve stok tedarik hesaplamaları hariç).
 - Oncelik sirasi: yaklasik maliyet, eldeki stok, bu hafta/ay/yil satis veya stok cikisi.
 - Cok fazla eslesme varsa mamul/BOM kokunu sec; tum urunleri ve parcalari siralama.
-- BOM ve recete bilgisini sadece sonuc maliyeti hesaplamak icin kullan.
+- BOM ve recete bilgisini sadece sonuc maliyeti hesaplamak icin kullan (Üretim planlama ve stok tedarik hesaplamaları hariç).
 - Sadece maliyet istenirse cevap tek satir olsun: "URUN ADI maliyeti: TUTAR TRY".
         """
 
