@@ -119,7 +119,12 @@
                 <strong>Ürün Listesi</strong>
                 <span class="text-muted small ms-2" id="visibleInfo">{{ products|length }} ürün</span>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
+                <div class="input-group input-group-sm" style="width: 250px;">
+                    <span class="input-group-text">Tümüne</span>
+                    <input type="number" id="applyAllQty" class="form-control text-end" min="0" step="0.0001" placeholder="Miktar">
+                    <button type="button" id="applyAllBtn" class="btn btn-outline-primary">Uygula</button>
+                </div>
                 <input type="text" id="productFilter" class="form-control form-control-sm" style="width: 280px;"
                     placeholder="Kod veya ürün adı filtrele...">
                 <button type="button" id="clearQtyBtn" class="btn btn-sm btn-outline-danger">
@@ -189,6 +194,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const qtyTotal = document.getElementById('qtyTotal');
     const visibleInfo = document.getElementById('visibleInfo');
     const clearQtyBtn = document.getElementById('clearQtyBtn');
+    const applyAllQty = document.getElementById('applyAllQty');
+    const applyAllBtn = document.getElementById('applyAllBtn');
 
     function normalize(value) {
         return String(value || '').toLocaleLowerCase('tr-TR');
@@ -241,6 +248,18 @@ document.addEventListener('DOMContentLoaded', function () {
     clearQtyBtn.addEventListener('click', function () {
         qtyInputs.forEach(input => {
             input.value = '';
+        });
+        collectItems();
+    });
+
+    applyAllBtn.addEventListener('click', function () {
+        const quantity = Number(applyAllQty.value || 0);
+        if (quantity <= 0) {
+            alert('Tüm ürünlere uygulanacak miktarı gir.');
+            return;
+        }
+        qtyInputs.forEach(input => {
+            input.value = quantity;
         });
         collectItems();
     });
