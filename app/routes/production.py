@@ -965,18 +965,45 @@ def bom_produce(bom_id, node_id):
         flash('Bu düğümün bağlı olduğu bir ana ürün(Product) yok. Üretim yapılamaz.', 'error')
         return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
-    # Alt bileşenleri bul (Sadece 1 alt kademe)
-    edges = BomEdge.query.filter_by(parent_node_id=node_id, bom_id=bom_id).all()
+    # Alt bileşenleri reçetenin en alt seviyesine kadar patlat.
+    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
+    child_edges = {}
+    for edge in edges:
+        child_edges.setdefault(edge.parent_node_id, []).append(edge)
+
+    def explode_leaf_materials(start_node_id, build_qty):
+        required = {}
+
+        def walk(current_node_id, current_qty):
+            children = child_edges.get(current_node_id, [])
+            if not children:
+                node = BomNode.query.get(current_node_id)
+                product = node.item.product if node and node.item else None
+                if product:
+                    if product.id not in required:
+                        required[product.id] = {'product': product, 'quantity': 0.0, 'node': node}
+                    required[product.id]['quantity'] += float(current_qty or 0)
+                return
+
+            for child_edge in children:
+                try:
+                    edge_qty = float(child_edge.quantity or 1)
+                except (TypeError, ValueError):
+                    edge_qty = 1.0
+                walk(child_edge.child_node_id, float(current_qty or 0) * edge_qty)
+
+        walk(start_node_id, build_qty)
+        return list(required.values())
     
     # Kullanıcı sadece "Üret" dediğinde doğrudan üretim formu açılacak.
     # GET: Gerekli malzemeleri göster
     if request.method == 'GET':
         materials = []
-        for edge in edges:
-            child = edge.child_node
-            c_product = child.item.product if child.item else None
-            # brüt miktar (varsa edge.quantity, yoksa node.quantity)
-            req_q = edge.quantity
+        for item in explode_leaf_materials(node_id, 1):
+            child = item['node']
+            c_product = item['product']
+            # Bir mamul için gereken toplam en alt parça miktarı.
+            req_q = item['quantity']
             materials.append({
                 'child_node': child,
                 'product': c_product,
@@ -999,13 +1026,10 @@ def bom_produce(bom_id, node_id):
     # 1. Stok yetiyor mu kontrolü
     insufficient = []
     required_consumptions = [] # [(product, total_req_qty, child_node)]
-    for edge in edges:
-        child = edge.child_node
-        c_product = child.item.product if child and child.item else None
-        if not c_product:
-            continue
-        
-        total_req = float(edge.quantity) * quantity
+    for item in explode_leaf_materials(node_id, quantity):
+        child = item['node']
+        c_product = item['product']
+        total_req = float(item['quantity'])
         if c_product.current_stock < total_req:
             insufficient.append(f"{c_product.name} (Gereken: {total_req}, Mevcut: {c_product.current_stock})")
         else:
@@ -1146,9 +1170,12 @@ def work_order():
         p.current_stock -= float(req)
         movement = StockMovement(
             product_id=p.id,
-            movement_type='out',
+            movement_type='cikis',
             quantity=req,
-            reason=f'Üretim Sarfiyatı (BOM #{bom_id}, Miktar: {quantity})'
+            source='Depo',
+            destination=f'Üretim - {root_node.display_name}',
+            note=f'Üretim sarfiyatı (BOM #{bom_id}, Miktar: {quantity})',
+            user_id=current_user.id
         )
         db.session.add(movement)
         
@@ -1156,9 +1183,12 @@ def work_order():
     target_product.current_stock += quantity
     mov_in = StockMovement(
         product_id=target_product.id,
-        movement_type='in',
+        movement_type='giris',
         quantity=quantity,
-        reason=f"Üretimden Giriş (BOM #{bom_id})"
+        source=f'Üretim Hattı - {root_node.display_name}',
+        destination='Depo',
+        note=f'Üretimden giriş (BOM #{bom_id})',
+        user_id=current_user.id
     )
     db.session.add(mov_in)
     
