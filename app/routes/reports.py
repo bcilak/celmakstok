@@ -961,10 +961,108 @@ def _is_cost_only_query(query):
     return any(word in q for word in cost_words) and not any(word in q for word in extra_words)
 
 
+def _extract_quantity(query):
+    import re
+    q = (query or '').lower()
+    assoc_match = re.search(r'\b(\d+)\s*(?:tane|adet|parca|parça|set|palet|kg|metre|ton|kutu|uretim|üretim|siparis|sipariş)\b', q)
+    if assoc_match:
+        return int(assoc_match.group(1))
+    
+    assoc_match_rev = re.search(r'\b(?:tane|adet|uretim|üretim|siparis|sipariş)\s+(\d+)\b', q)
+    if assoc_match_rev:
+        return int(assoc_match_rev.group(1))
+    return None
+
+
+def _generate_local_production_plan(product, qty, best_bom, currency, unit_cost):
+    from app.utils.bom_utils import get_bom_tree
+    
+    total_production_cost = qty * unit_cost
+    
+    lines = []
+    lines.append("### 🏭 Üretim Planlama ve Tedarik Raporu (Yerel Analiz)")
+    lines.append(f"Hedeflenen üretim miktarı: **{qty} adet** - **{product.name}**")
+    lines.append(f"Birim Reçete Maliyeti: **{_fmt_money(unit_cost, currency)}**")
+    lines.append(f"**Toplam Üretim Maliyeti:** **{_fmt_money(total_production_cost, currency)}**")
+    lines.append("")
+    
+    lines.append(f"**Mevcut Hazır Stok Durumu:**")
+    lines.append(f"- Depodaki hazır mamul stoğu: **{_fmt_qty(product.current_stock)} {product.unit_type}**")
+    lines.append("")
+    
+    if best_bom:
+        tree = get_bom_tree(best_bom["bom_id"], db)
+        roots = tree.get("roots") or []
+        
+        # Flatten all BOM components
+        def flatten_nodes(nodes, lst):
+            for node in nodes:
+                lst.append(node)
+                flatten_nodes(node.get("children") or [], lst)
+                
+        components = []
+        if roots:
+            flatten_nodes(roots[0].get("children") or [], components)
+        
+        if components:
+            lines.append("**Eksik Bileşenler ve Tedarik Listesi:**")
+            has_shortage = False
+            total_shortage_cost = 0.0
+            
+            grouped = {}
+            for comp in components:
+                code = comp.get("code") or comp.get("name")
+                if not code:
+                    continue
+                qty_in_recipe = float(comp.get("quantity") or 1.0)
+                if code not in grouped:
+                    grouped[code] = {
+                        "name": comp.get("name"),
+                        "code": comp.get("code"),
+                        "unit": comp.get("unit") or "adet",
+                        "recipe_qty": 0.0,
+                        "stock": float(comp.get("stock_qty") or 0.0),
+                        "unit_cost": float(comp.get("unit_cost") or 0.0),
+                        "currency": comp.get("currency") or currency
+                    }
+                grouped[code]["recipe_qty"] += qty_in_recipe
+                
+            for code, comp in grouped.items():
+                required_qty = comp["recipe_qty"] * qty
+                current_stock = comp["stock"]
+                shortage = max(required_qty - current_stock, 0.0)
+                
+                if shortage > 0:
+                    has_shortage = True
+                    comp_cost = shortage * comp["unit_cost"]
+                    total_shortage_cost += comp_cost
+                    lines.append(
+                        f"- ❌ **{comp['name']}** ({comp['code'] or 'KODSUZ'}): "
+                        f"Gerekli: **{_fmt_qty(required_qty)} {comp['unit']}**, "
+                        f"Stok: **{_fmt_qty(current_stock)} {comp['unit']}**, "
+                        f"Açık: **{_fmt_qty(shortage)} {comp['unit']}** "
+                        f"(Tedarik: **{_fmt_money(comp_cost, comp['currency'])}**)"
+                    )
+            
+            if not has_shortage:
+                lines.append("- ✓ Reçetedeki tüm alt parçaların stokları yeterlidir. İlave tedarik ihtiyacı yoktur.")
+            else:
+                lines.append("")
+                lines.append(f"**Toplam Ek Tedarik Maliyeti:** **{_fmt_money(total_shortage_cost, currency)}**")
+        else:
+            lines.append("_Bu ürünün reçetesinde alt bileşen bulunmamaktadır._")
+    else:
+        lines.append("_Ürün ağacı bulunamadığı için alt bileşen analizi yapılamadı._")
+        
+    return "\n".join(lines)
+
+
 def _local_analysis_answer(query, quota_limited=False):
     quick_answer = _local_quick_answer(query)
     if quick_answer:
         return quick_answer
+
+    qty = _extract_quantity(query)
 
     family = analyze_product_family(query).get('result')
     if isinstance(family, str):
@@ -983,6 +1081,9 @@ def _local_analysis_answer(query, quota_limited=False):
     currency = snapshot["currency"]
     unit_cost = snapshot["unit_cost"]
     movement = snapshot["movement"]
+
+    if qty is not None:
+        return _generate_local_production_plan(product, qty, best_bom, currency, unit_cost)
 
     if _is_cost_only_query(query):
         return f"**{product.name} maliyeti: {_fmt_money(unit_cost, currency)}**"
@@ -1156,7 +1257,7 @@ BIG BOSS KURALLARI:
             get_production_info,
             get_product_costs,
         ]
-        model = genai.GenerativeModel('gemini-2.5-pro', tools=tools, system_instruction=system_instruction)
+        model = genai.GenerativeModel('gemini-3.1-flash-lite', tools=tools, system_instruction=system_instruction)
 
         # Son 6 mesajı bağlam olarak kullan
         context = ""
@@ -1185,11 +1286,16 @@ BIG BOSS KURALLARI:
 
     except Exception as e:
         import traceback
+        print("Gemini API error occurred, falling back to local analysis:")
         print(traceback.format_exc())
-        if _is_quota_error(e):
+        
+        reason = "quota_fallback" if _is_quota_error(e) else "api_error_fallback"
+        try:
             answer = _local_analysis_answer(query, quota_limited=True)
-            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified_quota_fallback'})
-        return jsonify({'success': False, 'error': f'Bir hata oluştu: {str(e)}'}), 500
+            return jsonify({'success': True, 'answer': answer, 'source': f'local_verified_{reason}'})
+        except Exception as local_err:
+            print(f"Local analysis fallback also failed: {local_err}")
+            return jsonify({'success': False, 'error': f'Bir hata oluştu: {str(e)}'}), 500
 
 
 @reports_bp.route('/ai-assistant/clear', methods=['POST'])
@@ -1408,7 +1514,7 @@ def api_stock_summary():
             return jsonify({'success': False, 'message': 'API anahtarı bulunamadı.'})
             
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite')
         
         summary_prompt = f"""
         Sen şirketin stok yöneticisisin. Aşağıda mevcut stok raporunun gerçek verileri var:
