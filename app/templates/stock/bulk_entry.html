@@ -180,7 +180,7 @@
 <script id="productsData" type="application/json">{{ products_json | safe }}</script>
 {% endblock %}
 
-{% block scripts %}
+{% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const products = JSON.parse(document.getElementById('productsData').textContent || '[]');
