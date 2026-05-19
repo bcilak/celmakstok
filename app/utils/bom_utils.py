@@ -44,6 +44,7 @@ MATERIAL_WORD_ALIASES = {
     'SAC': 'SAC',
     'LAMA': 'LAMA',
     'BORU': 'BORU',
+    'BORUSU': 'BORU',
     'SANAYI': 'SANAYI',
     'PROFIL': 'PROFIL',
     'TRANSMISYON': 'TRANSMISYON',
@@ -632,13 +633,23 @@ def _cost_basis_quantity(quantity: float, quantity_net: float = None) -> float:
 
 
 def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: float = 0.0) -> bool:
-    """Sac/lama are priced by kg when BOM provides kg-per-unit data."""
+    """Materials priced by kg when BOM provides kg-per-unit data."""
     if not weight_per_unit:
         return False
     if (row_unit or '').lower() not in {'metre', 'mt', 'adet'}:
         return False
+    tokens = _material_tokens(material_text or '')
+    if {'CELIK', 'CEKME', 'BORU'}.issubset(tokens):
+        return True
+    if {'SANAYI', 'BORU'}.issubset(tokens):
+        return False
     signature = _strict_material_signature(material_text or '')
     return bool(signature and signature.get('family') in {'SAC', 'LAMA'})
+
+
+def _force_cost_by_length(material_text: str) -> bool:
+    tokens = _material_tokens(material_text or '')
+    return {'SANAYI', 'BORU'}.issubset(tokens)
 
 
 def _weight_cost_quantity(quantity: float, weight_per_unit: float = 0.0) -> float:
@@ -1633,7 +1644,10 @@ def estimate_bom_rows_cost(rows: list[dict]) -> float:
             continue
         unit_cost = float(product.unit_cost or 0)
         cost_basis_qty = _cost_basis_quantity(row.get('quantity') or 0, row.get('quantity_net'))
-        if _should_cost_by_weight(row.get('material') or row.get('name') or '', row.get('unit_type'), row.get('weight_per_unit') or 0):
+        material_text = row.get('material') or row.get('name') or ''
+        if _force_cost_by_length(material_text):
+            qty = cost_basis_qty
+        elif _should_cost_by_weight(material_text, row.get('unit_type'), row.get('weight_per_unit') or 0):
             qty = _weight_cost_quantity(cost_basis_qty, row.get('weight_per_unit') or 0)
         else:
             qty = _cost_quantity_for_unit(
@@ -2036,17 +2050,22 @@ def get_bom_tree(bom_id: int, db) -> dict:
             if is_hazir:
                 p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0
                 cost_basis_qty = _cost_basis_quantity(q_fireli or p_count, q_firesiz)
-                cost_qty = _cost_quantity_for_unit(
-                    costing_product.unit_type if costing_product else n.unit_type,
-                    n.unit_type,
-                    cost_basis_qty,
-                    p_count,
-                    w_per_unit or 0
-                )
+                if _force_cost_by_length(material_text):
+                    cost_qty = cost_basis_qty
+                else:
+                    cost_qty = _cost_quantity_for_unit(
+                        costing_product.unit_type if costing_product else n.unit_type,
+                        n.unit_type,
+                        cost_basis_qty,
+                        p_count,
+                        w_per_unit or 0
+                    )
                 calc_total_cost = calc_unit_cost * cost_qty
             else:
                 cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
-                if _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0):
+                if _force_cost_by_length(material_text):
+                    cost_qty = cost_basis_qty
+                elif _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0):
                     cost_qty = _weight_cost_quantity(cost_basis_qty, w_per_unit or 0)
                 else:
                     cost_qty = _cost_quantity_for_unit(
