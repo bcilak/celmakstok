@@ -954,7 +954,6 @@ def _local_analysis_answer(query, quota_limited=False):
     lines.append(f"Kod: **{product.code}** | Tip: **{product.type or 'mamul'}**")
     lines.append("")
 
-    lines.append("**Big boss ozeti**")
     lines.append(f"- Yaklasik birim maliyet: **{_fmt_money(unit_cost, currency)}**")
     lines.append(f"- Elimizdeki mamul stogu: **{_fmt_qty(product.current_stock)} {product.unit_type}**")
     lines.append(f"- Eldeki stok maliyeti: **{_fmt_money(snapshot['stock_value'], currency)}**")
@@ -965,7 +964,7 @@ def _local_analysis_answer(query, quota_limited=False):
         lines.append(f"- Stok lokasyonlari: {', '.join(snapshot['locations'])}")
 
     lines.append("")
-    lines.append("**Satis / cikis hareketi**")
+    lines.append("Son hareketler:")
     lines.append(f"- Bu hafta: **{_fmt_qty(movement['week_out'])} {product.unit_type}**")
     lines.append(f"- Bu ay: **{_fmt_qty(movement['month_out'])} {product.unit_type}**")
     lines.append(f"- Bu yil: **{_fmt_qty(movement['year_out'])} {product.unit_type}**")
@@ -974,7 +973,7 @@ def _local_analysis_answer(query, quota_limited=False):
 
     if snapshot.get("top_components"):
         lines.append("")
-        lines.append("**Maliyeti en cok etkileyen ana kirilimlar**")
+        lines.append("Ana maliyet kirilimlari:")
         for node in snapshot["top_components"][:3]:
             lines.append(
                 f"- {node.get('name')}: **{_fmt_money(node.get('total_cost'), node.get('currency') or currency)}**"
@@ -993,15 +992,11 @@ def _local_analysis_answer(query, quota_limited=False):
     if suggested_count:
         warnings.append(f"{suggested_count} hammadde icin daha iyi eslesme onerisi var")
 
-    lines.append("")
-    lines.append("**Dogruluk kontrolu**")
-    lines.append(f"- Guven seviyesi: **{snapshot['confidence']}**")
     if warnings:
-        lines.append(f"- Dikkat: {', '.join(warnings)}. Bu kayitlar duzeltilmeden maliyet kesin kabul edilmemeli.")
-    else:
-        lines.append("- Fiyat ve hammadde baglantisi tarafinda belirgin eksik/eslesme sorunu gorunmuyor.")
+        lines.append("")
+        lines.append(f"Not: {', '.join(warnings)}. Bu nedenle maliyet kontrol edilmeli.")
     lines.append("")
-    lines.append("> Sistemde ayri satis modulu olmadigi icin satis bilgisini stok cikisi/transfer/fire hareketlerinden okudum.")
+    lines.append("> Satis modulu ayri olmadigi icin satis bilgisini stok cikisi/transfer/fire hareketlerinden okudum.")
 
     return "\n".join(lines)
 
