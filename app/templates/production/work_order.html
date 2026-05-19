@@ -43,7 +43,7 @@
                         <select name="bom_id" id="bomSelect" class="form-select form-select-lg" required>
                             <option value="">Seçiniz...</option>
                             {% for node in root_nodes %}
-                            {% set prod = getattr(node.item, 'product', None) %}
+                            {% set prod = node.item.product if node.item else None %}
                             <option value="{{ node.bom_id }}" data-category="{% if prod and prod.category_id %}{{ prod.category_id }}{% endif %}">
                                 [Oluşacak Mamül: {{ node.display_name }} ] (BOM ID: {{ node.bom_id }})
                             </option>

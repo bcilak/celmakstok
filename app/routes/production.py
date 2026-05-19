@@ -28,6 +28,13 @@ import urllib.error
 production_bp = Blueprint('production', __name__)
 
 
+def _limited_flash_list(prefix, items, category='error', limit=8):
+    shown = list(items[:limit])
+    if len(items) > limit:
+        shown.append(f'{len(items) - limit} kalem daha var')
+    flash(prefix + ' ' + ' | '.join(shown), category)
+
+
 def _extract_price_payload(payload):
     data = payload.get('data') if isinstance(payload, dict) and isinstance(payload.get('data'), dict) else payload
     if not isinstance(data, dict):
@@ -1036,7 +1043,7 @@ def bom_produce(bom_id, node_id):
             required_consumptions.append((c_product, total_req, child))
 
     if insufficient:
-        flash('Yetersiz stok: ' + ' | '.join(insufficient), 'error')
+        _limited_flash_list('Yetersiz stok:', insufficient)
         return redirect(url_for('production.bom_produce', bom_id=bom_id, node_id=node_id))
 
     # 2. Üretim kaydı oluştur
@@ -1162,7 +1169,7 @@ def work_order():
             consume_list.append((p, req))
             
     if insufficient:
-        flash('Yetersiz stoklar: ' + ', '.join(insufficient), 'error')
+        _limited_flash_list('Yetersiz stoklar:', insufficient)
         return redirect(url_for('production.work_order'))
         
     # 1. Deduct Materials
