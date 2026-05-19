@@ -645,7 +645,62 @@ def _movement_total(product_id, movement_types, since=None):
     return float(query.scalar() or 0)
 
 
+def _extract_explicit_product_id(query):
+    import re
+    q = (query or '').lower()
+    match = re.search(r'#\s*(\d+)\b', q)
+    if match:
+        return int(match.group(1))
+    match = re.search(r'\b(?:id|numara|no|nolu|numaralı|numarali)\s*[:=-]?\s*(\d+)\b', q)
+    if match:
+        return int(match.group(1))
+    match_only_digit = re.match(r'^\s*(\d+)\s*$', q)
+    if match_only_digit:
+        return int(match_only_digit.group(1))
+    return None
+
+
+def _find_product_by_exact_code(query):
+    import re
+    q = (query or '').strip().lower()
+    words = re.findall(r'\b[A-Za-z0-9_-]+\b', q)
+    for w in words:
+        if len(w) >= 3:
+            product = Product.query.filter(Product.is_active == True, Product.code.ilike(w)).first()
+            if product:
+                return product
+    return None
+
+
 def _select_main_product(query, family):
+    explicit_id = _extract_explicit_product_id(query)
+    if explicit_id:
+        product = Product.query.get(explicit_id)
+        if product:
+            best_bom = None
+            try:
+                from app.utils.bom_utils import list_boms
+                for bom in list_boms(db):
+                    if bom.get('product_id') == product.id:
+                        best_bom = bom
+                        break
+            except Exception:
+                pass
+            return product, best_bom
+
+    exact_product = _find_product_by_exact_code(query)
+    if exact_product:
+        best_bom = None
+        try:
+            from app.utils.bom_utils import list_boms
+            for bom in list_boms(db):
+                if bom.get('product_id') == exact_product.id:
+                    best_bom = bom
+                    break
+        except Exception:
+            pass
+        return exact_product, best_bom
+
     terms = _search_terms(_normalize_search_keyword(query))
     boms = family.get('urun_agaclari') or []
     for bom in boms:
@@ -1168,8 +1223,49 @@ def ai_assistant_ask():
         return jsonify({'success': False, 'error': 'Soru boş olamaz.'}), 400
 
     query = data['query']
-    # Client tarafından gelen son sohbet geçmişi (session'a yazmıyoruz)
     client_history = data.get('history', [])
+
+    # 1. Birden fazla eşleşen ürün durumunda açıklama/seçim sorma kontrolü
+    terms = _normalize_search_keyword(query)
+    dashboard_keywords = ['kritik', 'biten', 'stoksuz', 'tukenen', 'tukenmis', 'son hareket', 'hareketler', 'envanter', 'yardim', 'help']
+    is_general = any(word in query.lower() for word in dashboard_keywords)
+
+    if not is_general:
+        planning_words = ['maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim', 'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım', 'gerek', 'gerekiyor']
+        real_terms = [t for t in terms if t not in planning_words and not t.isdigit()]
+        if real_terms:
+            explicit_id = _extract_explicit_product_id(query)
+            exact_product = _find_product_by_exact_code(query)
+            if not explicit_id and not exact_product:
+                product_query, _ = _product_search_query(query)
+                matching_products = product_query.all()
+
+                def matches_all_real(product):
+                    haystack = _search_haystack(*[
+                        product.name or '',
+                        product.code or '',
+                        product.barcode or '',
+                        product.material or '',
+                        product.notes or '',
+                        product.category.name if product.category else '',
+                    ])
+                    return all(term in haystack for term in real_terms)
+
+                strict_matches = [p for p in matching_products if matches_all_real(p)]
+                if not strict_matches:
+                    strict_matches = matching_products
+
+                if len(strict_matches) > 1:
+                    lines = []
+                    lines.append("### 🔍 Birden Fazla Eşleşen Ürün Bulundu")
+                    lines.append(f"Aradığınız kriterlere uygun **{len(strict_matches)}** farklı ürün tespit ettim. Lütfen hangisinin maliyetini veya üretim planını hesaplamak istediğinizi belirtmek için **adını, tam kodunu veya ID numarasını (örn: #ID)** yazın:")
+                    lines.append("")
+                    for p in strict_matches[:10]:
+                        bom_status = "✓ Ürün Ağacı Var" if p.boms.count() > 0 else "❌ Ürün Ağacı Yok"
+                        lines.append(f"- **{p.name}** | Kod: `{p.code}` | ID: **#{p.id}** | Tür: *{p.type or 'mamul'}* ({bom_status})")
+                    if len(strict_matches) > 10:
+                        lines.append(f"\n*...ve {len(strict_matches) - 10} adet daha ürün eşleşti.*")
+                    return jsonify({'success': True, 'answer': "\n".join(lines), 'source': 'local_disambiguation'})
 
     try:
         if _should_answer_locally(query):
