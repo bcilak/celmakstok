@@ -922,6 +922,17 @@ def _not_found_answer(query):
     return "\n".join(lines)
 
 
+def _is_cost_only_query(query):
+    q = _fold_search_text(query or '')
+    cost_words = ['maliyet', 'maliyeti', 'fiyat', 'fiyati']
+    extra_words = [
+        'stok', 'elde', 'hareket', 'satis', 'cikis', 'transfer', 'fire',
+        'kirilim', 'detay', 'analiz', 'rapor', 'lokasyon',
+        'hangi', 'neden', 'karsilastir'
+    ]
+    return any(word in q for word in cost_words) and not any(word in q for word in extra_words)
+
+
 def _local_analysis_answer(query, quota_limited=False):
     quick_answer = _local_quick_answer(query)
     if quick_answer:
@@ -944,6 +955,9 @@ def _local_analysis_answer(query, quota_limited=False):
     currency = snapshot["currency"]
     unit_cost = snapshot["unit_cost"]
     movement = snapshot["movement"]
+
+    if _is_cost_only_query(query):
+        return f"**{product.name} maliyeti: {_fmt_money(unit_cost, currency)}**"
 
     lines = []
     if quota_limited:
@@ -991,12 +1005,6 @@ def _local_analysis_answer(query, quota_limited=False):
         warnings.append(f"{link_issue_count} hammadde baglantisi hatali/eksik")
     if suggested_count:
         warnings.append(f"{suggested_count} hammadde icin daha iyi eslesme onerisi var")
-
-    if warnings:
-        lines.append("")
-        lines.append(f"Not: {', '.join(warnings)}. Bu nedenle maliyet kontrol edilmeli.")
-    lines.append("")
-    lines.append("> Satis modulu ayri olmadigi icin satis bilgisini stok cikisi/transfer/fire hareketlerinden okudum.")
 
     return "\n".join(lines)
 
@@ -1062,6 +1070,7 @@ SİSTEM BİLGİLERİ:
 
 CEVAP FORMATI:
 - Kısa, net, doğrudan ve analiz gibi cevap ver. Gereksiz tekrar YAPMA.
+- Kullanici yalnizca maliyet/fiyat sorarsa sadece ilgili urunun maliyetini yaz; stok, satis, not, uyari, kirilim veya alt kalem verme.
 - Tek bir ürün sorulduğunda madde işareti (•) ile önemli bilgileri alt alta yaz.
 - Excel gibi tablo oluşturma. Çok ürün çıksa bile tablo KULLANMA.
 - Kullanıcı tek kelime/aile adı yazarsa (örn. "tamburlu") liste dökme; önce özet analiz ver.
@@ -1089,6 +1098,7 @@ BIG BOSS KURALLARI:
 - Oncelik sirasi: yaklasik maliyet, eldeki stok, bu hafta/ay/yil satis veya stok cikisi.
 - Cok fazla eslesme varsa mamul/BOM kokunu sec; tum urunleri ve parcalari siralama.
 - BOM ve recete bilgisini sadece sonuc maliyeti hesaplamak icin kullan.
+- Sadece maliyet istenirse cevap tek satir olsun: "URUN ADI maliyeti: TUTAR TRY".
         """
 
         tools = [
