@@ -18,7 +18,9 @@ SEARCH_STOPWORDS = {
     'urun', 'urunu', 'malzeme', 'malzemesi', 'var', 'mi', 'mu', 'mı', 'mü',
     'icin', 'için', 'olan', 'listele', 'rapor', 'raporu', 'kaç', 'tane',
     'elimde', 'elde', 'sattim', 'sattik', 'sattık', 'satildi', 'satıldı',
-    'bu', 'hafta', 'ay', 'yil', 'yıl'
+    'bu', 'hafta', 'ay', 'yil', 'yıl', 'olur', 'olursa', 'olacak', 'olsa',
+    'istiyorum', 'istesem', 'istese', 'istiyoruz', 'yapsam', 'yapmak', 'eder',
+    'gerek', 'gerekiyor', 'lazim', 'lazım', 'neymiş', 'neymis', 'acaba'
 }
 
 SEARCH_STOPWORDS.update({
@@ -74,6 +76,12 @@ def _search_terms(terms):
 
 def _product_search_query(keyword):
     terms = _normalize_search_keyword(keyword)
+    # Miktar belirten sayıyı arama terimlerinden eliyoruz ki aramayı kısıtlamasın
+    qty = _extract_quantity(keyword)
+    if qty:
+        qty_str = str(qty)
+        terms = [t for t in terms if t != qty_str]
+        
     query = Product.query.filter(Product.is_active == True)
     if not terms:
         return query, terms
@@ -707,6 +715,11 @@ def _select_main_product(query, family):
         return exact_product, best_bom
 
     terms = _search_terms(_normalize_search_keyword(query))
+    qty = _extract_quantity(query)
+    if qty:
+        qty_str = str(qty)
+        terms = [t for t in terms if t != qty_str]
+        
     boms = family.get('urun_agaclari') or []
     for bom in boms:
         if len(terms) > 1 and (bom.get('match_score') or 0) < len(terms):
@@ -733,6 +746,24 @@ def _select_main_product(query, family):
 
         strict_products = [product for product in products if matches_all(product)]
         if strict_products:
+            # Filtreleme Adımları (Ana Ürün ve BOM Önceliği):
+            bom_product_ids = set()
+            try:
+                from app.utils.bom_utils import list_boms
+                bom_product_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
+            except Exception:
+                pass
+            
+            if bom_product_ids:
+                bom_matches = [p for p in strict_products if p.id in bom_product_ids]
+                if bom_matches:
+                    strict_products = bom_matches
+
+            # Adında "eski" geçen ürünleri eliyoruz (eğer alternatif varsa)
+            non_legacy_matches = [p for p in strict_products if 'eski' not in (p.name or '').lower()]
+            if non_legacy_matches:
+                strict_products = non_legacy_matches
+
             products = strict_products
 
     type_order = {'mamul': 0, 'mamul ': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
@@ -1241,7 +1272,9 @@ def ai_assistant_ask():
 
     if not is_general:
         planning_words = ['maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim', 'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım', 'gerek', 'gerekiyor']
-        real_terms = [t for t in terms if t not in planning_words and not t.isdigit()]
+        qty = _extract_quantity(query)
+        qty_str = str(qty) if qty else None
+        real_terms = [t for t in terms if t not in planning_words and (not t.isdigit() or t != qty_str)]
         if real_terms:
             explicit_id = _extract_explicit_product_id(query)
             exact_product = _find_product_by_exact_code(query)
@@ -1272,16 +1305,35 @@ def ai_assistant_ask():
                     except Exception:
                         pass
 
-                    lines = []
-                    lines.append("### 🔍 Birden Fazla Eşleşen Ürün Bulundu")
-                    lines.append(f"Aradığınız kriterlere uygun **{len(strict_matches)}** farklı ürün tespit ettim. Lütfen hangisinin maliyetini veya üretim planını hesaplamak istediğinizi belirtmek için **adını, tam kodunu veya ID numarasını (örn: #ID)** yazın:")
-                    lines.append("")
-                    for p in strict_matches[:10]:
-                        bom_status = "✓ Ürün Ağacı Var" if p.id in bom_product_ids else "❌ Ürün Ağacı Yok"
-                        lines.append(f"- **{p.name}** | Kod: `{p.code}` | ID: **#{p.id}** | Tür: *{p.type or 'mamul'}* ({bom_status})")
-                    if len(strict_matches) > 10:
-                        lines.append(f"\n*...ve {len(strict_matches) - 10} adet daha ürün eşleşti.*")
-                    return jsonify({'success': True, 'answer': "\n".join(lines), 'source': 'local_disambiguation'})
+                    # Filtreleme Adımları (Ana Ürün ve BOM Önceliği):
+                    # 1. Adım: Ürün ağacı (BOM) olan ürünleri önceliklendir
+                    if bom_product_ids:
+                        bom_matches = [p for p in strict_matches if p.id in bom_product_ids]
+                        if bom_matches:
+                            strict_matches = bom_matches
+
+                    # 2. Adım: 'mamul' tipindeki ana ürünleri önceliklendir
+                    mamul_matches = [p for p in strict_matches if (p.type or '').strip().lower() == 'mamul']
+                    if mamul_matches:
+                        strict_matches = mamul_matches
+
+                    # 3. Adım: Adında "eski" geçen eski ürünleri eliyoruz (eğer alternatif varsa)
+                    non_legacy_matches = [p for p in strict_matches if 'eski' not in (p.name or '').lower()]
+                    if non_legacy_matches:
+                        strict_matches = non_legacy_matches
+
+                    # Eğer filtreleme sonucunda tek bir ana ürün kaldıysa, belirsizlik seçimini atlayıp doğrudan devam ediyoruz.
+                    if len(strict_matches) > 1:
+                        lines = []
+                        lines.append("### 🔍 Birden Fazla Eşleşen Ürün Bulundu")
+                        lines.append(f"Aradığınız kriterlere uygun **{len(strict_matches)}** farklı ürün tespit ettim. Lütfen hangisinin maliyetini veya üretim planını hesaplamak istediğinizi belirtmek için **adını, tam kodunu veya ID numarasını (örn: #ID)** yazın:")
+                        lines.append("")
+                        for p in strict_matches[:10]:
+                            bom_status = "✓ Ürün Ağacı Var" if p.id in bom_product_ids else "❌ Ürün Ağacı Yok"
+                            lines.append(f"- **{p.name}** | Kod: `{p.code}` | ID: **#{p.id}** | Tür: *{p.type or 'mamul'}* ({bom_status})")
+                        if len(strict_matches) > 10:
+                            lines.append(f"\n*...ve {len(strict_matches) - 10} adet daha ürün eşleşti.*")
+                        return jsonify({'success': True, 'answer': "\n".join(lines), 'source': 'local_disambiguation'})
 
     try:
         if _should_answer_locally(query):
