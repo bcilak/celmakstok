@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
-from app.models import Product, StockMovement, Category, Location, LocationStock
+from app.models import Product, StockMovement, Category, Location, LocationStock, ProductionRecord
 from app import db
 from datetime import datetime, date
 import json
@@ -417,6 +417,13 @@ def bulk_entry():
                     note=note or 'Toplu uretim girisi',
                     user_id=current_user.id
                 )
+                production = ProductionRecord(
+                    product_id=product.id,
+                    quantity=quantity,
+                    user_id=current_user.id,
+                    note=note or 'Toplu uretim girisi'
+                )
+                db.session.add(production)
             else:
                 product.current_stock = float(product.current_stock or 0) - quantity
                 if loc_stock:
