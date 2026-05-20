@@ -370,9 +370,10 @@ def get_product_costs(keyword: str = "") -> dict:
     # BOM kökü olan ürünleri öne al (mamul tipinde ve BOM'da kök olarak yer alanlar)
     try:
         from app.utils.bom_utils import list_boms
-        bom_product_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
+        bom_map = {b.get('product_id'): b.get('bom_id') for b in list_boms(db) if b.get('product_id')}
     except Exception:
-        bom_product_ids = set()
+        bom_map = {}
+    bom_product_ids = set(bom_map.keys())
 
     type_order = {'mamul': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
 
@@ -383,7 +384,29 @@ def get_product_costs(keyword: str = "") -> dict:
 
     products = sorted(products, key=_sort_key)
 
-    return {"result": [_format_product_for_ai(p, include_cost=True) for p in products]}
+    # İlk birkaç BOM-kök ürün için: ürün kartında maliyet yoksa ürün ağacından hesapla.
+    # Böylece "165 tamburlu maliyeti" sorusunda alt parça listesi yerine TOPLAM maliyet döner.
+    from app.utils.bom_utils import get_bom_tree
+    lines = []
+    for idx, p in enumerate(products):
+        line = _format_product_for_ai(p, include_cost=True)
+        if (not p.unit_cost or p.unit_cost <= 0) and p.id in bom_map and idx < 5:
+            try:
+                tree = get_bom_tree(bom_map[p.id], db)
+                roots = tree.get('roots') or []
+                if roots and roots[0].get('total_cost'):
+                    rc = float(roots[0]['total_cost'])
+                    cur = roots[0].get('currency') or 'TRY'
+                    line += (
+                        f" | NOT: Urun kartinda maliyet yok; urun agacindan (BOM #{bom_map[p.id]}) "
+                        f"hesaplanan yaklasik TOPLAM maliyet: {rc:.2f} {cur}. "
+                        f"Maliyet sorusunda BU degeri kullan, alt parcalari tek tek listeleme."
+                    )
+            except Exception:
+                pass
+        lines.append(line)
+
+    return {"result": lines}
 
 
 def get_stock_overview() -> dict:
@@ -1152,10 +1175,11 @@ def _select_main_product(query, family):
                 if bom_matches:
                     strict_products = bom_matches
 
-            # Adında "eski" geçen ürünleri eliyoruz (eğer alternatif varsa)
-            non_legacy_matches = [p for p in strict_products if 'eski' not in (p.name or '').lower()]
-            if non_legacy_matches:
-                strict_products = non_legacy_matches
+            # Adında "eski" geçen ürünleri eliyoruz — ANCAK kullanıcı açıkça "eski" aramadıysa
+            if 'eski' not in (query or '').lower():
+                non_legacy_matches = [p for p in strict_products if 'eski' not in (p.name or '').lower()]
+                if non_legacy_matches:
+                    strict_products = non_legacy_matches
 
             products = strict_products
 
@@ -1300,15 +1324,14 @@ def _should_answer_locally(query):
     if any(w in q for w in market_keywords):
         return False
 
-    # EĞER HEDEF MİKTAR / ÜRETİM PLANLAMA SORGUSU İSE LOCAL YANIT VERME (GEMINI'YE GİTSİN)
-    # Eğer sorgu sayısal bir değer (örn. 200) içeriyorsa, bu bir üretim/maliyet/stok planlama adedi
-    # olabilir. Bu durumda yerel basit/statik cevap yerine Gemini'nin reçete ve tedarik maliyetlerini
-    # hesaplaması gerekir.
-    import re
-    if re.search(r'\b\d+\b', q):
+    # EĞER GERÇEK BİR HEDEF MİKTAR (örn. "15 adet", "200 tane") VARSA Gemini'ye git
+    # (üretim/tedarik planlamasını calculate_cost_for_quantity ile yapsın).
+    # ÖNEMLİ: "165 tamburlu" gibi ürün ADINDAKİ rakamlar miktar DEĞİLDİR — _extract_quantity
+    # yalnızca birim kelimesiyle (adet/tane/kg...) eşleşen sayıları yakalar. Aksi halde local kalır.
+    if _extract_quantity(q) is not None:
         planning_keywords = [
-            'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim', 
-            'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım', 
+            'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim',
+            'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım',
             'gerek', 'gerekiyor', 'yapmam', 'yapmalı'
         ]
         if any(word in q for word in planning_keywords):
@@ -1782,10 +1805,11 @@ def ai_assistant_ask():
                     if mamul_matches:
                         strict_matches = mamul_matches
 
-                    # 3. Adım: Adında "eski" geçen eski ürünleri eliyoruz (eğer alternatif varsa)
-                    non_legacy_matches = [p for p in strict_matches if 'eski' not in (p.name or '').lower()]
-                    if non_legacy_matches:
-                        strict_matches = non_legacy_matches
+                    # 3. Adım: Adında "eski" geçen ürünleri eliyoruz — kullanıcı açıkça "eski" aramadıysa
+                    if 'eski' not in query.lower():
+                        non_legacy_matches = [p for p in strict_matches if 'eski' not in (p.name or '').lower()]
+                        if non_legacy_matches:
+                            strict_matches = non_legacy_matches
 
                     # Eğer filtreleme sonucunda tek bir ana ürün kaldıysa, belirsizlik seçimini atlayıp doğrudan devam ediyoruz.
                     if len(strict_matches) > 1:
@@ -1879,7 +1903,15 @@ ANA ÜRÜN SEÇİMİ KURALI ("165 tamburlu maliyeti" tipi sorgular):
   3. Yarımamul
   4. Alt parça / hammadde (son çare)
 - get_product_costs fonksiyonu bu sıralamayı zaten yaparak ilk sonucu döner.
+- ÖNEMLİ: Ana ürünün (BOM kökü) ürün kartında maliyet "Bilinmiyor" olsa bile, get_product_costs
+  sonucundaki "NOT: ... hesaplanan yaklasik TOPLAM maliyet" değerini ANA ÜRÜN MALİYETİ olarak ver.
+  Bu durumda alt parçaları tek tek listeleme; tek satır toplam maliyet yaz.
 - Eğer sistem zaten kullanıcıya "birden fazla eşleşme" sorusu sorduysa, kullanıcının seçimini dikkate al.
+
+ALT PARÇA SORUSU ("165 tamburlunun kafa tamburunun maliyeti" tipi):
+- Kullanıcı açıkça bir ALT parçayı belirtiyorsa (ör. "...nın kafa tamburu", "...nın bıçak tutucusu"),
+  o alt parçanın maliyetini ver AMA hangi ana ürüne/ürün ağacına ait olduğunu cevabında belirt.
+  Örn: "165 Tamburlu Kafa Tambur (165 TAMBURLU ÇAYIR BİÇME MAKİNESİ ürün ağacında) maliyeti: X TRY"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CEVAP FORMATI:
