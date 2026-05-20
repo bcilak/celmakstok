@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, Response, current_app, js
 from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord
 from app import db
-from sqlalchemy import func, text
+from sqlalchemy import func, text, inspect
 from datetime import datetime, timedelta
 import csv
 import io
@@ -2587,34 +2587,93 @@ def production_report():
     categories = Category.query.filter_by(is_active=True).all()
     
     # Üretim kayıtlarını sorgula
-    query = ProductionRecord.query
-    
-    if category_id:
-        pass
+    db_inspector = inspect(db.engine)
+    table_names = set(db_inspector.get_table_names())
+    production_columns = {
+        column.get('name')
+        for column in db_inspector.get_columns('production_records')
+    }
+
+    select_parts = [
+        "pr.id", "pr.quantity", "pr.date", "pr.note", "pr.user_id",
+        "u.name AS user_name",
+    ]
+    joins = ["LEFT JOIN users u ON u.id = pr.user_id"]
+    product_name_exprs = []
+    product_code_exprs = []
+    category_id_exprs = []
+
+    if 'product_id' in production_columns:
+        select_parts.append("pr.product_id")
+        joins.append("LEFT JOIN products direct_product ON direct_product.id = pr.product_id")
+        product_name_exprs.append("direct_product.name")
+        product_code_exprs.append("direct_product.code")
+        category_id_exprs.append("direct_product.category_id")
+    else:
+        select_parts.append("NULL AS product_id")
+
+    if 'bom_id' in production_columns:
+        select_parts.append("pr.bom_id")
+    else:
+        select_parts.append("NULL AS bom_id")
+
+    if 'bom_node_id' in production_columns and {'bom_nodes', 'bom_items', 'products'}.issubset(table_names):
+        select_parts.append("pr.bom_node_id")
+        joins.extend([
+            "LEFT JOIN bom_nodes bn ON bn.id = pr.bom_node_id",
+            "LEFT JOIN bom_items bi ON bi.id = bn.item_id",
+            "LEFT JOIN products item_product ON item_product.id = bi.product_id",
+        ])
+        product_name_exprs.extend(["item_product.name", "bi.name", "bn.display_name"])
+        product_code_exprs.extend(["item_product.code", "bi.code"])
+        category_id_exprs.append("item_product.category_id")
+    else:
+        select_parts.append("NULL AS bom_node_id")
+
+    product_name_exprs.append("'Bilinmiyor'")
+    product_code_exprs.append("''")
+    select_parts.append(f"COALESCE({', '.join(product_name_exprs)}) AS product_name")
+    select_parts.append(f"COALESCE({', '.join(product_code_exprs)}) AS product_code")
+    select_parts.append(f"COALESCE({', '.join(category_id_exprs + ['NULL'])}) AS category_id")
+
+    where_parts = []
+    params = {}
     
     if start_date:
-        start = datetime.strptime(start_date, '%Y-%m-%d')
-        query = query.filter(ProductionRecord.date >= start)
+        where_parts.append("pr.date >= :start_date")
+        params['start_date'] = datetime.strptime(start_date, '%Y-%m-%d')
     
     if end_date:
-        end = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
-        query = query.filter(ProductionRecord.date < end)
-    
-    productions = query.order_by(ProductionRecord.date.desc()).all()
+        where_parts.append("pr.date < :end_date")
+        params['end_date'] = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+
+    if category_id and category_id_exprs:
+        where_parts.append(f"COALESCE({', '.join(category_id_exprs + ['NULL'])}) = :category_id")
+        params['category_id'] = category_id
+
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    sql = f"""
+        SELECT {', '.join(select_parts)}
+        FROM production_records pr
+        {' '.join(joins)}
+        {where_sql}
+        ORDER BY pr.date DESC
+    """
+    productions = [dict(row) for row in db.session.execute(text(sql), params).mappings().all()]
     
     # Kategori bazlı üretim toplamları
     category_totals = {}
     for cat in categories:
-        cat_productions = productions
+        cat_productions = [p for p in productions if p.get('category_id') == cat.id]
         category_totals[cat.id] = {
             'name': cat.name,
             'count': len(cat_productions),
-            'total': sum(p.quantity for p in cat_productions)
+            'total': sum(float(p.get('quantity') or 0) for p in cat_productions)
         }
     
     # Özet istatistikler
     total_productions = len(productions)
-    total_quantity = sum(p.quantity for p in productions)
+    total_quantity = sum(float(p.get('quantity') or 0) for p in productions)
     
     return render_template('reports/production.html',
         categories=categories,
