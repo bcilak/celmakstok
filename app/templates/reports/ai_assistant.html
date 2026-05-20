@@ -451,6 +451,80 @@
         cursor: not-allowed;
         transform: none;
     }
+
+    /* Belirsizlik (disambiguation) seçim düğmeleri */
+    .choice-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 12px;
+    }
+
+    .choice-btn {
+        text-align: left;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 10px 14px;
+        cursor: pointer;
+        transition: all 0.18s;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+    }
+
+    .choice-btn:hover {
+        border-color: var(--chat-accent);
+        background: #f5f3ff;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(79, 70, 229, 0.12);
+    }
+
+    .choice-btn .choice-icon {
+        flex-shrink: 0;
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        background: #e0e7ff;
+        color: var(--chat-accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+    }
+
+    .choice-btn .choice-text {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .choice-btn .choice-label {
+        font-weight: 700;
+        color: #1e293b;
+        font-size: 0.92rem;
+        line-height: 1.25;
+    }
+
+    .choice-btn .choice-sub {
+        font-size: 0.78rem;
+        color: #64748b;
+        margin-top: 2px;
+    }
+
+    .choice-btn .choice-arrow {
+        color: #cbd5e1;
+        flex-shrink: 0;
+    }
+
+    .choice-btn:hover .choice-arrow {
+        color: var(--chat-accent);
+    }
+
+    .choice-list.disabled .choice-btn {
+        pointer-events: none;
+        opacity: 0.55;
+    }
 </style>
 
 <div class="container-fluid d-flex align-items-center justify-content-center py-4">
@@ -593,6 +667,43 @@
                 scrollToBottom();
             }
 
+            function addAIChoices(text, choices) {
+                removeTypingIndicator();
+                var wrapper = document.createElement('div');
+                wrapper.className = 'message-wrapper ai';
+                var bubble = document.createElement('div');
+                bubble.className = 'bubble';
+                bubble.innerHTML = renderMarkdown(text || 'Hangisini kastettiğinizi seçin:');
+
+                var list = document.createElement('div');
+                list.className = 'choice-list';
+                (choices || []).forEach(function (c) {
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'choice-btn';
+                    var icon = c.has_bom ? 'bi-diagram-3-fill' : 'bi-box-seam';
+                    btn.innerHTML =
+                        '<span class="choice-icon"><i class="bi ' + icon + '"></i></span>' +
+                        '<span class="choice-text">' +
+                        '<div class="choice-label">' + escapeHtml(c.label || '') + '</div>' +
+                        '<div class="choice-sub">' + escapeHtml(c.sublabel || '') + '</div>' +
+                        '</span>' +
+                        '<span class="choice-arrow"><i class="bi bi-chevron-right"></i></span>';
+                    btn.addEventListener('click', function () {
+                        // Tıklanınca tüm seçenekleri kilitle; net seçim sorgusunu gönder
+                        list.classList.add('disabled');
+                        sendMessage(c.query, c.label);
+                    });
+                    list.appendChild(btn);
+                });
+                bubble.appendChild(list);
+
+                wrapper.innerHTML = '<div class="avatar ai"><i class="bi bi-stars"></i></div>';
+                wrapper.appendChild(bubble);
+                chatBody.appendChild(wrapper);
+                scrollToBottom();
+            }
+
             function setLoading(loading) {
                 isProcessing = loading;
                 sendBtn.disabled = loading;
@@ -614,11 +725,13 @@
                     : '<span class="status-dot"></span>Online • Yapay Zeka';
             }
 
-            function sendMessage(text) {
+            function sendMessage(text, displayText) {
                 if (!text || !text.trim() || isProcessing) return;
                 console.log('Sending message:', text.substring(0, 50));
 
-                addUserMessage(text);
+                // displayText verilirse kullanıcı balonunda onu göster (örn. ürün adı),
+                // gerçek sorgu (#ID ...) arka planda gönderilir.
+                addUserMessage(displayText || text);
                 chatHistory.push({ role: 'user', content: text });
                 queryInput.value = '';
                 setLoading(true);
@@ -635,8 +748,12 @@
                     try {
                         var data = JSON.parse(xhr.responseText);
                         if (data.success) {
-                            addAIMessage(data.answer);
-                            chatHistory.push({ role: 'ai', content: data.answer });
+                            if (data.choices && data.choices.length) {
+                                addAIChoices(data.answer, data.choices);
+                            } else {
+                                addAIMessage(data.answer);
+                                chatHistory.push({ role: 'ai', content: data.answer });
+                            }
                         } else {
                             addAIMessage(data.error || 'Bir hata oluştu.');
                         }

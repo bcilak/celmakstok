@@ -65,13 +65,76 @@ def _search_haystack(*values):
     return f"{raw} {_fold_search_text(raw)}"
 
 
+# Türkçe çekim eklerini kırpan basit stemmer.
+# Amaç: "tamburlunun" → "tamburlu", "makinesinin" → "makine", "tamburunun" → "tambur"
+# gibi sorgu kelimelerini ürün/BOM adlarıyla eşleşecek köke indirgemek.
+# Substring eşleşmesi yapıldığı için hafif fazla kırpma zarar vermez; az kırpmak sorundur.
+# NOT: 'unun/ünün/inin/ının' bilerek listede YOK — kök sesliyle bitiyorsa fazla kırparlar
+# (örn. "tamburlunun" → yanlışlıkla "tamburl"). Onun yerine 'nun/nin' ile "tamburlu" elde edilir.
+# "tamburunun" gibi durumlar için ilike tarafında ayrıca agresif (son sesli düşmüş) varyant OR'lanır.
+_TR_STEM_SUFFIXES = sorted([
+    # iyelik + ilgi/belirtme bileşik ekleri (en uzunlar)
+    'larinin', 'lerinin', 'larindan', 'lerinden', 'larinda', 'lerinde',
+    'sinin', 'sının', 'sunun', 'sünün', 'nunun', 'nünün',
+    'ndan', 'nden', 'nda', 'nde',
+    # ayrılma / bulunma / yönelme
+    'dan', 'den', 'tan', 'ten', 'da', 'de', 'ta', 'te',
+    # çokluk
+    'lar', 'ler',
+    # iyelik / belirtme
+    'sini', 'sını', 'lari', 'leri', 'nin', 'nın', 'nun', 'nün',
+    'si', 'sı', 'su', 'sü', 'yi', 'yı', 'yu', 'yü',
+    'in', 'ın', 'un', 'ün', 'ya', 'ye', 'na', 'ne',
+], key=len, reverse=True)
+
+_TR_VOWELS = set('aeıioöuüâî')
+
+
+def _turkish_stem(term):
+    t = str(term or '').lower()
+    if t.isdigit() or len(t) <= 4:
+        return t
+    for suf in _TR_STEM_SUFFIXES:
+        if t.endswith(suf) and len(t) - len(suf) >= 4:
+            return t[:-len(suf)]
+    return t
+
+
+def _turkish_stem_aggressive(term):
+    """Konservatif kökten sonra bir sondaki sesliyi de düşürür ('tamburu' → 'tambur')."""
+    s = _turkish_stem(term)
+    if len(s) > 4 and s[-1] in _TR_VOWELS:
+        return s[:-1]
+    return s
+
+
 def _search_terms(terms):
+    # Folded + stemlenmiş varyant (1:1 — terim sayısı korunur ki match_score/len mantığı bozulmasın)
     expanded = []
     for term in terms or []:
         raw = str(term or '').lower()
         folded = _fold_search_text(raw)
-        expanded.append(folded or raw)
+        stemmed = _turkish_stem(folded) if folded else raw
+        expanded.append(stemmed or folded or raw)
     return expanded
+
+
+# Sorgu ile BOM/ürün adı arasındaki "sıkılık" ölçüsü:
+# Adda geçen ama sorguda OLMAYAN anlamlı kelime sayısı. Az olması = daha iyi eşleşme.
+# Örn: sorgu "165 tamburlu çayır biçme makinesi ürün ağacı"
+#  → "165 ... ÜRÜN AĞACI" (extra=0)  "165 ... MUHAFAZALI ÜRÜN AĞACI" (extra=1) → ilki tercih edilir.
+_BOM_GENERIC_TOKENS = {
+    'urun', 'agaci', 'agac', 'bom', 'recete', 'recetesi',
+    'makinesi', 'makine', 'tip', 'tipi', 'model',
+}
+
+
+def _name_extra_token_count(name, lowered_terms):
+    import re
+    folded = _fold_search_text(name or '')
+    tokens = {t for t in re.findall(r'[a-z0-9]+', folded) if len(t) >= 2}
+    query_set = set(lowered_terms or [])
+    return sum(1 for t in tokens if t not in query_set and t not in _BOM_GENERIC_TOKENS)
 
 
 def _product_search_query(keyword):
@@ -88,15 +151,23 @@ def _product_search_query(keyword):
 
     filters = []
     for term in terms:
-        like = f'%{term}%'
-        filters.append(db.or_(
-            Product.name.ilike(like),
-            Product.code.ilike(like),
-            Product.barcode.ilike(like),
-            Product.material.ilike(like),
-            Product.notes.ilike(like),
-            Product.category.has(Category.name.ilike(like)),
-        ))
+        # Türkçe ekleri kırp ("tamburlunun" → "tamburlu"). Hem konservatif hem agresif
+        # kökü OR'la ki "tamburunun" → "tambur" gibi alt parça aramaları da yakalansın.
+        stems = {term, _turkish_stem(term), _turkish_stem_aggressive(term)}
+        like_filters = []
+        for st in stems:
+            if not st:
+                continue
+            like = f'%{st}%'
+            like_filters.extend([
+                Product.name.ilike(like),
+                Product.code.ilike(like),
+                Product.barcode.ilike(like),
+                Product.material.ilike(like),
+                Product.notes.ilike(like),
+                Product.category.has(Category.name.ilike(like)),
+            ])
+        filters.append(db.or_(*like_filters))
 
     # Prefer products matching all meaningful words; fall back to any word.
     strict_query = query.filter(*filters)
@@ -586,6 +657,7 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
             "para_birimi": root.get("currency") or "TRY",
             "kalem_sayisi": bom.get("node_count"),
             "match_score": sum(1 for term in lowered_terms if term in haystack),
+            "extra_tokens": _name_extra_token_count(bom.get("root_name"), lowered_terms),
         })
 
     if not boms and lowered_terms:
@@ -613,16 +685,23 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
                 "para_birimi": root.get("currency") or "TRY",
                 "kalem_sayisi": bom.get("node_count"),
                 "match_score": match_score,
+                "extra_tokens": _name_extra_token_count(bom.get("root_name"), lowered_terms),
             })
 
     if not products and not boms:
         term_text = ", ".join(terms) if terms else keyword
         return {"result": f"'{term_text}' icin urun ailesi bulunamadi."}
 
+    # Sıralama: önce en çok terim eşleşen, sonra fazladan kelimesi EN AZ olan (en sıkı eşleşme),
+    # son olarak maliyeti yüksek olan. "165 ... ÜRÜN AĞACI" sorgusunda #8 (extra=0),
+    # #9 MUHAFAZALI (extra=1) üstünde sıralanır.
     boms = sorted(
         boms,
-        key=lambda b: (b.get("match_score") or 0, b.get("yaklasik_toplam_maliyet") or 0),
-        reverse=True
+        key=lambda b: (
+            -(b.get("match_score") or 0),
+            (b.get("extra_tokens") if b.get("extra_tokens") is not None else 99),
+            -((b.get("yaklasik_toplam_maliyet") or 0)),
+        )
     )
 
     top_products = sorted(products, key=lambda p: p.unit_cost or 0, reverse=True)[:limit]
@@ -1813,16 +1892,49 @@ def ai_assistant_ask():
 
                     # Eğer filtreleme sonucunda tek bir ana ürün kaldıysa, belirsizlik seçimini atlayıp doğrudan devam ediyoruz.
                     if len(strict_matches) > 1:
-                        lines = []
-                        lines.append("### 🔍 Birden Fazla Eşleşen Ürün Bulundu")
-                        lines.append(f"Aradığınız kriterlere uygun **{len(strict_matches)}** farklı ürün tespit ettim. Lütfen hangisinin maliyetini veya üretim planını hesaplamak istediğinizi belirtmek için **adını, tam kodunu veya ID numarasını (örn: #ID)** yazın:")
-                        lines.append("")
-                        for p in strict_matches[:10]:
-                            bom_status = "✓ Ürün Ağacı Var" if p.id in bom_product_ids else "❌ Ürün Ağacı Yok"
-                            lines.append(f"- **{p.name}** | Kod: `{p.code}` | ID: **#{p.id}** | Tür: *{p.type or 'mamul'}* ({bom_status})")
-                        if len(strict_matches) > 10:
-                            lines.append(f"\n*...ve {len(strict_matches) - 10} adet daha ürün eşleşti.*")
-                        return jsonify({'success': True, 'answer': "\n".join(lines), 'source': 'local_disambiguation'})
+                        # BOM detayları (kalem sayısı vb.) için ürün_id -> bom bilgisi haritası
+                        bom_info = {}
+                        try:
+                            from app.utils.bom_utils import list_boms
+                            for b in list_boms(db):
+                                pid = b.get('product_id')
+                                if pid and pid not in bom_info:
+                                    bom_info[pid] = {
+                                        'bom_id': b.get('bom_id'),
+                                        'node_count': b.get('node_count'),
+                                    }
+                        except Exception:
+                            pass
+
+                        intro = (
+                            f"**{len(strict_matches)}** eşleşen ürün buldum. "
+                            "Hangisini kastettiğinizi seçin:"
+                        )
+                        choices = []
+                        for p in strict_matches[:12]:
+                            info = bom_info.get(p.id)
+                            sub_parts = [f"Kod: {p.code}"]
+                            if info:
+                                sub_parts.append(f"Ürün Ağacı #{info['bom_id']}")
+                                if info.get('node_count'):
+                                    sub_parts.append(f"{info['node_count']} kalem")
+                            else:
+                                sub_parts.append("Ürün ağacı yok")
+                            choices.append({
+                                'label': p.name,
+                                'sublabel': " • ".join(sub_parts),
+                                'has_bom': bool(info),
+                                # Tıklanınca bu sorgu gönderilir; #ID kesin ürün seçimini sağlar,
+                                # orijinal soru da niyeti (maliyet/stok/üretim) korur.
+                                'query': f"#{p.id} {query}",
+                            })
+
+                        return jsonify({
+                            'success': True,
+                            'answer': intro,
+                            'choices': choices,
+                            'source': 'local_disambiguation'
+                        })
 
     try:
         if _should_answer_locally(query):
