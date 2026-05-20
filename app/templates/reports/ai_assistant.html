@@ -595,6 +595,7 @@
             var chipsArea = document.getElementById('chipsArea');
             var isProcessing = false;
             var chatHistory = [];
+            var lastProduct = null; // Sohbet hafızası: en son konuşulan ürün ("bunun..." için)
             var ASK_URL = '{{ url_for("reports.ai_assistant_ask") }}';
             var CLEAR_URL = '{{ url_for("reports.ai_assistant_clear") }}';
 
@@ -748,6 +749,10 @@
                     try {
                         var data = JSON.parse(xhr.responseText);
                         if (data.success) {
+                            // Sohbet hafızası: çözülen ürünü sakla ("bunun..." sonraki soru için)
+                            if (data.resolved_product && data.resolved_product.id) {
+                                lastProduct = data.resolved_product;
+                            }
                             if (data.choices && data.choices.length) {
                                 addAIChoices(data.answer, data.choices);
                             } else {
@@ -779,7 +784,7 @@
                     setLoading(false);
                 };
 
-                xhr.send(JSON.stringify({ query: text, history: chatHistory.slice(-6) }));
+                xhr.send(JSON.stringify({ query: text, history: chatHistory.slice(-6), context_product: lastProduct }));
             }
 
             // Enter tuşu
@@ -806,6 +811,7 @@
             // Temizle
             clearBtn.addEventListener('click', function () {
                 chatHistory = [];
+                lastProduct = null;
                 chatBody.innerHTML = '<div class="text-center my-auto p-4" id="welcomeScreen"><div class="mb-3"><i class="bi bi-chat-square-quote text-primary opacity-25" style="font-size: 4rem;"></i></div><h4 class="fw-bold text-dark">Merhaba! 👋</h4><p class="text-muted">Veritabanı ile ilgili raporları saniyeler içinde hazırlayabilirim.</p></div>';
                 var xhrClear = new XMLHttpRequest();
                 xhrClear.open('POST', CLEAR_URL, true);

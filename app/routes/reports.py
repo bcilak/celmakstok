@@ -1805,6 +1805,76 @@ def _local_stock_summary(total_items, critical_items, empty_items, critical_prod
         "Mevcut tablo genel olarak saglikli; yine de yuksek sarfiyatli urunler periyodik izlenmeli."
     )
 
+# --- Sohbet hafızası: anafora ("bunun", "şunun"...) ve birincil ürün çözümü ---
+
+# Çekimli zamirler — "bunun stok maliyeti", "şunu hesapla" gibi son ürüne atıf.
+# Çıplak "bu/şu/o" bilerek YOK (örn. "bu hafta" yanlış tetiklemesin).
+_ANAPHORA_TOKENS = {
+    'bunun', 'bunu', 'buna', 'bundan', 'bunda', 'bununla',
+    'sunun', 'sunu', 'suna', 'sundan', 'sunda',          # şunun, şunu...
+    'onun', 'onu', 'ona', 'ondan', 'onda',
+    'aynisi', 'aynisinin', 'aynisini', 'sonuncusu', 'sonuncusunun',
+}
+# "bu/şu/o + ürün/mamul/makine/parça/ağaç" kalıbı da atıf sayılır.
+_ANAPHORA_HEAD = {'bu', 'su', 'o', 'ayni', 'sonuncu', 'yukaridaki', 'bahsettigin', 'sectigim', 'sectigin'}
+_ANAPHORA_NOUN = {
+    'urun', 'urunun', 'urune', 'urunu', 'mamul', 'mamulun', 'mamulu',
+    'makine', 'makinenin', 'makinesi', 'makineyi', 'parca', 'parcanin',
+    'agac', 'agaci', 'model', 'modelin', 'kalem',
+}
+
+
+def _is_anaphoric_reference(query):
+    import re
+    folded = _fold_search_text(query)
+    tokens = re.findall(r'[a-z0-9]+', folded)
+    if any(t in _ANAPHORA_TOKENS for t in tokens):
+        return True
+    for i, t in enumerate(tokens):
+        if t in _ANAPHORA_HEAD:
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else ''
+            if nxt in _ANAPHORA_NOUN:
+                return True
+    return False
+
+
+def _resolve_primary_product(query):
+    """Sorgudaki birincil (ana) ürünü, ürün seçim önceliğiyle çözer. Bulamazsa None."""
+    explicit_id = _extract_explicit_product_id(query)
+    if explicit_id:
+        p = Product.query.get(explicit_id)
+        if p:
+            return p
+
+    exact = _find_product_by_exact_code(query)
+    if exact:
+        return exact
+
+    q = (query or '').lower()
+    general_words = ['kritik', 'biten', 'stoksuz', 'tukenen', 'tukenmis',
+                     'envanter', 'son hareket', 'hareketler', 'yardim', 'help',
+                     'toplam stok', 'stok degeri', 'uretim durumu']
+    if any(w in q for w in general_words):
+        return None
+
+    pq, terms = _product_search_query(query)
+    if not terms:
+        return None
+    try:
+        from app.utils.bom_utils import list_boms
+        bom_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
+    except Exception:
+        bom_ids = set()
+    type_order = {'mamul': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
+    cands = sorted(
+        pq.limit(50).all(),
+        key=lambda p: (0 if p.id in bom_ids else 1,
+                       type_order.get((p.type or '').strip().lower(), 9),
+                       p.name or '')
+    )
+    return cands[0] if cands else None
+
+
 @reports_bp.route('/ai-assistant')
 @login_required
 @roles_required('Genel')
@@ -1822,6 +1892,21 @@ def ai_assistant_ask():
 
     query = data['query']
     client_history = data.get('history', [])
+    context_product = data.get('context_product') or {}
+
+    # 0. SOHBET HAFIZASI — "bunun stok maliyeti nedir?" gibi atıfları son ürüne bağla.
+    # Frontend bir önceki yanıttan gelen ürünü context_product olarak gönderir.
+    if context_product.get('id') and _is_anaphoric_reference(query):
+        query = f"#{context_product['id']} {query}"
+
+    # Bu istekte konuşulan ana ürünü çöz; yanıtta döndürüp bir sonraki "bunun..." için saklatacağız.
+    resolved_payload = None
+    try:
+        _rp = _resolve_primary_product(query)
+        if _rp:
+            resolved_payload = {'id': _rp.id, 'code': _rp.code, 'name': _rp.name}
+    except Exception:
+        resolved_payload = None
 
     # 1. Birden fazla eşleşen ürün durumunda açıklama/seçim sorma kontrolü
     terms = _normalize_search_keyword(query)
@@ -1939,12 +2024,12 @@ def ai_assistant_ask():
     try:
         if _should_answer_locally(query):
             answer = _local_analysis_answer(query)
-            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified'})
+            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified', 'resolved_product': resolved_payload})
 
         api_key = current_app.config.get('GEMINI_API_KEY')
         if not api_key:
             answer = _local_analysis_answer(query)
-            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified'})
+            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified', 'resolved_product': resolved_payload})
 
         genai.configure(api_key=api_key)
 
@@ -2082,17 +2167,17 @@ SİSTEM BİLGİLERİ:
         except ValueError:
             answer = "Veriler analiz edildi ancak gösterilebilir bir rapor oluşturulamadı."
 
-        return jsonify({'success': True, 'answer': answer})
+        return jsonify({'success': True, 'answer': answer, 'resolved_product': resolved_payload})
 
     except Exception as e:
         import traceback
         print("Gemini API error occurred, falling back to local analysis:")
         print(traceback.format_exc())
-        
+
         reason = "quota_fallback" if _is_quota_error(e) else "api_error_fallback"
         try:
             answer = _local_analysis_answer(query, quota_limited=True)
-            return jsonify({'success': True, 'answer': answer, 'source': f'local_verified_{reason}'})
+            return jsonify({'success': True, 'answer': answer, 'source': f'local_verified_{reason}', 'resolved_product': resolved_payload})
         except Exception as local_err:
             print(f"Local analysis fallback also failed: {local_err}")
             return jsonify({'success': False, 'error': f'Bir hata oluştu: {str(e)}'}), 500
