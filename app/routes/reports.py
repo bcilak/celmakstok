@@ -803,54 +803,82 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
     currency = snapshot["currency"]
 
     components = []
+    missing_price_items = []
     total_shortage_cost = 0.0
 
     if best_bom:
         tree = get_bom_tree(best_bom["bom_id"], db)
         roots = tree.get("roots") or []
 
-        def _flatten_children(nodes, lst):
-            for node in nodes:
-                lst.append(node)
-                _flatten_children(node.get("children") or [], lst)
+        # DOĞRU MRP PATLATMASI:
+        # - Sadece YAPRAK düğümler (satın alınan kalemler). Ara montaj/yarımamuller
+        #   patlatılır ama listelenmez → "montaj + onun parçası" çift sayımı biter.
+        # - Yaprağın MAKİNE BAŞINA efektif miktarı = kök→yaprak yolundaki miktarların ÇARPIMI.
+        #   (Eski kod per-parent miktarı topluyordu; çok seviyeli ağaçta yanlıştı.)
+        leaves = {}
 
-        all_comps = []
-        if roots:
-            _flatten_children(roots[0].get("children") or [], all_comps)
-
-        grouped = {}
-        for node in all_comps:
+        def _walk(node, mult):
+            """mult = bu düğümün ÜST atalarının miktar çarpımı (kendi miktarı hariç)."""
+            own_qty = float(node.get("quantity") or 1.0)
+            children = node.get("children") or []
+            if children:
+                for child in children:
+                    _walk(child, mult * own_qty)
+                return
+            # Yaprak: makine başına efektif adet = mult * own_qty
+            eff = mult * own_qty
+            node_total = float(node.get("total_cost") or 0.0)
+            # Yaprağın TEK birim efektif maliyeti (ağaç ağırlık/uzunluk mantığını korur)
+            per_unit = (node_total / own_qty) if own_qty else float(node.get("unit_cost") or 0.0)
             key = node.get("code") or node.get("name") or "?"
-            if key not in grouped:
-                grouped[key] = {
+            if key not in leaves:
+                leaves[key] = {
                     "name": node.get("name"),
                     "code": node.get("code"),
                     "unit": node.get("unit") or "adet",
-                    "recipe_qty": 0.0,
+                    "eff_qty": 0.0,
+                    "cost_per_machine": 0.0,
                     "stock": float(node.get("stock_qty") or 0.0),
-                    "unit_cost": float(node.get("unit_cost") or 0.0),
                     "currency": node.get("currency") or currency,
                 }
-            grouped[key]["recipe_qty"] += float(node.get("quantity") or 1.0)
+            leaves[key]["eff_qty"] += eff
+            leaves[key]["cost_per_machine"] += per_unit * eff
 
-        for comp in grouped.values():
-            required = comp["recipe_qty"] * qty
+        if roots:
+            for child in (roots[0].get("children") or []):
+                _walk(child, 1.0)
+
+        material_unit_cost = 0.0
+        for comp in leaves.values():
+            required = comp["eff_qty"] * qty
             available = comp["stock"]
             shortage = max(0.0, required - available)
-            shortage_cost = shortage * comp["unit_cost"]
-            total_shortage_cost += shortage_cost
+            per_unit_eff = (comp["cost_per_machine"] / comp["eff_qty"]) if comp["eff_qty"] else 0.0
+            has_price = per_unit_eff > 0
+            shortage_cost = shortage * per_unit_eff if has_price else 0.0
+            material_unit_cost += comp["cost_per_machine"]
+            if has_price:
+                total_shortage_cost += shortage_cost
+            elif shortage > 0:
+                missing_price_items.append(comp["name"])
             components.append({
                 "ad": comp["name"],
                 "kod": comp["code"],
                 "birim": comp["unit"],
-                "recete_miktari": comp["recipe_qty"],
+                "birim_recete": comp["eff_qty"],          # makine başına gereken (çarpılmış)
                 "gerekli_miktar": required,
                 "mevcut_stok": available,
                 "eksik_miktar": shortage,
-                "birim_maliyet": comp["unit_cost"],
+                "birim_maliyet": round(per_unit_eff, 4),
                 "eksik_tedarik_maliyeti": shortage_cost,
+                "fiyat_var": has_price,
                 "durum": "Yeterli" if shortage == 0 else f"{shortage:.2f} {comp['unit']} eksik",
             })
+
+        # Maliyeti, get_bom_tree'nin çok-seviyede eksik sayan root değeri yerine
+        # doğru yaprak-patlatmasından hesapla → toplam ile eksik-tedarik tutarlı olur.
+        if material_unit_cost > 0:
+            unit_cost = material_unit_cost
 
     return {
         "result": {
@@ -865,6 +893,11 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
             "mevcut_mamul_stok": float(product.current_stock or 0),
             "bilesenler": components,
             "toplam_eksik_tedarik_maliyeti": total_shortage_cost,
+            "fiyati_eksik_kalemler": missing_price_items,
+            "not": (
+                "Eksik miktarlar yalnızca satın alınan yaprak kalemler için, kök→yaprak "
+                "miktar çarpımıyla hesaplanır. Fiyatı girilmemiş kalemler tedarik toplamına dahil değildir."
+            ),
         }
     }
 
@@ -1104,6 +1137,126 @@ def market_research_web(product_description: str) -> dict:
             }
 
     return {"result": f"'{desc}' icin web aramasi sonuc dondurmedi veya API limiti asildi."}
+
+
+# ===========================================================================
+# GEÇİCİ STATİK ÜRETİM VERİSİ
+# ---------------------------------------------------------------------------
+# Aylık üretim adetleri henüz veritabanına girilmedi. Bu veri geçici olarak
+# burada tutuluyor; DB'ye geçildiğinde SADECE _load_production_data() içi
+# değişecek, tool/akış aynı kalacak.
+# ===========================================================================
+_STATIC_PRODUCTION = {
+    "2026-04": {
+        "label": "Nisan 2026",
+        "items": [
+            {"name": "135 TAMBURLU ÇAYIR BİÇME MAKİNESİ", "qty": 24},
+            {"name": "195 SIKMALI TAMBURLU ÇAYIR BİÇME", "qty": 21},
+            {"name": "195 TAMBURLU BAĞARASI", "qty": 17},
+            {"name": "165 TAMBURLU ÇAYIR BİÇME MAKİNESİ", "qty": 95},
+        ],
+    },
+    "2026-05": {
+        "label": "Mayıs 2026 (8 Mayıs'a kadar)",
+        "items": [
+            {"name": "165 TAMBURLU ÇAYIR BİÇME MAKİNESİ", "qty": 91},
+            {"name": "195 TAMBURLU BAĞARASI", "qty": 5},
+        ],
+    },
+}
+
+
+def _load_production_data():
+    """Üretim adetlerini döndürür. DB'ye geçildiğinde burası DB sorgusuyla değişecek."""
+    return _STATIC_PRODUCTION
+
+
+def _detect_production_period(query):
+    f = _fold_search_text(query)
+    if 'nisan' in f:
+        return '2026-04'
+    if 'mayis' in f:
+        return '2026-05'
+    return None
+
+
+def _production_query_terms(query):
+    noise = {
+        'nisan', 'mayis', 'uretim', 'uretimi', 'uretildi', 'uretilen', 'ay', 'ayi',
+        'ayin', 'ayinda', 'kac', 'tane', 'adet', 'adedi', 'adetleri', 'toplam',
+        'en', 'cok', 'hangi', 'kadar', 'ne', 'nedir', 'oldu', 'yapildi', 'yapilan', 'yap',
+        'miktar', 'miktari', 'sayisi',
+        # dolgu / komut kelimeleri
+        'tum', 'tumu', 'butun', 'hepsi', 'tamami', 'ile', 'her', 'olan',
+        'liste', 'listele', 'listesi', 'goster', 'getir', 'ver', 'soyle',
+        'urun', 'urunu', 'urunler', 'urunleri', 'mamul', 'mamuller',
+    }
+    terms = []
+    for t in _normalize_search_keyword(query):
+        ft = _fold_search_text(t)
+        # Noise kontrolünü STEM'DEN ÖNCE yap (örn. "ayinda" stem'lenince "ayin" olup kaçmasın)
+        if not ft or ft in noise:
+            continue
+        st = _turkish_stem(ft)
+        if not st or st in noise:
+            continue
+        terms.append(st)
+    return terms
+
+
+def _is_production_quantity_query(folded_q):
+    """folded_q: _fold_search_text'ten geçmiş sorgu."""
+    if 'nisan' in folded_q or 'mayis' in folded_q:
+        return True
+    if 'uretildi' in folded_q or 'uretilen' in folded_q:
+        return True
+    if 'uretim' in folded_q and any(w in folded_q for w in ['kac', 'adet', 'tane', 'toplam', 'miktar']):
+        return True
+    return False
+
+
+def get_production_quantities(query: str = "") -> dict:
+    """
+    Return monthly PRODUCTION QUANTITIES (how many units were manufactured).
+
+    USE THIS for questions about how many units were produced in a month:
+    - "nisan üretimi nedir", "mayıs ayında kaç tane üretildi"
+    - "kaç tane 165 tamburlu üretildi", "toplam üretim ne kadar"
+    - "en çok hangi ürün üretildi"
+
+    NOT for production lines/capacity (use get_production_info for that),
+    NOT for stock/cost (use other tools).
+
+    Pass the user's question as `query`; ürün adı ve ay otomatik filtrelenir.
+    """
+    data = _load_production_data()
+    period = _detect_production_period(query)
+    terms = _production_query_terms(query)
+
+    def _matches(item_name):
+        hay = _fold_search_text(item_name)
+        return all(t in hay for t in terms)
+
+    donemler = {}
+    for pkey, pdata in data.items():
+        if period and pkey != period:
+            continue
+        rows = [it for it in pdata['items'] if (not terms or _matches(it['name']))]
+        if rows:
+            donemler[pdata['label']] = {
+                'toplam_adet': sum(r['qty'] for r in rows),
+                'kalemler': rows,
+            }
+
+    if not donemler:
+        return {"result": "Belirtilen kritere uygun (statik) üretim adedi kaydı bulunamadı."}
+
+    return {
+        "result": {
+            "kaynak": "Geçici statik üretim verisi (henüz DB'de değil)",
+            "donemler": donemler,
+        }
+    }
 
 
 def _fmt_money(value, currency='TRY'):
@@ -1429,7 +1582,8 @@ def _should_answer_locally(query):
     ]
     local_keywords.extend([
         'kritik', 'biten', 'stoksuz', 'tukenen', 'tukenmis', 'son hareket',
-        'hareketler', 'envanter', 'yardim', 'help', 'sorabilirim'
+        'hareketler', 'envanter', 'yardim', 'help', 'sorabilirim',
+        'nisan', 'mayis', 'mayıs', 'uretildi', 'üretildi', 'uretilen', 'üretilen',
     ])
     if any(word in q for word in local_keywords):
         return True
@@ -1526,6 +1680,19 @@ def _local_quick_answer(query):
             unit = product.unit_type if product else ''
             name = product.name if product else '-'
             lines.append(f"- {date_str}: **{name}**, {m.movement_type}, **{_fmt_qty(m.quantity)} {unit}**")
+        return "\n".join(lines)
+
+    # Statik aylık üretim adetleri (DB'ye girilene kadar geçici) — hat handler'ından ÖNCE
+    if _is_production_quantity_query(q):
+        res = get_production_quantities(query).get('result')
+        if isinstance(res, str):
+            return res
+        lines = ["**Üretim Adetleri**"]
+        for label, d in res['donemler'].items():
+            lines.append(f"\n**{label}** — toplam **{d['toplam_adet']} adet**")
+            for r in d['kalemler']:
+                lines.append(f"- {r['name']}: **{r['qty']} adet**")
+        lines.append(f"\n_{res['kaynak']}_")
         return "\n".join(lines)
 
     if 'uretim' in q or 'üretim' in query.lower():
@@ -1922,7 +2089,11 @@ def ai_assistant_ask():
     ]
     is_market_research = any(word in query.lower() for word in market_research_keywords)
 
-    if not is_general and not is_market_research:
+    # Üretim ADEDİ sorguları → ürün belirsizliği (disambiguation) bloğunu ATLA.
+    # Aksi halde "165 tamburlu" geçtiği için ürün eşleştirmeye gidip yanlış ürün döner.
+    is_production_quantity = _is_production_quantity_query(_fold_search_text(query))
+
+    if not is_general and not is_market_research and not is_production_quantity:
         planning_words = ['maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim', 'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım', 'gerek', 'gerekiyor']
         qty = _extract_quantity(query)
         qty_str = str(qty) if qty else None
@@ -2080,6 +2251,13 @@ ARAÇ SEÇİM KURALLARI — bu tabloyu KESINLIKLE uygula:
 8. get_critical_stock() / get_stock_overview()
    KULLAN: Genel stok durumu, biten/kritik ürünler
 
+8b. get_production_quantities(query)
+   KULLAN: AYLIK ÜRETİM ADEDİ soruları (kaç tane üretildi)
+   Örnekler: "nisan üretimi nedir", "mayıs ayında kaç 165 tamburlu üretildi",
+             "toplam üretim", "en çok hangi ürün üretildi"
+   → Bu, üretim HATTI/kapasite sorusu DEĞİL (o get_production_info). Adet/miktar sorusu.
+   → Veri şu an geçici/statik; cevapta gerekirse "henüz sisteme tam girilmemiş" diye belirt.
+
 9. market_research_web(product_description)
    KULLAN: Kullanıcı PAZARDAKI rakip / dış fiyat / başka firmalar sorduğunda
    Örnekler: "165 tamburlunun rakiplerini getir", "piyasada ne kadar satılıyor",
@@ -2131,6 +2309,7 @@ SİSTEM BİLGİLERİ:
         tools = [
             calculate_cost_for_quantity,
             get_stock_recommendation,
+            get_production_quantities,
             market_research_web,
             get_product_costs,
             get_bom_costs,
