@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, Response, current_app, js
 from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord
 from app import db
-from sqlalchemy import func, text
+from sqlalchemy import func, text, inspect
 from datetime import datetime, timedelta
 import csv
 import io
@@ -740,7 +740,7 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
 
 def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
     """
-    Calculate the total cost and BOM component requirements for producing or purchasing N units.
+    Calculate the total cost for producing or purchasing N units.
 
     USE THIS whenever the user specifies a quantity together with a cost question:
     - "15 tanesinin maliyeti nedir"
@@ -749,7 +749,7 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
     - Production planning with a target quantity
 
     Pass the product name/description as `keyword` and the integer count as `quantity`.
-    Returns: unit_cost, total_cost=N×unit_cost, per-component required/available/shortage/shortage_cost.
+    Returns: unit_cost and total_cost=N×unit_cost. Do not include missing component or procurement analysis.
     Do NOT compute manually — always call this function for quantity-based cost questions.
     """
     from app.utils.bom_utils import get_bom_tree
@@ -791,8 +791,6 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
                 "toplam_maliyet": qty * unit_cost,
                 "para_birimi": currency,
                 "mevcut_mamul_stok": float(product.current_stock or 0),
-                "bilesenler": [],
-                "toplam_eksik_tedarik_maliyeti": 0.0,
                 "not": "Bu urun icin urun agaci bulunamadi; yalnizca urun karti maliyeti kullanildi.",
             }
         }
@@ -801,6 +799,20 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
     best_bom = snapshot.get("bom")
     unit_cost = snapshot["unit_cost"]
     currency = snapshot["currency"]
+
+    return {
+        "result": {
+            "urun": product.name,
+            "kod": product.code,
+            "tip": product.type,
+            "hedef_miktar": qty,
+            "birim_maliyet": unit_cost,
+            "toplam_maliyet": qty * unit_cost,
+            "para_birimi": currency,
+            "maliyet_kaynagi": snapshot["cost_source"],
+            "mevcut_mamul_stok": float(product.current_stock or 0),
+        }
+    }
 
     components = []
     missing_price_items = []
@@ -1794,7 +1806,7 @@ def _generate_local_production_plan(product, qty, best_bom, currency, unit_cost)
     total_production_cost = qty * unit_cost
     
     lines = []
-    lines.append("### 🏭 Üretim Planlama ve Tedarik Raporu (Yerel Analiz)")
+    lines.append("### Üretim Maliyeti")
     lines.append(f"Hedeflenen üretim miktarı: **{qty} adet** - **{product.name}**")
     lines.append(f"Birim Reçete Maliyeti: **{_fmt_money(unit_cost, currency)}**")
     lines.append(f"**Toplam Üretim Maliyeti:** **{_fmt_money(total_production_cost, currency)}**")
@@ -1868,6 +1880,19 @@ def _generate_local_production_plan(product, qty, best_bom, currency, unit_cost)
     else:
         lines.append("_Ürün ağacı bulunamadığı için alt bileşen analizi yapılamadı._")
         
+    return "\n".join(lines)
+
+
+def _generate_local_production_plan(product, qty, best_bom, currency, unit_cost):
+    total_production_cost = qty * unit_cost
+    lines = [
+        "### Üretim Maliyeti",
+        f"Hedeflenen üretim miktarı: **{qty} adet** - **{product.name}**",
+        f"Birim reçete maliyeti: **{_fmt_money(unit_cost, currency)}**",
+        f"Toplam üretim maliyeti: **{_fmt_money(total_production_cost, currency)}**",
+        "",
+        f"Hazır stok: **{_fmt_qty(product.current_stock)} {product.unit_type}**",
+    ]
     return "\n".join(lines)
 
 
@@ -2293,7 +2318,7 @@ CEVAP FORMATI:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Doğrudan bil­gi ver; "Merhaba, sorunuzu anlıyorum..." tarzı giriş yok.
 - Sadece maliyet sorulmuşsa → tek satır: "**ÜRÜN ADI** maliyeti: **X.XXX,XX TRY**"
-- N adet maliyet sorulmuşsa → birim maliyet + toplam + eksik bileşenler (varsa)
+- N adet maliyet sorulmuşsa → birim maliyet + toplam maliyet
 - Stok öneri sorulmuşsa → tüketim + öneri + tahmini bitiş tarihi
 - Alt parça maliyeti sorulmuşsa → kısa bileşen listesi (en pahalı 5'i yeter)
 - Önemli sayıları **kalın** yaz. Tablo KULLANMA. Ham JSON gösterme.
@@ -2766,34 +2791,93 @@ def production_report():
     categories = Category.query.filter_by(is_active=True).all()
     
     # Üretim kayıtlarını sorgula
-    query = ProductionRecord.query
-    
-    if category_id:
-        pass
+    db_inspector = inspect(db.engine)
+    table_names = set(db_inspector.get_table_names())
+    production_columns = {
+        column.get('name')
+        for column in db_inspector.get_columns('production_records')
+    }
+
+    select_parts = [
+        "pr.id", "pr.quantity", "pr.date", "pr.note", "pr.user_id",
+        "u.name AS user_name",
+    ]
+    joins = ["LEFT JOIN users u ON u.id = pr.user_id"]
+    product_name_exprs = []
+    product_code_exprs = []
+    category_id_exprs = []
+
+    if 'product_id' in production_columns:
+        select_parts.append("pr.product_id")
+        joins.append("LEFT JOIN products direct_product ON direct_product.id = pr.product_id")
+        product_name_exprs.append("direct_product.name")
+        product_code_exprs.append("direct_product.code")
+        category_id_exprs.append("direct_product.category_id")
+    else:
+        select_parts.append("NULL AS product_id")
+
+    if 'bom_id' in production_columns:
+        select_parts.append("pr.bom_id")
+    else:
+        select_parts.append("NULL AS bom_id")
+
+    if 'bom_node_id' in production_columns and {'bom_nodes', 'bom_items', 'products'}.issubset(table_names):
+        select_parts.append("pr.bom_node_id")
+        joins.extend([
+            "LEFT JOIN bom_nodes bn ON bn.id = pr.bom_node_id",
+            "LEFT JOIN bom_items bi ON bi.id = bn.item_id",
+            "LEFT JOIN products item_product ON item_product.id = bi.product_id",
+        ])
+        product_name_exprs.extend(["item_product.name", "bi.name", "bn.display_name"])
+        product_code_exprs.extend(["item_product.code", "bi.code"])
+        category_id_exprs.append("item_product.category_id")
+    else:
+        select_parts.append("NULL AS bom_node_id")
+
+    product_name_exprs.append("'Bilinmiyor'")
+    product_code_exprs.append("''")
+    select_parts.append(f"COALESCE({', '.join(product_name_exprs)}) AS product_name")
+    select_parts.append(f"COALESCE({', '.join(product_code_exprs)}) AS product_code")
+    select_parts.append(f"COALESCE({', '.join(category_id_exprs + ['NULL'])}) AS category_id")
+
+    where_parts = []
+    params = {}
     
     if start_date:
-        start = datetime.strptime(start_date, '%Y-%m-%d')
-        query = query.filter(ProductionRecord.date >= start)
+        where_parts.append("pr.date >= :start_date")
+        params['start_date'] = datetime.strptime(start_date, '%Y-%m-%d')
     
     if end_date:
-        end = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
-        query = query.filter(ProductionRecord.date < end)
-    
-    productions = query.order_by(ProductionRecord.date.desc()).all()
+        where_parts.append("pr.date < :end_date")
+        params['end_date'] = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+
+    if category_id and category_id_exprs:
+        where_parts.append(f"COALESCE({', '.join(category_id_exprs + ['NULL'])}) = :category_id")
+        params['category_id'] = category_id
+
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    sql = f"""
+        SELECT {', '.join(select_parts)}
+        FROM production_records pr
+        {' '.join(joins)}
+        {where_sql}
+        ORDER BY pr.date DESC
+    """
+    productions = [dict(row) for row in db.session.execute(text(sql), params).mappings().all()]
     
     # Kategori bazlı üretim toplamları
     category_totals = {}
     for cat in categories:
-        cat_productions = productions
+        cat_productions = [p for p in productions if p.get('category_id') == cat.id]
         category_totals[cat.id] = {
             'name': cat.name,
             'count': len(cat_productions),
-            'total': sum(p.quantity for p in cat_productions)
+            'total': sum(float(p.get('quantity') or 0) for p in cat_productions)
         }
     
     # Özet istatistikler
     total_productions = len(productions)
-    total_quantity = sum(p.quantity for p in productions)
+    total_quantity = sum(float(p.get('quantity') or 0) for p in productions)
     
     return render_template('reports/production.html',
         categories=categories,
