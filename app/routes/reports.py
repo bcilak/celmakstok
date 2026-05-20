@@ -740,7 +740,7 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
 
 def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
     """
-    Calculate the total cost and BOM component requirements for producing or purchasing N units.
+    Calculate the total cost for producing or purchasing N units.
 
     USE THIS whenever the user specifies a quantity together with a cost question:
     - "15 tanesinin maliyeti nedir"
@@ -749,7 +749,7 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
     - Production planning with a target quantity
 
     Pass the product name/description as `keyword` and the integer count as `quantity`.
-    Returns: unit_cost, total_cost=N×unit_cost, per-component required/available/shortage/shortage_cost.
+    Returns: unit_cost and total_cost=N×unit_cost. Do not include missing component or procurement analysis.
     Do NOT compute manually — always call this function for quantity-based cost questions.
     """
     from app.utils.bom_utils import get_bom_tree
@@ -791,8 +791,6 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
                 "toplam_maliyet": qty * unit_cost,
                 "para_birimi": currency,
                 "mevcut_mamul_stok": float(product.current_stock or 0),
-                "bilesenler": [],
-                "toplam_eksik_tedarik_maliyeti": 0.0,
                 "not": "Bu urun icin urun agaci bulunamadi; yalnizca urun karti maliyeti kullanildi.",
             }
         }
@@ -801,6 +799,20 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
     best_bom = snapshot.get("bom")
     unit_cost = snapshot["unit_cost"]
     currency = snapshot["currency"]
+
+    return {
+        "result": {
+            "urun": product.name,
+            "kod": product.code,
+            "tip": product.type,
+            "hedef_miktar": qty,
+            "birim_maliyet": unit_cost,
+            "toplam_maliyet": qty * unit_cost,
+            "para_birimi": currency,
+            "maliyet_kaynagi": snapshot["cost_source"],
+            "mevcut_mamul_stok": float(product.current_stock or 0),
+        }
+    }
 
     components = []
     total_shortage_cost = 0.0
@@ -1627,7 +1639,7 @@ def _generate_local_production_plan(product, qty, best_bom, currency, unit_cost)
     total_production_cost = qty * unit_cost
     
     lines = []
-    lines.append("### 🏭 Üretim Planlama ve Tedarik Raporu (Yerel Analiz)")
+    lines.append("### Üretim Maliyeti")
     lines.append(f"Hedeflenen üretim miktarı: **{qty} adet** - **{product.name}**")
     lines.append(f"Birim Reçete Maliyeti: **{_fmt_money(unit_cost, currency)}**")
     lines.append(f"**Toplam Üretim Maliyeti:** **{_fmt_money(total_production_cost, currency)}**")
@@ -1701,6 +1713,19 @@ def _generate_local_production_plan(product, qty, best_bom, currency, unit_cost)
     else:
         lines.append("_Ürün ağacı bulunamadığı için alt bileşen analizi yapılamadı._")
         
+    return "\n".join(lines)
+
+
+def _generate_local_production_plan(product, qty, best_bom, currency, unit_cost):
+    total_production_cost = qty * unit_cost
+    lines = [
+        "### Üretim Maliyeti",
+        f"Hedeflenen üretim miktarı: **{qty} adet** - **{product.name}**",
+        f"Birim reçete maliyeti: **{_fmt_money(unit_cost, currency)}**",
+        f"Toplam üretim maliyeti: **{_fmt_money(total_production_cost, currency)}**",
+        "",
+        f"Hazır stok: **{_fmt_qty(product.current_stock)} {product.unit_type}**",
+    ]
     return "\n".join(lines)
 
 
@@ -2115,7 +2140,7 @@ CEVAP FORMATI:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Doğrudan bil­gi ver; "Merhaba, sorunuzu anlıyorum..." tarzı giriş yok.
 - Sadece maliyet sorulmuşsa → tek satır: "**ÜRÜN ADI** maliyeti: **X.XXX,XX TRY**"
-- N adet maliyet sorulmuşsa → birim maliyet + toplam + eksik bileşenler (varsa)
+- N adet maliyet sorulmuşsa → birim maliyet + toplam maliyet
 - Stok öneri sorulmuşsa → tüketim + öneri + tahmini bitiş tarihi
 - Alt parça maliyeti sorulmuşsa → kısa bileşen listesi (en pahalı 5'i yeter)
 - Önemli sayıları **kalın** yaz. Tablo KULLANMA. Ham JSON gösterme.
