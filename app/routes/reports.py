@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, Response, current_app, jsonify, session, redirect, url_for
+from flask import Blueprint, render_template, request, Response, current_app, jsonify, session, redirect, url_for, g
 from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord
 from app import db
@@ -211,12 +211,103 @@ def _product_search_query(keyword):
     return loose_query, terms
 
 
+# ===========================================================================
+# MAHREMİYET: Maliyet/fiyat token'lama (firma sırları LLM'e/Google'a gitmesin)
+# ---------------------------------------------------------------------------
+# LLM'e gönderilmeden önce gerçek maliyetler ⟦C1⟧ gibi token'larla değiştirilir;
+# token→gerçek değer haritası g.ai_vault'ta tutulur. LLM cevabı token'ları AYNEN
+# yazar, biz dönüşte _unmask ile gerçek değeri geri koyarız. Ürün ADLARI gider
+# (eşleştirme için gerekli), ama maliyet/fiyat ASLA gitmez.
+# Token modu yalnızca Gemini çağrısı sırasında (g.ai_privacy=True) aktiftir;
+# yerel (local) yanıtlarda veri zaten sunucudan çıkmadığından gerçek değer kullanılır.
+# ===========================================================================
+_COST_KEYS = {
+    'birim_maliyet', 'toplam_maliyet', 'unit_cost', 'maliyet',
+    'eksik_tedarik_maliyeti', 'toplam_eksik_tedarik_maliyeti',
+    'yaklasik_toplam_maliyet', 'tahmini_stok_maliyeti', 'stok_maliyeti',
+    'cost_per_machine', 'stock_value',
+}
+
+
+def _ai_privacy_on():
+    try:
+        return bool(getattr(g, 'ai_privacy', False))
+    except RuntimeError:
+        return False
+
+
+def _mask_cost(value, currency='TRY'):
+    """Privacy açıkken gerçek değeri kasaya koyup token döndürür; kapalıyken gerçek değeri."""
+    if not _ai_privacy_on():
+        return value
+    if not isinstance(value, (int, float)) or value <= 0:
+        return value
+    vault = g.ai_vault
+    real = _fmt_money(value, currency)
+    for tok, val in vault.items():
+        if val == real:
+            return tok
+    tok = f"⟦C{len(vault) + 1}⟧"
+    vault[tok] = real
+    return tok
+
+
+def _display_currency(cur):
+    """Görüntü para birimi: TRY (veya boş) → 'TL'. USD/EUR vb. olduğu gibi kalır.
+    (Veri içte 'TRY' olarak saklanmaya devam eder; yalnızca gösterim TL.)"""
+    c = str(cur or '').strip().upper()
+    if c in ('', 'TRY', 'TL', 'TURKLIRASI', 'TÜRK LİRASI'):
+        return 'TL'
+    return cur
+
+
+def _cost_str(value, currency='TRY'):
+    """Maliyeti metin için biçimler: privacy açıkken token, kapalıyken 'X TL'."""
+    if not value or value <= 0:
+        return "Bilinmiyor"
+    if _ai_privacy_on():
+        return _mask_cost(value, currency)
+    return f"{value} {_display_currency(currency)}"
+
+
+def _mask_obj(obj):
+    """Tool sonucundaki maliyet alanlarını (recursive) token'lar (privacy açıksa)."""
+    if not _ai_privacy_on():
+        return obj
+    if isinstance(obj, dict):
+        cur = obj.get('para_birimi') or obj.get('currency') or 'TRY'
+        out = {}
+        for k, v in obj.items():
+            if k in _COST_KEYS and isinstance(v, (int, float)):
+                out[k] = _mask_cost(v, cur)
+            else:
+                out[k] = _mask_obj(v)
+        return out
+    if isinstance(obj, list):
+        return [_mask_obj(x) for x in obj]
+    return obj
+
+
+def _unmask(text):
+    """LLM cevabındaki token'ları gerçek değerlerle geri koyar."""
+    try:
+        vault = getattr(g, 'ai_vault', None)
+    except RuntimeError:
+        vault = None
+    if not vault or not text:
+        return text
+    for tok, real in vault.items():
+        text = text.replace(tok, real)
+    return text
+
+
 def _format_product_for_ai(p, include_cost=True):
     cat_name = p.category.name if p.category else '-'
-    cost_info = f"{p.unit_cost} {p.currency}" if p.unit_cost and p.unit_cost > 0 else "Bilinmiyor"
+    cost_info = _cost_str(p.unit_cost, p.currency) if (p.unit_cost and p.unit_cost > 0) else "Bilinmiyor"
     vat_info = f"%{int(p.vat_rate)}" if p.vat_rate else "Belirtilmemis"
-    cost_with_vat = round(p.unit_cost * (1 + p.vat_rate / 100), 2) if p.unit_cost and p.unit_cost > 0 and p.vat_rate else None
-    cost_vat_str = f", KDV Dahil: {cost_with_vat} {p.currency}" if cost_with_vat else ""
+    _cwv = round(p.unit_cost * (1 + p.vat_rate / 100), 2) if p.unit_cost and p.unit_cost > 0 and p.vat_rate else None
+    cost_with_vat = _cost_str(_cwv, p.currency) if _cwv else None
+    cost_vat_str = f", KDV Dahil: {cost_with_vat}" if cost_with_vat else ""
 
     loc_info = []
     for ls in p.location_stocks:
@@ -426,7 +517,10 @@ def get_product_costs(keyword: str = "") -> dict:
 
     IMPORTANT: Results are BOM-root (mamul) products first, then sub-components.
     The first result is almost always the main top-level product the user is asking about.
+
+    `keyword` find_products'tan gelen bir ref ("P17") de olabilir; otomatik çözülür.
     """
+    keyword = _ref_to_keyword(keyword)
     if keyword:
         query, terms = _product_search_query(keyword)
     else:
@@ -468,9 +562,10 @@ def get_product_costs(keyword: str = "") -> dict:
                 if roots and roots[0].get('total_cost'):
                     rc = float(roots[0]['total_cost'])
                     cur = roots[0].get('currency') or 'TRY'
+                    rc_str = _cost_str(rc, cur)
                     line += (
                         f" | NOT: Urun kartinda maliyet yok; urun agacindan (BOM #{bom_map[p.id]}) "
-                        f"hesaplanan yaklasik TOPLAM maliyet: {rc:.2f} {cur}. "
+                        f"hesaplanan yaklasik TOPLAM maliyet: {rc_str}. "
                         f"Maliyet sorusunda BU degeri kullan, alt parcalari tek tek listeleme."
                     )
             except Exception:
@@ -579,7 +674,7 @@ def get_bom_costs(keyword: str = "", limit: int = 25) -> dict:
                 "stok": node.get("stock_qty"),
                 "birim_maliyet": node.get("unit_cost"),
                 "toplam_maliyet": node.get("total_cost"),
-                "para_birimi": node.get("currency") or "TRY",
+                "para_birimi": _display_currency(node.get("currency")),
             })
             flatten_cost_nodes(node.get("children") or [], rows)
 
@@ -597,12 +692,12 @@ def get_bom_costs(keyword: str = "", limit: int = 25) -> dict:
             "kategori": bom.get("category_name"),
             "parca_sayisi": bom.get("node_count"),
             "yaklasik_toplam_maliyet": root.get("total_cost"),
-            "para_birimi": root.get("currency") or "TRY",
+            "para_birimi": _display_currency(root.get("currency")),
             "maliyeti_eksik_parca_sayisi": missing_cost_count,
             "recete_kalemleri": components[:limit],
         })
 
-    return {"result": results}
+    return _mask_obj({"result": results})
 
 
 def analyze_product_family(keyword: str, limit: int = 12) -> dict:
@@ -654,7 +749,7 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
             "product_id": bom.get("product_id"),
             "kategori": bom.get("category_name"),
             "yaklasik_toplam_maliyet": root.get("total_cost"),
-            "para_birimi": root.get("currency") or "TRY",
+            "para_birimi": _display_currency(root.get("currency")),
             "kalem_sayisi": bom.get("node_count"),
             "match_score": sum(1 for term in lowered_terms if term in haystack),
             "extra_tokens": _name_extra_token_count(bom.get("root_name"), lowered_terms),
@@ -682,7 +777,7 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
                 "product_id": bom.get("product_id"),
                 "kategori": bom.get("category_name"),
                 "yaklasik_toplam_maliyet": root.get("total_cost"),
-                "para_birimi": root.get("currency") or "TRY",
+                "para_birimi": _display_currency(root.get("currency")),
                 "kalem_sayisi": bom.get("node_count"),
                 "match_score": match_score,
                 "extra_tokens": _name_extra_token_count(bom.get("root_name"), lowered_terms),
@@ -715,7 +810,7 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
         reverse=True
     )[:limit]
 
-    return {
+    return _mask_obj({
         "result": {
             "arama": keyword,
             "bulunan_urun_sayisi": len(products),
@@ -735,7 +830,7 @@ def analyze_product_family(keyword: str, limit: int = 12) -> dict:
             ],
             "not": "Cikis/sarfiyat/transfer toplami satis anlamina gelmeyebilir; sistemde ayri satis kaydi yoksa bunu stok cikisi olarak yorumla."
         }
-    }
+    })
 
 
 def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
@@ -748,12 +843,14 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
     - "50 adet [ürün] maliyeti"
     - Production planning with a target quantity
 
-    Pass the product name/description as `keyword` and the integer count as `quantity`.
+    Pass the product name/description (or a find_products ref like "P17") as `keyword`
+    and the integer count as `quantity`.
     Returns: unit_cost and total_cost=N×unit_cost. Do not include missing component or procurement analysis.
     Do NOT compute manually — always call this function for quantity-based cost questions.
     """
     from app.utils.bom_utils import get_bom_tree
 
+    keyword = _ref_to_keyword(keyword)
     try:
         qty = max(1, int(float(quantity or 1)))
     except (TypeError, ValueError):
@@ -782,37 +879,23 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
             return {"result": f"'{keyword}' icin urun bulunamadi."}
         unit_cost = float(product.unit_cost or 0)
         currency = product.currency or 'TRY'
-        return {
+        return _mask_obj({
             "result": {
                 "urun": product.name,
                 "kod": product.code,
                 "hedef_miktar": qty,
                 "birim_maliyet": unit_cost,
                 "toplam_maliyet": qty * unit_cost,
-                "para_birimi": currency,
+                "para_birimi": _display_currency(currency),
                 "mevcut_mamul_stok": float(product.current_stock or 0),
                 "not": "Bu urun icin urun agaci bulunamadi; yalnizca urun karti maliyeti kullanildi.",
             }
-        }
+        })
 
     product = snapshot["product"]
     best_bom = snapshot.get("bom")
     unit_cost = snapshot["unit_cost"]
     currency = snapshot["currency"]
-
-    return {
-        "result": {
-            "urun": product.name,
-            "kod": product.code,
-            "tip": product.type,
-            "hedef_miktar": qty,
-            "birim_maliyet": unit_cost,
-            "toplam_maliyet": qty * unit_cost,
-            "para_birimi": currency,
-            "maliyet_kaynagi": snapshot["cost_source"],
-            "mevcut_mamul_stok": float(product.current_stock or 0),
-        }
-    }
 
     components = []
     missing_price_items = []
@@ -892,7 +975,7 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
         if material_unit_cost > 0:
             unit_cost = material_unit_cost
 
-    return {
+    return _mask_obj({
         "result": {
             "urun": product.name,
             "kod": product.code,
@@ -900,7 +983,7 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
             "hedef_miktar": qty,
             "birim_maliyet": unit_cost,
             "toplam_maliyet": qty * unit_cost,
-            "para_birimi": currency,
+            "para_birimi": _display_currency(currency),
             "maliyet_kaynagi": snapshot["cost_source"],
             "mevcut_mamul_stok": float(product.current_stock or 0),
             "bilesenler": components,
@@ -911,7 +994,7 @@ def calculate_cost_for_quantity(keyword: str, quantity: int) -> dict:
                 "miktar çarpımıyla hesaplanır. Fiyatı girilmemiş kalemler tedarik toplamına dahil değildir."
             ),
         }
-    }
+    })
 
 
 def get_stock_recommendation(keyword: str) -> dict:
@@ -928,7 +1011,10 @@ def get_stock_recommendation(keyword: str) -> dict:
 
     Returns: daily/weekly/monthly avg consumption, days of stock remaining,
     recommended minimum stock, safety stock, and estimated stockout date.
+
+    `keyword` find_products ref'i ("P17") de olabilir; otomatik çözülür.
     """
+    keyword = _ref_to_keyword(keyword)
     pq, terms = _product_search_query(keyword)
 
     # BOM kökü / mamul öncelikli
@@ -1276,7 +1362,8 @@ def _fmt_money(value, currency='TRY'):
         amount = float(value or 0)
     except (TypeError, ValueError):
         amount = 0.0
-    return f"{amount:,.2f} {currency}".replace(",", "X").replace(".", ",").replace("X", ".")
+    formatted = f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{formatted} {_display_currency(currency)}"
 
 
 def _fmt_qty(value):
@@ -1345,93 +1432,24 @@ def _find_product_by_exact_code(query):
     return None
 
 
-def _select_main_product(query, family):
-    explicit_id = _extract_explicit_product_id(query)
-    if explicit_id:
-        product = Product.query.get(explicit_id)
-        if product:
-            best_bom = None
-            try:
-                from app.utils.bom_utils import list_boms
-                for bom in list_boms(db):
-                    if bom.get('product_id') == product.id:
-                        best_bom = bom
-                        break
-            except Exception:
-                pass
-            return product, best_bom
-
-    exact_product = _find_product_by_exact_code(query)
-    if exact_product:
-        best_bom = None
-        try:
-            from app.utils.bom_utils import list_boms
-            for bom in list_boms(db):
-                if bom.get('product_id') == exact_product.id:
-                    best_bom = bom
-                    break
-        except Exception:
-            pass
-        return exact_product, best_bom
-
-    terms = _search_terms(_normalize_search_keyword(query))
-    qty = _extract_quantity(query)
-    if qty:
-        qty_str = str(qty)
-        terms = [t for t in terms if t != qty_str]
-        
-    boms = family.get('urun_agaclari') or []
-    for bom in boms:
-        if len(terms) > 1 and (bom.get('match_score') or 0) < len(terms):
-            continue
-        product_id = bom.get('product_id')
-        if product_id:
-            product = Product.query.get(product_id)
-            if product:
-                return product, bom
-
-    product_query, _ = _product_search_query(query)
-    products = product_query.order_by(Product.name).limit(100).all()
-    if len(terms) > 1:
-        def matches_all(product):
-            haystack = _search_haystack(*[
-                product.name or '',
-                product.code or '',
-                product.barcode or '',
-                product.material or '',
-                product.notes or '',
-                product.category.name if product.category else '',
-            ])
-            return all(term in haystack for term in terms)
-
-        strict_products = [product for product in products if matches_all(product)]
-        if strict_products:
-            # Filtreleme Adımları (Ana Ürün ve BOM Önceliği):
-            bom_product_ids = set()
-            try:
-                from app.utils.bom_utils import list_boms
-                bom_product_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
-            except Exception:
-                pass
-            
-            if bom_product_ids:
-                bom_matches = [p for p in strict_products if p.id in bom_product_ids]
-                if bom_matches:
-                    strict_products = bom_matches
-
-            # Adında "eski" geçen ürünleri eliyoruz — ANCAK kullanıcı açıkça "eski" aramadıysa
-            if 'eski' not in (query or '').lower():
-                non_legacy_matches = [p for p in strict_products if 'eski' not in (p.name or '').lower()]
-                if non_legacy_matches:
-                    strict_products = non_legacy_matches
-
-            products = strict_products
-
-    type_order = {'mamul': 0, 'mamul ': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
-    if products:
-        product = sorted(products, key=lambda p: type_order.get((p.type or '').strip().lower(), 9))[0]
-        return product, None
-    return None, None
+def _select_main_product(query, family=None):
+    """Birincil ürünü + (varsa) BOM'unu döndürür. Artık tek kanonik katmana delege eder:
+    find_products. (Eski 80+ satırlık tekrarlı heuristik emekliye ayrıldı; `family` parametresi
+    geriye dönük uyumluluk için duruyor, kullanılmıyor.)"""
+    fp = find_products(query).get("result", {})
+    cands = fp.get("adaylar") or []
+    if not cands:
+        return None, None
+    top = cands[0]
+    try:
+        pid = int(str(top.get("ref", "")).lstrip("Pp#"))
+    except (ValueError, TypeError):
+        return None, None
+    product = Product.query.get(pid)
+    if not product:
+        return None, None
+    best_bom = {"bom_id": top["bom_id"], "para_birimi": None} if top.get("bom_id") else None
+    return product, best_bom
 
 
 def _iter_bom_nodes(nodes):
@@ -1573,6 +1591,10 @@ def _should_answer_locally(query):
     # ÖNEMLİ: "165 tamburlu" gibi ürün ADINDAKİ rakamlar miktar DEĞİLDİR — _extract_quantity
     # yalnızca birim kelimesiyle (adet/tane/kg...) eşleşen sayıları yakalar. Aksi halde local kalır.
     if _extract_quantity(q) is not None:
+        # Açık ürün ID'si (#id) varsa ürün kesin → yerel üretim planı güvenilir; Gemini'ye gitme.
+        # (Takip çipi "10 adet maliyeti" → "#5 10 adet maliyeti" deterministik çözülsün.)
+        if _extract_explicit_product_id(query):
+            return True
         planning_keywords = [
             'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim',
             'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım',
@@ -2031,17 +2053,11 @@ def _is_anaphoric_reference(query):
 
 
 def _resolve_primary_product(query):
-    """Sorgudaki birincil (ana) ürünü, ürün seçim önceliğiyle çözer. Bulamazsa None."""
-    explicit_id = _extract_explicit_product_id(query)
-    if explicit_id:
-        p = Product.query.get(explicit_id)
-        if p:
-            return p
+    """Sorgudaki birincil (ana) ürünü çözer (anafora/resolved_product için). Bulamazsa None.
 
-    exact = _find_product_by_exact_code(query)
-    if exact:
-        return exact
-
+    Çözüm artık tek kanonik katmana (find_products) delege edilir; burada yalnızca GENEL
+    sorgu koruması var: 'kritik stok', 'toplam stok değeri' gibi ürün-spesifik OLMAYAN
+    sorgularda None döner ki 'bunun...' takip sorusu yanlış ürüne bağlanmasın."""
     q = (query or '').lower()
     general_words = ['kritik', 'biten', 'stoksuz', 'tukenen', 'tukenmis',
                      'envanter', 'son hareket', 'hareketler', 'yardim', 'help',
@@ -2049,22 +2065,178 @@ def _resolve_primary_product(query):
     if any(w in q for w in general_words):
         return None
 
-    pq, terms = _product_search_query(query)
-    if not terms:
+    cands = find_products(query).get("result", {}).get("adaylar") or []
+    if not cands:
         return None
     try:
+        return Product.query.get(int(str(cands[0]["ref"]).lstrip("Pp#")))
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+# ===========================================================================
+# find_products — KANONİK ürün bulma katmanı (LLM→Python mimarisinin temeli)
+# ---------------------------------------------------------------------------
+# Tüm ürün arama/çözme mantığını TEK yerde toplar. LLM'e maliyet/fiyat SIZMAZ;
+# ürünler opak `ref` (P<id>) ile döner. Diğer tool'lar bu ref'i çözer.
+# ===========================================================================
+
+def _product_ref(product_id):
+    return f"P{int(product_id)}"
+
+
+def _resolve_ref(ref):
+    """'P17' / '#17' / '17' → Product; düz metin → en iyi eşleşme."""
+    import re
+    if ref is None:
+        return None
+    s = str(ref).strip()
+    m = re.match(r'^[#pP]?\s*(\d+)$', s)
+    if m:
+        return Product.query.get(int(m.group(1)))
+    return _resolve_primary_product(s)
+
+
+def _ref_to_keyword(value):
+    """Girdi SADECE bir ref/ID ise ('P17','#17') ürünün tam koduna çevirir; aksi halde
+    metni olduğu gibi döndürür. Böylece tool'lar hem find_products ref'iyle hem de
+    serbest metinle çağrılabilir."""
+    import re
+    s = str(value or '').strip()
+    m = re.match(r'^[#Pp]\s*(\d+)$', s)
+    if m:
+        p = Product.query.get(int(m.group(1)))
+        if p:
+            return p.code  # tam kod → downstream kesin çözer
+    return value
+
+
+def _product_candidate(product, bom_map):
+    """LLM'e gönderilecek aday. DİKKAT: maliyet/fiyat BİLEREK yok (mahremiyet)."""
+    b = bom_map.get(product.id)
+    return {
+        "ref": _product_ref(product.id),
+        "ad": (b["root_name"] if b else product.name),
+        "urun_adi": product.name,
+        "kod": product.code,
+        "tip": product.type,
+        "urun_agaci_var": bool(b),
+        "bom_id": b["bom_id"] if b else None,
+        "kalem_sayisi": b.get("node_count") if b else None,
+        "kategori": product.category.name if product.category else None,
+    }
+
+
+def find_products(query: str, limit: int = 8) -> dict:
+    """
+    Canonical product finder. Use this FIRST to resolve which product(s) a query refers to,
+    then call cost/stock/bom tools with the returned `ref`.
+
+    Returns ranked candidates. Each candidate has an opaque `ref` (e.g. "P17"); pass that ref
+    to other tools. Cost/price data is intentionally NOT included here.
+
+    The result includes `guven` (confidence):
+      - "kesin": tek kesin eşleşme (ID/kod) → doğrudan kullan
+      - "yuksek": net en iyi aday → ilk adayı kullan
+      - "belirsiz": birden fazla benzer aday → KULLANICIYA hangisini istediğini SOR
+      - "yok": eşleşme yok
+    """
+    limit = max(1, min(int(limit or 8), 20))
+
+    try:
         from app.utils.bom_utils import list_boms
-        bom_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
+        bom_map = {b["product_id"]: b for b in list_boms(db) if b.get("product_id")}
     except Exception:
-        bom_ids = set()
-    type_order = {'mamul': 0, 'yarimamul': 1, 'hazir_parca': 2, 'hammadde': 3}
-    cands = sorted(
-        pq.limit(50).all(),
-        key=lambda p: (0 if p.id in bom_ids else 1,
-                       type_order.get((p.type or '').strip().lower(), 9),
-                       p.name or '')
-    )
-    return cands[0] if cands else None
+        bom_map = {}
+
+    # 1) Açık ID / tam kod → kesin
+    exact = None
+    explicit = _extract_explicit_product_id(query)
+    if explicit:
+        exact = Product.query.get(explicit)
+    if not exact:
+        exact = _find_product_by_exact_code(query)
+    if exact:
+        return {"result": {"guven": "kesin", "adaylar": [_product_candidate(exact, bom_map)]}}
+
+    # 2) Arama (stem + ilike, BOM kökü / mamul / tightness önceliği)
+    pq, _ = _product_search_query(query)
+    products = pq.limit(200).all()
+    if not products:
+        return {"result": {"guven": "yok", "adaylar": [], "mesaj": f"'{query}' icin urun bulunamadi."}}
+
+    terms = _search_terms(_normalize_search_keyword(query))
+    type_order = {"mamul": 0, "yarimamul": 1, "hazir_parca": 2, "hammadde": 3}
+
+    def sort_key(p):
+        is_bom = 0 if p.id in bom_map else 1
+        match_name = bom_map[p.id]["root_name"] if p.id in bom_map else p.name
+        extra = _name_extra_token_count(match_name, terms)
+        return (is_bom, type_order.get((p.type or "").strip().lower(), 9), extra, p.name or "")
+
+    products.sort(key=sort_key)
+
+    # Güven: ilk aday ikinciden net daha iyi mi? (ilk 3 sıralama anahtarı eşitse belirsiz)
+    confidence = "yuksek"
+    if len(products) > 1 and sort_key(products[0])[:3] == sort_key(products[1])[:3]:
+        confidence = "belirsiz"
+
+    return {
+        "result": {
+            "guven": confidence,
+            "adaylar": [_product_candidate(p, bom_map) for p in products[:limit]],
+        }
+    }
+
+
+def _choices_from_candidates(cands, query):
+    """find_products adaylarını UI seçim butonlarına çevirir. Tıklanınca #ID ile
+    kesin seçim + orijinal soru niyeti gönderilir."""
+    import re
+    choices = []
+    for c in (cands or [])[:12]:
+        sub = [f"Kod: {c.get('kod')}"]
+        if c.get("urun_agaci_var"):
+            sub.append(f"Ürün Ağacı #{c.get('bom_id')}")
+            if c.get("kalem_sayisi"):
+                sub.append(f"{c['kalem_sayisi']} kalem")
+        else:
+            sub.append("Ürün ağacı yok")
+        pid = str(c.get("ref", "")).lstrip("Pp#")
+        # force_choices'tan gelen query'de zaten #id olabilir; temizle ki çift olmasın
+        clean_q = re.sub(r'^\s*#\d+\s*', '', str(query or '')).strip()
+        choices.append({
+            "label": c.get("ad"),
+            "sublabel": " • ".join(sub),
+            "has_bom": bool(c.get("urun_agaci_var")),
+            "query": f"#{pid} {clean_q}".strip(),
+        })
+    return choices
+
+
+def _build_follow_ups(resolved, query):
+    """Cevaptan sonra gösterilecek bağlamsal takip soruları (yazma bariyerini düşürür).
+    Sadece bir ürün çözüldüyse üretilir; #ID ile aynı ürüne sabitlenir."""
+    if not resolved or not resolved.get("id"):
+        return []
+    pid = resolved["id"]
+    name = resolved.get("name") or ""
+    q = _fold_search_text(query)
+    asked_cost = any(w in q for w in ["maliyet", "fiyat"])
+    asked_stock = "stok" in q
+    asked_qty = _extract_quantity(query) is not None
+
+    ups = []
+    if not asked_cost:
+        ups.append({"label": "Maliyeti", "query": f"#{pid} maliyeti nedir"})
+    if not asked_stock:
+        ups.append({"label": "Stok durumu", "query": f"#{pid} stok durumu"})
+    if not asked_qty:
+        ups.append({"label": "10 adet maliyeti", "query": f"#{pid} 10 adet maliyeti"})
+    ups.append({"label": "Alt parçaları", "query": f"#{pid} alt parçalarının maliyeti"})
+    if name:
+        ups.append({"label": "Rakip fiyatları", "query": f"{name} rakip fiyatları"})
+    return ups[:4]
 
 
 @reports_bp.route('/ai-assistant')
@@ -2100,6 +2272,18 @@ def ai_assistant_ask():
     except Exception:
         resolved_payload = None
 
+    # "DEĞİŞTİR" — kullanıcı çözülen ürünü beğenmedi; alternatifleri buton olarak göster.
+    if data.get('force_choices'):
+        fp = find_products(query).get("result", {})
+        cands = fp.get("adaylar", [])
+        if cands:
+            return jsonify({
+                "success": True,
+                "answer": "Hangi ürünü kastediyorsunuz?",
+                "choices": _choices_from_candidates(cands, query),
+                "source": "forced_choices",
+            })
+
     # 1. Birden fazla eşleşen ürün durumunda açıklama/seçim sorma kontrolü
     terms = _normalize_search_keyword(query)
     dashboard_keywords = ['kritik', 'biten', 'stoksuz', 'tukenen', 'tukenmis', 'son hareket', 'hareketler', 'envanter', 'yardim', 'help']
@@ -2118,114 +2302,40 @@ def ai_assistant_ask():
     # Aksi halde "165 tamburlu" geçtiği için ürün eşleştirmeye gidip yanlış ürün döner.
     is_production_quantity = _is_production_quantity_query(_fold_search_text(query))
 
+    # Ürün belirsizliği: artık tek kanonik katman → find_products.
+    # Sadece "bir ürün kastediliyor" niteliğindeki sorgularda devreye girer
+    # (genel/pazar/üretim-adedi sorguları hariç). guven == "belirsiz" ise kullanıcıya sorar.
     if not is_general and not is_market_research and not is_production_quantity:
-        planning_words = ['maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim', 'üretim', 'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım', 'gerek', 'gerekiyor']
+        planning_words = {
+            'maliyet', 'maliyeti', 'fiyat', 'fiyati', 'adet', 'tane', 'uretim', 'üretim',
+            'üretmek', 'stok', 'stogu', 'stokta', 'lazim', 'lazım', 'gerek', 'gerekiyor',
+        }
         qty = _extract_quantity(query)
         qty_str = str(qty) if qty else None
         real_terms = [t for t in terms if t not in planning_words and (not t.isdigit() or t != qty_str)]
         if real_terms:
-            explicit_id = _extract_explicit_product_id(query)
-            exact_product = _find_product_by_exact_code(query)
-            if not explicit_id and not exact_product:
-                product_query, _ = _product_search_query(query)
-                matching_products = product_query.all()
+            fp = find_products(query)["result"]
+            if fp.get("guven") == "belirsiz":
+                cands = fp.get("adaylar", [])
+                intro = f"**{len(cands)}** eşleşen ürün buldum. Hangisini kastettiğinizi seçin:"
+                return jsonify({
+                    "success": True,
+                    "answer": intro,
+                    "choices": _choices_from_candidates(cands, query),
+                    "source": "find_products_disambiguation",
+                })
 
-                def matches_all_real(product):
-                    haystack = _search_haystack(*[
-                        product.name or '',
-                        product.code or '',
-                        product.barcode or '',
-                        product.material or '',
-                        product.notes or '',
-                        product.category.name if product.category else '',
-                    ])
-                    return all(term in haystack for term in real_terms)
-
-                strict_matches = [p for p in matching_products if matches_all_real(p)]
-                if not strict_matches:
-                    strict_matches = matching_products
-
-                if len(strict_matches) > 1:
-                    bom_product_ids = set()
-                    try:
-                        from app.utils.bom_utils import list_boms
-                        bom_product_ids = {b.get('product_id') for b in list_boms(db) if b.get('product_id')}
-                    except Exception:
-                        pass
-
-                    # Filtreleme Adımları (Ana Ürün ve BOM Önceliği):
-                    # 1. Adım: Ürün ağacı (BOM) olan ürünleri önceliklendir
-                    if bom_product_ids:
-                        bom_matches = [p for p in strict_matches if p.id in bom_product_ids]
-                        if bom_matches:
-                            strict_matches = bom_matches
-
-                    # 2. Adım: 'mamul' tipindeki ana ürünleri önceliklendir
-                    mamul_matches = [p for p in strict_matches if (p.type or '').strip().lower() == 'mamul']
-                    if mamul_matches:
-                        strict_matches = mamul_matches
-
-                    # 3. Adım: Adında "eski" geçen ürünleri eliyoruz — kullanıcı açıkça "eski" aramadıysa
-                    if 'eski' not in query.lower():
-                        non_legacy_matches = [p for p in strict_matches if 'eski' not in (p.name or '').lower()]
-                        if non_legacy_matches:
-                            strict_matches = non_legacy_matches
-
-                    # Eğer filtreleme sonucunda tek bir ana ürün kaldıysa, belirsizlik seçimini atlayıp doğrudan devam ediyoruz.
-                    if len(strict_matches) > 1:
-                        # BOM detayları (kalem sayısı vb.) için ürün_id -> bom bilgisi haritası
-                        bom_info = {}
-                        try:
-                            from app.utils.bom_utils import list_boms
-                            for b in list_boms(db):
-                                pid = b.get('product_id')
-                                if pid and pid not in bom_info:
-                                    bom_info[pid] = {
-                                        'bom_id': b.get('bom_id'),
-                                        'node_count': b.get('node_count'),
-                                    }
-                        except Exception:
-                            pass
-
-                        intro = (
-                            f"**{len(strict_matches)}** eşleşen ürün buldum. "
-                            "Hangisini kastettiğinizi seçin:"
-                        )
-                        choices = []
-                        for p in strict_matches[:12]:
-                            info = bom_info.get(p.id)
-                            sub_parts = [f"Kod: {p.code}"]
-                            if info:
-                                sub_parts.append(f"Ürün Ağacı #{info['bom_id']}")
-                                if info.get('node_count'):
-                                    sub_parts.append(f"{info['node_count']} kalem")
-                            else:
-                                sub_parts.append("Ürün ağacı yok")
-                            choices.append({
-                                'label': p.name,
-                                'sublabel': " • ".join(sub_parts),
-                                'has_bom': bool(info),
-                                # Tıklanınca bu sorgu gönderilir; #ID kesin ürün seçimini sağlar,
-                                # orijinal soru da niyeti (maliyet/stok/üretim) korur.
-                                'query': f"#{p.id} {query}",
-                            })
-
-                        return jsonify({
-                            'success': True,
-                            'answer': intro,
-                            'choices': choices,
-                            'source': 'local_disambiguation'
-                        })
+    follow_ups = _build_follow_ups(resolved_payload, query)
 
     try:
         if _should_answer_locally(query):
             answer = _local_analysis_answer(query)
-            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified', 'resolved_product': resolved_payload})
+            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified', 'resolved_product': resolved_payload, 'follow_ups': follow_ups})
 
         api_key = current_app.config.get('GEMINI_API_KEY')
         if not api_key:
             answer = _local_analysis_answer(query)
-            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified', 'resolved_product': resolved_payload})
+            return jsonify({'success': True, 'answer': answer, 'source': 'local_verified', 'resolved_product': resolved_payload, 'follow_ups': follow_ups})
 
         genai.configure(api_key=api_key)
 
@@ -2236,6 +2346,13 @@ Veritabanına erişmek için sağlanan fonksiyonları (tools) kullan. Tahmin yü
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ARAÇ SEÇİM KURALLARI — bu tabloyu KESINLIKLE uygula:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+0. find_products(query)  ← HANGİ ÜRÜN belirsizse ÖNCE bunu çağır
+   - Aday ürünleri `ref` (örn. "P17") ile döndürür. `guven` alanına bak:
+     • "kesin"/"yuksek" → ilk adayın ref'ini al, ilgili tool'u o ref ile çağır
+     • "belirsiz" → adayları kullanıcıya kısaca sun, hangisini istediğini SOR (uydurma)
+     • "yok" → ürün bulunamadı de
+   - Maliyet/stok tool'larına ürün adı yerine bu `ref`'i geçebilirsin (daha kesin).
 
 1. calculate_cost_for_quantity(keyword, quantity)
    KULLAN: Kullanıcı belirli bir SAYI + maliyet/üretim sorarsa
@@ -2254,7 +2371,7 @@ ARAÇ SEÇİM KURALLARI — bu tabloyu KESINLIKLE uygula:
    KULLAN: Tek ürün, adet BELİRTMEKSİZİN maliyet/fiyat sorusu
    Örnekler: "165 tamburlu maliyeti nedir", "X fiyatı ne kadar", "KDV dahil maliyeti"
    → Dönen listede ilk kayıt ana üründür (BOM kökü / mamul öncelikli)
-   → Sadece maliyet sorulmuşsa tek satır cevap yeterli: "ÜRÜN maliyeti: X TRY"
+   → Sadece maliyet sorulmuşsa tek satır cevap yeterli: "ÜRÜN maliyeti: X TL"
 
 4. get_bom_costs(keyword)
    KULLAN: Ürünün ALT PARÇALARININ maliyeti / reçete detayı sorulduğunda
@@ -2311,18 +2428,24 @@ ANA ÜRÜN SEÇİMİ KURALI ("165 tamburlu maliyeti" tipi sorgular):
 ALT PARÇA SORUSU ("165 tamburlunun kafa tamburunun maliyeti" tipi):
 - Kullanıcı açıkça bir ALT parçayı belirtiyorsa (ör. "...nın kafa tamburu", "...nın bıçak tutucusu"),
   o alt parçanın maliyetini ver AMA hangi ana ürüne/ürün ağacına ait olduğunu cevabında belirt.
-  Örn: "165 Tamburlu Kafa Tambur (165 TAMBURLU ÇAYIR BİÇME MAKİNESİ ürün ağacında) maliyeti: X TRY"
+  Örn: "165 Tamburlu Kafa Tambur (165 TAMBURLU ÇAYIR BİÇME MAKİNESİ ürün ağacında) maliyeti: X TL"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CEVAP FORMATI:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Doğrudan bil­gi ver; "Merhaba, sorunuzu anlıyorum..." tarzı giriş yok.
-- Sadece maliyet sorulmuşsa → tek satır: "**ÜRÜN ADI** maliyeti: **X.XXX,XX TRY**"
+- Sadece maliyet sorulmuşsa → tek satır: "**ÜRÜN ADI** maliyeti: **X.XXX,XX TL**"
 - N adet maliyet sorulmuşsa → birim maliyet + toplam maliyet
 - Stok öneri sorulmuşsa → tüketim + öneri + tahmini bitiş tarihi
 - Alt parça maliyeti sorulmuşsa → kısa bileşen listesi (en pahalı 5'i yeter)
 - Önemli sayıları **kalın** yaz. Tablo KULLANMA. Ham JSON gösterme.
 - Çok fazla eşleşme varsa tamamını sıralama, önemli 3-5'ini seç.
+
+GİZLİ DEĞER TOKENLARI (ÇOK ÖNEMLİ):
+- Maliyet/fiyat değerleri sana ⟦C1⟧, ⟦C2⟧ gibi TOKEN olarak gelir (gerçek tutar gizlidir).
+- Bu token'ları cevabında AYNEN, harfi harfine yaz: "**⟦C1⟧**" gibi. Sistem gerçek tutarla değiştirecek.
+- Token'lar üzerinde ASLA matematik/toplama/biçimleme yapma, parçalara bölme, "yaklaşık" deme.
+- Token'ı uydurma; sadece tool'dan gelen token'ı kullan. Maliyet yoksa "Bilinmiyor" yaz.
 
 SİSTEM BİLGİLERİ:
 - Ürün Tipleri: "hammadde" (satın alınan), "yarimamul" (atölyede işlenen), "mamul" (bitmiş)
@@ -2332,6 +2455,7 @@ SİSTEM BİLGİLERİ:
         """
 
         tools = [
+            find_products,
             calculate_cost_for_quantity,
             get_stock_recommendation,
             get_production_quantities,
@@ -2361,8 +2485,15 @@ SİSTEM BİLGİLERİ:
         else:
             context = query
 
-        chat = model.start_chat(enable_automatic_function_calling=True)
-        response = chat.send_message(context)
+        # MAHREMİYET: Gemini'ye gönderim sırasında maliyetleri token'la. Tool'lar
+        # otomatik fonksiyon çağrısında bu bayrağa bakıp maskeler.
+        g.ai_vault = {}
+        g.ai_privacy = True
+        try:
+            chat = model.start_chat(enable_automatic_function_calling=True)
+            response = chat.send_message(context)
+        finally:
+            g.ai_privacy = False  # bundan sonrası (unmask/fallback) gerçek değerle çalışır
 
         try:
             answer = response.text.strip()
@@ -2371,17 +2502,21 @@ SİSTEM BİLGİLERİ:
         except ValueError:
             answer = "Veriler analiz edildi ancak gösterilebilir bir rapor oluşturulamadı."
 
-        return jsonify({'success': True, 'answer': answer, 'resolved_product': resolved_payload})
+        # Token'ları gerçek maliyet değerleriyle geri koy (kullanıcı gerçek tutarı görür)
+        answer = _unmask(answer)
+
+        return jsonify({'success': True, 'answer': answer, 'resolved_product': resolved_payload, 'follow_ups': follow_ups})
 
     except Exception as e:
         import traceback
         print("Gemini API error occurred, falling back to local analysis:")
         print(traceback.format_exc())
 
+        g.ai_privacy = False
         reason = "quota_fallback" if _is_quota_error(e) else "api_error_fallback"
         try:
             answer = _local_analysis_answer(query, quota_limited=True)
-            return jsonify({'success': True, 'answer': answer, 'source': f'local_verified_{reason}', 'resolved_product': resolved_payload})
+            return jsonify({'success': True, 'answer': answer, 'source': f'local_verified_{reason}', 'resolved_product': resolved_payload, 'follow_ups': follow_ups})
         except Exception as local_err:
             print(f"Local analysis fallback also failed: {local_err}")
             return jsonify({'success': False, 'error': f'Bir hata oluştu: {str(e)}'}), 500

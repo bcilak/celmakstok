@@ -2051,15 +2051,17 @@ def get_bom_tree(bom_id: int, db) -> dict:
             is_hazir = False
 
         if built_children and not is_hazir:
-            # sum can fail if total_cost is None
-            calc_total_cost = sum((c.get('total_cost') or 0.0) for c in built_children)
-            
-            # Eğer Lama veya hesaplaması kg üzerinden yapılan bir hammaddeyse ve weight_per_unit varsa
-            # Üst kırılma da kendi qty_fireli metrajını vs uygulayabilir ancak
-            # Alt kırılımların toplamı üst kırılımın 1 ADET (veya toplam) maliyetini oluşturur.
-            # Maliyet fireli miktar üzerinden hesaplanır; firesiz miktar ve fire oranı bilgi olarak gösterilir.
+            # Çocukların toplamı = bu düğümün BİR adedinin maliyeti (çocuk miktarları bu düğüme görelidir).
+            # child_sum can fail if total_cost is None
+            child_sum = sum((c.get('total_cost') or 0.0) for c in built_children)
+
+            # ÖNEMLİ (çok seviyeli roll-up): miktar semantiği PER-PARENT olduğundan, bu ara
+            # düğümün ÜST parçaya katkısı = birim maliyeti × KENDİ adedi. Eski kod kendi adedini
+            # uygulamıyordu (yalnızca yapraklar uyguluyordu) → çok seviyeli ağaçta eksik sayım.
             cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
-            calc_unit_cost = (calc_total_cost / cost_basis_qty) if cost_basis_qty and cost_basis_qty > 0 else 0.0
+            mult = cost_basis_qty if (cost_basis_qty and cost_basis_qty > 0) else 1.0
+            calc_unit_cost = child_sum                 # bir adet bu düğümün maliyeti
+            calc_total_cost = child_sum * mult         # kendi adedi kadarının maliyeti
             calc_currency = costing_product.currency if costing_product and costing_product.currency else 'TRY'
         else:
             calc_unit_cost = costing_product.unit_cost if costing_product and costing_product.unit_cost else 0.0

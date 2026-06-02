@@ -525,6 +525,75 @@
         pointer-events: none;
         opacity: 0.55;
     }
+
+    /* Çözülen ürün şeffaflık çipi */
+    .resolved-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding: 6px 10px;
+        background: #f5f3ff;
+        border: 1px solid #e0e7ff;
+        border-radius: 10px;
+        font-size: 0.8rem;
+        color: #475569;
+    }
+
+    .resolved-chip .rp-icon {
+        color: var(--chat-accent);
+    }
+
+    .resolved-chip .rp-text {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .resolved-chip .rp-change {
+        border: 1px solid #c7d2fe;
+        background: #fff;
+        color: var(--chat-accent);
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .resolved-chip .rp-change:hover {
+        background: var(--chat-accent);
+        color: #fff;
+    }
+
+    /* Bağlamsal takip çipleri */
+    .followup-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+    }
+
+    .followup-chip {
+        background: #fff;
+        border: 1px dashed #c7d2fe;
+        color: var(--chat-accent);
+        font-size: 0.82rem;
+        padding: 6px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: all 0.18s;
+    }
+
+    .followup-chip:hover {
+        background: var(--chat-accent);
+        color: #fff;
+        border-style: solid;
+        transform: translateY(-1px);
+    }
 </style>
 
 <div class="container-fluid d-flex align-items-center justify-content-center py-4">
@@ -666,6 +735,42 @@
                 wrapper.appendChild(bubble);
                 chatBody.appendChild(wrapper);
                 scrollToBottom();
+                return wrapper;
+            }
+
+            function appendAIExtras(wrapper, data) {
+                if (!wrapper) return;
+                var bubble = wrapper.querySelector('.bubble');
+                if (!bubble) return;
+
+                // Çözülen ürün şeffaflığı: "Anlaşılan ürün: X · değiştir"
+                if (data.resolved_product && data.resolved_product.name) {
+                    var rp = document.createElement('div');
+                    rp.className = 'resolved-chip';
+                    rp.innerHTML =
+                        '<span class="rp-icon"><i class="bi bi-box-seam"></i></span>' +
+                        '<span class="rp-text">Anlaşılan ürün: <b>' + escapeHtml(data.resolved_product.name) + '</b></span>' +
+                        '<button type="button" class="rp-change">değiştir</button>';
+                    rp.querySelector('.rp-change').addEventListener('click', function () {
+                        sendMessage(data.resolved_product.name, 'Başka ürün seç', { force_choices: true });
+                    });
+                    bubble.appendChild(rp);
+                }
+
+                // Bağlamsal takip soruları (tıklanabilir çipler)
+                if (data.follow_ups && data.follow_ups.length) {
+                    var fu = document.createElement('div');
+                    fu.className = 'followup-row';
+                    data.follow_ups.forEach(function (f) {
+                        var b = document.createElement('button');
+                        b.type = 'button';
+                        b.className = 'followup-chip';
+                        b.innerHTML = '<i class="bi bi-arrow-return-right"></i> ' + escapeHtml(f.label);
+                        b.addEventListener('click', function () { sendMessage(f.query, f.label); });
+                        fu.appendChild(b);
+                    });
+                    bubble.appendChild(fu);
+                }
             }
 
             function addAIChoices(text, choices) {
@@ -726,8 +831,9 @@
                     : '<span class="status-dot"></span>Online • Yapay Zeka';
             }
 
-            function sendMessage(text, displayText) {
+            function sendMessage(text, displayText, opts) {
                 if (!text || !text.trim() || isProcessing) return;
+                opts = opts || {};
                 console.log('Sending message:', text.substring(0, 50));
 
                 // displayText verilirse kullanıcı balonunda onu göster (örn. ürün adı),
@@ -756,8 +862,9 @@
                             if (data.choices && data.choices.length) {
                                 addAIChoices(data.answer, data.choices);
                             } else {
-                                addAIMessage(data.answer);
+                                var w = addAIMessage(data.answer);
                                 chatHistory.push({ role: 'ai', content: data.answer });
+                                appendAIExtras(w, data);
                             }
                         } else {
                             addAIMessage(data.error || 'Bir hata oluştu.');
@@ -784,7 +891,7 @@
                     setLoading(false);
                 };
 
-                xhr.send(JSON.stringify({ query: text, history: chatHistory.slice(-6), context_product: lastProduct }));
+                xhr.send(JSON.stringify({ query: text, history: chatHistory.slice(-6), context_product: lastProduct, force_choices: !!opts.force_choices }));
             }
 
             // Enter tuşu
