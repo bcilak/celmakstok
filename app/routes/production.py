@@ -5,6 +5,7 @@ from app import db
 from sqlalchemy import func, inspect
 from datetime import datetime, timedelta
 from app.utils.decorators import roles_required
+from app.utils import sanitize_part_code
 from app.utils.excel_utils import parse_bom_excel, create_bom_tree_excel
 from app.utils.bom_utils import (
     parse_bom_excel_v2,
@@ -755,7 +756,7 @@ def api_bom_node(node_id):
                 if 'name' in data and data['name']:
                     item.name = data['name']
                 if 'code' in data:
-                    item.code = data['code']
+                    item.code = sanitize_part_code(data['code'])
                     
             if product:
                 if 'name' in data and data['name']:
@@ -772,9 +773,10 @@ def api_bom_node(node_id):
                 if 'currency' in data and data['currency']:
                     product.currency = str(data['currency']).strip().upper()[:10]
                 if 'product_code' in data and data['product_code']:
-                    existing = Product.query.filter(Product.code == data['product_code'], Product.id != product.id).first()
+                    sanitized_code = sanitize_part_code(data['product_code'])
+                    existing = Product.query.filter(Product.code == sanitized_code, Product.id != product.id).first()
                     if not existing:
-                        product.code = data['product_code']
+                        product.code = sanitized_code
                     else:
                         return jsonify({'success': False, 'error': 'Belirtilen ürün kodu başka bir üründe kullanılıyor!'})
                         

@@ -10,6 +10,7 @@ from app.utils.excel_utils import (
     export_products_to_excel
 )
 from app.utils.decorators import roles_required
+from app.utils import sanitize_part_code
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import io
@@ -125,7 +126,7 @@ def index():
 @roles_required('Yönetici', 'Personel')
 def add():
     if request.method == 'POST':
-        code = request.form.get('code')
+        code = sanitize_part_code(request.form.get('code'))
         name = request.form.get('name')
         category_id = request.form.get('category_id', type=int)
         unit_type = request.form.get('unit_type', 'adet')

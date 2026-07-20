@@ -10,6 +10,8 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 
+from app.utils import sanitize_part_code
+
 
 def create_product_template_simple():
     """
@@ -211,7 +213,7 @@ def parse_product_excel_simple(file_stream):
                     continue
 
                 product_data = {
-                    'code': str(row['Ürün Kodu*']).strip(),
+                    'code': sanitize_part_code(row['Ürün Kodu*']),
                     'name': str(row['Ürün Adı*']).strip(),
                     'unit_type': str(row.get('Birim Tipi', 'adet')).strip() if not pd.isna(row.get('Birim Tipi')) else 'adet',
                     'current_stock': float(row.get('Mevcut Stok', 0)) if not pd.isna(row.get('Mevcut Stok')) else 0,
@@ -270,7 +272,7 @@ def parse_product_excel(file_stream):
                     continue
 
                 product_data = {
-                    'code': str(row['Ürün Kodu*']).strip(),
+                    'code': sanitize_part_code(row['Ürün Kodu*']),
                     'name': str(row['Ürün Adı*']).strip(),
                     'category_id': int(row['Kategori ID*']),
                     'unit_type': str(row.get('Birim Tipi', 'adet')).strip() if not pd.isna(row.get('Birim Tipi')) else 'adet',

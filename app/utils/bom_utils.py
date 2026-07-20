@@ -23,6 +23,8 @@ from decimal import Decimal
 import unicodedata
 from collections import Counter
 
+from app.utils import sanitize_part_code, generate_missing_part_code
+
 
 # ---------------------------------------------------------------------------
 # Ürün kodu üreteci
@@ -1381,7 +1383,7 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
             item_type = 'yarimamul'
         
         # Mevcut ürünü kontrol et (Adına ve Koda göre)
-        excel_code = row.get('code') or ''
+        excel_code = sanitize_part_code(row.get('code')) or ''
         product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
         if not product:
             # Eğer koduyla bulamadıysa ama ismiyle ve boş koduyla varsa falan diye sadece name ile tekrar bakalım, 
@@ -1603,7 +1605,7 @@ def _existing_bom_rows(bom_id: int) -> list[dict]:
 def _find_product_for_row(row: dict, for_cost: bool = False):
     from app.models import Product
 
-    excel_code = row.get('code') or ''
+    excel_code = sanitize_part_code(row.get('code')) or ''
     product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
     if not product:
         potentials = Product.query.filter_by(name=row['name']).all()
@@ -1788,7 +1790,7 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         product_notes = ' | '.join(notes_parts) or None
 
         # --- Product Master eşleştirme / oluşturma ---
-        excel_code = row.get('code') or ''
+        excel_code = sanitize_part_code(row.get('code')) or ''
         product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
         if not product:
             potentials = Product.query.filter_by(name=row['name']).all()
@@ -1805,7 +1807,7 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         resolution = conflict_resolutions.get(row['name'], {})
 
         if not product and (not row.get('is_auto_hammadde') or _is_priceable_raw_material_name(row['name'])):
-            base_code = _make_product_code(row['name'], row.get('code') or '')
+            base_code = _make_product_code(row['name'], excel_code)
             code = _unique_product_code(base_code)
             product = Product(
                 code=code,
@@ -1860,7 +1862,7 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
 
         if not item:
             item = BomItem(
-                code=row.get('code') or None,
+                code=excel_code or None,
                 name=row['name'],
                 unit_type=row['unit_type'],
                 type=item_type,
@@ -1869,12 +1871,16 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
             db.session.add(item)
             db.session.flush()
             items_c += 1
+            if not item.code:
+                item.code = generate_missing_part_code(item.id)
         else:
             if item.product_id is None and product:
                 item.product_id = product.id
             # Kod varsa ve item'da eksikse güncelle (FORMAT C import)
-            if row.get('code') and not item.code:
-                item.code = row['code']
+            if excel_code and not item.code:
+                item.code = excel_code
+            elif not item.code:
+                item.code = generate_missing_part_code(item.id)
 
         q_net = row.get('quantity_net') or 0.0
         pc_c = row.get('piece_count') or 1.0
