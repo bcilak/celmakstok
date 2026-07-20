@@ -541,9 +541,41 @@ def _is_priceable_raw_material_name(name: str) -> bool:
         return False
     raw_markers = {
         'SAC', 'LAMA', 'BORU', 'PROFIL', 'TRANSMISYON', 'MIL',
-        'CELIK', 'CEKME', 'C1040', 'SIYAH', 'ST37', 'ST44', 'SANAYI'
+        'CELIK', 'CEKME', 'C1040', 'C4140', 'SIYAH', 'ST37', 'ST44', 'SANAYI',
+        'NPU', 'BANDAJ',
     }
     return bool(tokens & raw_markers)
+
+
+# ---------------------------------------------------------------------------
+# Maliyet birimi (kg mi metre mi) — malzeme cinsine göre onaylanmış eşleme:
+#   PROFİL, SANAYİ BORUSU        → metre bazlı fiyatlandırılır
+#   SAÇ, NPU, LAMA, BANDAJ,
+#   ÇELİK ÇEKME, 41xx/10xx gibi
+#   çelik kaliteleri (mil/yuvarlak çubuk) → kg bazlı fiyatlandırılır
+# ---------------------------------------------------------------------------
+
+def _costing_unit_family(material_text: str) -> str | None:
+    """Malzeme metnine göre doğru maliyetlendirme birimini döndürür: 'kg', 'metre' ya da None (tespit edilemedi)."""
+    tokens = _material_tokens(material_text or '')
+    if not tokens:
+        return None
+
+    # Metre bazlı: profil ve sanayi borusu.
+    if 'PROFIL' in tokens:
+        return 'metre'
+    if {'SANAYI', 'BORU'}.issubset(tokens):
+        return 'metre'
+
+    # Kg bazlı: sac, npu, lama, bandaj, çekme çelik, mil/çubuk kaliteleri (4140, 1040 vb.)
+    if tokens & {'SAC', 'NPU', 'LAMA', 'BANDAJ'}:
+        return 'kg'
+    if 'CEKME' in tokens or tokens & {'C1040', 'C4140'}:
+        return 'kg'
+    if 'CELIK' in tokens and 'BORU' not in tokens:
+        return 'kg'
+
+    return None
 
 
 def _is_ready_purchase_text(value: str) -> bool:
@@ -705,12 +737,12 @@ def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: f
                             product_unit: str = None) -> bool:
     """Materials priced by kg when BOM provides kg-per-unit data.
 
-    ÖNEMLİ: Bu karar yalnızca malzeme metnine (SAC/LAMA/BORU vb. kelimelere)
-    bakarak veriliyordu — bağlı stok kartının GERÇEKTEN kg bazlı olup
-    olmadığını hiç kontrol etmiyordu. Kart aslında metre/adet bazlıysa,
-    miktarı ağırlığa çevirip yanlış (genelde çok daha yüksek) bir maliyet/
-    sarfiyat hesaplanmasına yol açıyordu. `product_unit` verildiğinde artık
-    kart gerçekten kg/gr/ton değilse bu yol devre dışı bırakılır.
+    Malzeme cinsine göre kg mı metre mi fiyatlandırılacağı `_costing_unit_family`
+    ile (kullanıcı onaylı eşleme: sac/npu/lama/bandaj/çelik çekme/41xx-10xx kg,
+    profil/sanayi borusu metre) belirlenir. ÖNEMLİ: bağlı stok kartının
+    GERÇEKTEN kg bazlı olup olmadığı da ayrıca kontrol edilir — `product_unit`
+    verildiğinde kart kg/gr/ton değilse bu yol devre dışı bırakılır (aksi halde
+    miktar yanlışlıkla ağırlığa çevrilip maliyet/sarfiyat şişer).
     """
     if not weight_per_unit:
         return False
@@ -718,13 +750,7 @@ def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: f
         return False
     if product_unit is not None and (product_unit or '').lower() not in {'kg', 'gr', 'ton'}:
         return False
-    tokens = _material_tokens(material_text or '')
-    if {'CELIK', 'CEKME', 'BORU'}.issubset(tokens):
-        return True
-    if {'SANAYI', 'BORU'}.issubset(tokens):
-        return False
-    signature = _strict_material_signature(material_text or '')
-    return bool(signature and signature.get('family') in {'SAC', 'LAMA'})
+    return _costing_unit_family(material_text) == 'kg'
 
 
 def _force_cost_by_length(material_text: str, product_unit: str = None) -> bool:
@@ -732,8 +758,7 @@ def _force_cost_by_length(material_text: str, product_unit: str = None) -> bool:
     değilse bu yol artık devre dışı kalır."""
     if product_unit is not None and (product_unit or '').lower() not in {'metre', 'mt'}:
         return False
-    tokens = _material_tokens(material_text or '')
-    return {'SANAYI', 'BORU'}.issubset(tokens)
+    return _costing_unit_family(material_text) == 'metre'
 
 
 def _weight_cost_quantity(quantity: float, weight_per_unit: float = 0.0) -> float:
