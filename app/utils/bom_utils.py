@@ -556,6 +556,22 @@ def _c(v) -> str:
     return '' if v is None else str(v).strip()
 
 
+def _tr_lower(v) -> str:
+    """Anahtar kelime eşleştirmesi için Türkçe-güvenli küçük harfe çevirme.
+
+    Python'un standart `str.lower()` metodu Türkçe 'İ' harfini (U+0130) tek bir
+    ASCII 'i' değil, 'i' + görünmez birleşik nokta (U+0307) olarak küçültür
+    (`'İ'.lower() == 'i̇'`, 2 karakter). Bu, "FİRELİ", "ADLANDIRMASI" gibi
+    başlıklarda `'fireli' in text.lower()` türü kontrolleri sessizce başarısız
+    kılar. Doğru Türkçe kuralı: noktalı 'İ' → 'i', noktasız 'I' → 'ı' — bu
+    yüzden 'I'yı da düz 'i'ye çevirmek "AĞIRLIK" gibi kelimeleri de bozar
+    ("ağırlık" değil "ağirlik" üretir). Bu fonksiyon her ikisini de doğru
+    eşlemeyle çevirir.
+    """
+    text = str(v) if v is not None else ''
+    return text.replace('İ', 'i').replace('I', 'ı').lower()
+
+
 def _float(v, default=1.0) -> float:
     try:
         return float(str(v).replace(',', '.').strip())
@@ -594,7 +610,7 @@ def _unit_str(v: str) -> str:
     """
     if not v:
         return 'adet'
-    ui = v.strip().lower()
+    ui = _tr_lower(v).strip()
     if not ui or ui in ('nan', 'none'):
         return 'adet'
     # Ağırlık
@@ -752,7 +768,7 @@ def _detect_format(ws) -> str:
     # FORMAT C tespiti: aynı satırda hem "fireli" hem "firesiz".
     # Bazı Excel'lerde başlık ilk 3 satırdan sonra geldiği için daha geniş tarıyoruz.
     for row in ws.iter_rows(max_row=min(ws.max_row, 30), values_only=True):
-        vals = [_c(v).lower() for v in row if v]
+        vals = [_tr_lower(_c(v)) for v in row if v]
         if len(vals) < 5:
             continue
         has_fireli  = any('fireli' in v for v in vals)
@@ -800,7 +816,7 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
     _INT_RE = re.compile(r'^\s*\d+\s*$')   # Sadece tam sayı: "0", "1", "123" — BOM numarası değil
 
     def _is_header_row(rv: list[str]) -> bool:
-        non_empty = [v.lower() for v in rv if v and not re.match(r'^\d+$', v)]
+        non_empty = [_tr_lower(v) for v in rv if v and not re.match(r'^\d+$', v)]
         if not non_empty:
             return False
         return any(any(h in w for h in _HEADER_WORDS) for w in non_empty)
@@ -814,12 +830,25 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
         if not any(rv):
             continue
 
-        rv_lower = [str(x).lower().strip() for x in rv]
-        if not col_map_found and any('numara' in x for x in rv_lower) and any('adlandır' in x for x in rv_lower):
+        rv_lower = [_tr_lower(x).strip() for x in rv]
+        # Başlık tespiti: "NUMARA"/"ADLANDIRMASI" klasik başlıklarını arar; ancak bazı
+        # Excel'ler bunun yerine "NO"/"MALZEME ADI" kullanır. Bu durumda o dosyalar
+        # col_map hiç kurulmadan kaba yedek mantığa düşüyor ve FİRELİ/FİRESİZ metre/
+        # ağırlık kolonları tamamen atlanıyor. FİRELİ METRE/AĞIRLIK kolonlarının varlığı
+        # zaten güvenilir bir başlık işareti olduğundan onu da ayrı bir tetikleyici yapıyoruz.
+        has_fireli_columns = (
+            any('fireli metre' in x for x in rv_lower)
+            or any('fireli ağırlık' in x or 'fireli agirlik' in x for x in rv_lower)
+        )
+        looks_like_header = (
+            (any('numara' in x for x in rv_lower) and any('adlandır' in x for x in rv_lower))
+            or (has_fireli_columns and any(x == 'no' or 'malzeme ad' in x or 'adlandır' in x for x in rv_lower))
+        )
+        if not col_map_found and looks_like_header:
             col_map_found = True
             for c, val in enumerate(rv_lower):
-                if 'numara' in val: col_map['num'] = c
-                elif 'adlandır' in val and 'name' not in col_map: col_map['name'] = c
+                if val == 'no' or 'numara' in val: col_map['num'] = c
+                elif ('adlandır' in val or 'malzeme ad' in val) and 'name' not in col_map: col_map['name'] = c
                 elif 'cinsi' in val: col_map['type'] = c
                 elif 'kodu' in val: col_map['code'] = c
                 elif 'özellik' in val or 'ozelligi' in val or 'özelliği' in val: col_map['spec'] = c
@@ -1157,7 +1186,7 @@ def _is_format_c_header(sv: list[str]) -> bool:
     """Bir satırın FORMAT C başlık satırı olup olmadığını kontrol eder."""
     if len([v for v in sv if v]) < 5:
         return False
-    vals = [v.lower() for v in sv if v]
+    vals = [_tr_lower(v) for v in sv if v]
     has_fireli  = any('fireli' in v for v in vals)
     has_firesiz = any('firesiz' in v for v in vals)
     has_metre_or_parca = any(('metre' in v or 'parça kodu' in v) for v in vals)
