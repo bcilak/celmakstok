@@ -71,6 +71,48 @@ def _make_product_code(name: str, bom_code: str = '') -> str:
     return s[:20] or 'BOM'
 
 
+def _find_product_by_code_or_name(name: str, excel_code: str):
+    """Ürün kodu doldurulmuşsa yalnızca koda göre eşleştir (kod zaten benzersizdir,
+    isim varyasyonları — 'Hava Tapası' vs '3/8 Hava Tapası' gibi — aynı fiziksel
+    parçayı temsil edebilir). Kod boşsa isme göre eşleştirmeye geri düş."""
+    from app.models import Product
+
+    if excel_code:
+        product = Product.query.filter_by(code=excel_code).first()
+        if product:
+            return product
+
+    product = Product.query.filter_by(name=name).filter(Product.code == excel_code if excel_code else True).first()
+    if product:
+        return product
+
+    for p in Product.query.filter_by(name=name).all():
+        p_code = p.code or ''
+        if not excel_code or not p_code or excel_code == p_code:
+            return p
+    return None
+
+
+def _find_bom_item_by_code_or_name(name: str, excel_code: str):
+    """BomItem eşleştirmesi — aynı gerekçeyle önce koda göre bakılır."""
+    from app.models import BomItem
+
+    if excel_code:
+        item = BomItem.query.filter_by(code=excel_code).first()
+        if item:
+            return item
+
+    item = BomItem.query.filter_by(name=name).filter(BomItem.code == excel_code if excel_code else True).first()
+    if item:
+        return item
+
+    for i in BomItem.query.filter_by(name=name).all():
+        i_code = i.code or ''
+        if not excel_code or not i_code or excel_code == i_code:
+            return i
+    return None
+
+
 def _unique_product_code(base: str) -> str:
     """Benzersiz ürün kodu döndürür; gerekirsge sayısal sone ekler."""
     from app.models import Product
@@ -1382,27 +1424,10 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
         else:
             item_type = 'yarimamul'
         
-        # Mevcut ürünü kontrol et (Adına ve Koda göre)
+        # Mevcut ürünü kontrol et (öncelikle koda göre — kod zaten benzersizdir)
         excel_code = sanitize_part_code(row.get('code')) or ''
-        product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
-        if not product:
-            # Eğer koduyla bulamadıysa ama ismiyle ve boş koduyla varsa falan diye sadece name ile tekrar bakalım, 
-            # ancak bu sefer excel_code doluysa ve db_code dolu ve farklıysa BUNLAR FARKLI ÜRÜNDÜR, AYNI SAYMA
-            potentials = Product.query.filter_by(name=row['name']).all()
-            for p in potentials:
-                p_code = p.code or ''
-                if not excel_code or not p_code or excel_code == p_code:
-                    product = p
-                    break
-        
-        item = BomItem.query.filter_by(name=row['name']).filter(BomItem.code == excel_code if excel_code else True).first()
-        if not item:
-            potentials_item = BomItem.query.filter_by(name=row['name']).all()
-            for i in potentials_item:
-                i_code = i.code or ''
-                if not excel_code or not i_code or excel_code == i_code:
-                    item = i
-                    break
+        product = _find_product_by_code_or_name(row['name'], excel_code)
+        item = _find_bom_item_by_code_or_name(row['name'], excel_code)
 
         matched_raw_material = None
         if not product and row.get('is_auto_hammadde'):
@@ -1603,17 +1628,8 @@ def _existing_bom_rows(bom_id: int) -> list[dict]:
 
 
 def _find_product_for_row(row: dict, for_cost: bool = False):
-    from app.models import Product
-
     excel_code = sanitize_part_code(row.get('code')) or ''
-    product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
-    if not product:
-        potentials = Product.query.filter_by(name=row['name']).all()
-        for p in potentials:
-            p_code = p.code or ''
-            if not excel_code or not p_code or excel_code == p_code:
-                product = p
-                break
+    product = _find_product_by_code_or_name(row['name'], excel_code)
     if not product and row.get('is_auto_hammadde'):
         product = _find_matching_raw_material(row)
     if product and for_cost:
@@ -1789,16 +1805,9 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
             notes_parts.append(f'Firesiz miktar: {qty_net} {unit_tp}')
         product_notes = ' | '.join(notes_parts) or None
 
-        # --- Product Master eşleştirme / oluşturma ---
+        # --- Product Master eşleştirme / oluşturma (öncelikle koda göre) ---
         excel_code = sanitize_part_code(row.get('code')) or ''
-        product = Product.query.filter_by(name=row['name']).filter(Product.code == excel_code if excel_code else True).first()
-        if not product:
-            potentials = Product.query.filter_by(name=row['name']).all()
-            for p in potentials:
-                p_code = p.code or ''
-                if not excel_code or not p_code or excel_code == p_code:
-                    product = p
-                    break
+        product = _find_product_by_code_or_name(row['name'], excel_code)
 
         if not product and row.get('is_auto_hammadde'):
             product = _find_matching_raw_material(row)
@@ -1850,15 +1859,8 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
             if product_updated:
                 updated_products_c += 1
 
-        # --- BomItem — name bazlı unique ---
-        item = BomItem.query.filter_by(name=row['name']).filter(BomItem.code == excel_code if excel_code else True).first()
-        if not item:
-            potentials_item = BomItem.query.filter_by(name=row['name']).all()
-            for i in potentials_item:
-                i_code = i.code or ''
-                if not excel_code or not i_code or excel_code == i_code:
-                    item = i
-                    break
+        # --- BomItem — öncelikle koda göre eşleştir ---
+        item = _find_bom_item_by_code_or_name(row['name'], excel_code)
 
         if not item:
             item = BomItem(
