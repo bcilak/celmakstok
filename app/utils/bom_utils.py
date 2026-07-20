@@ -816,6 +816,7 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
     rows.append({'num': '0.', 'level': 0, 'name': root_name, 'code': '',
                  'material': '', 'quantity': 1.0, 'unit_type': 'adet',
                  'quantity_net': 1.0, 'piece_count': 1.0, 'weight_per_unit': 0.0, 'weight_unit': '',
+                 'unit_price': 0.0,
                  'parent_num': None, 'excel_row': 1})
     stack[0] = '0.'
 
@@ -868,6 +869,7 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
                 elif 'firesiz ağırlık' in val or 'firesiz agirlik' in val: col_map['firesizA'] = c
                 elif val == 'adet' or 'toplam adet' in val: col_map['qty'] = c
                 elif 'fire miktarı' in val or 'fire miktari' in val or 'fire' in val: col_map['fireM'] = c
+                elif 'birim fiyat' in val: col_map['price'] = c
             continue
 
         # BOM numarası içeren ilk hücreyi bul (noktalı format aranır)
@@ -906,6 +908,7 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             rows.append({'num': num, 'level': 1, 'name': group_name, 'code': '',
                          'material': '', 'quantity': 1.0, 'unit_type': 'adet',
                          'quantity_net': 1.0, 'piece_count': 1.0, 'weight_per_unit': 0.0, 'weight_unit': '',
+                         'unit_price': 0.0,
                          'parent_num': parent_num, 'excel_row': row_idx})
             continue
 
@@ -928,6 +931,7 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
         unit        = 'adet'
         w_val  = 0.0
         w_unit = ''
+        price_val = 0.0
 
         if col_map_found and 'name' in col_map:
             name = _c(rv[col_map['name']]) if col_map['name'] < len(rv) else ''
@@ -945,7 +949,8 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             g_val = _float(rv_raw[col_map['fireliA']], 0.0) if 'fireliA' in col_map and col_map['fireliA'] < len(rv_raw) else 0.0
             h_val = _float(rv_raw[col_map['firesizA']], 0.0) if 'firesizA' in col_map and col_map['firesizA'] < len(rv_raw) else 0.0
             i_val = _float(rv_raw[col_map['qty']], 1.0) if 'qty' in col_map and col_map['qty'] < len(rv_raw) else 1.0
-            
+            price_val = _float(rv_raw[col_map['price']], 0.0) if 'price' in col_map and col_map['price'] < len(rv_raw) else 0.0
+
             if e_val > 0:
                 qty_fireli  = e_val
                 qty_firesiz = f_val if f_val > 0 else e_val
@@ -1020,7 +1025,7 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
         rows.append({'num': num, 'level': level, 'name': name, 'code': code,
                      'material': material, 'quantity': qty_fireli, 'unit_type': unit,
                      'quantity_net': qty_firesiz, 'weight_per_unit': w_val, 'weight_unit': w_unit,
-                         'piece_count': pc_val,
+                         'piece_count': pc_val, 'unit_price': price_val,
                      'parent_num': parent_num, 'excel_row': row_idx})
 
     return rows, errors
@@ -1407,13 +1412,18 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
             child_qty_firesiz = r.get('quantity_net', parent_qty)
             child_unit = r.get('unit_type', 'adet')
             
+            # Yarı Mamul'ün fiyatı yoktur (maliyeti alt bileşenlerden gelir) — asıl
+            # Birim Fiyat, aşağıda oluşturulan hammadde child'ına aktarılır.
+            child_unit_price = r.get('unit_price', 0.0)
+
             # Yarı Mamul'ü Adet olarak sabitle
             r['quantity'] = parent_qty
             r['quantity_net'] = parent_qty
             r['unit_type'] = 'adet'
-            
+            r['unit_price'] = 0.0
+
             transformed_rows.append(r)
-            
+
             # Hammadde child node oluştur
             child = {
                 'num': r['num'] + '1.',
@@ -1427,6 +1437,7 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
                 'piece_count': 1.0,
                 'weight_per_unit': r.get('weight_per_unit', 0.0),
                 'weight_unit': r.get('weight_unit', ''),
+                'unit_price': child_unit_price,
                 'parent_num': r['num'],
                 'excel_row': r.get('excel_row', 0),
                 'is_auto_hammadde': True
@@ -1827,6 +1838,7 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         conflict_resolutions = {}
 
     updated_products_c = 0
+    prices_set_c = 0
 
     for row in parsed_rows:
         code_prefix = str(row.get('code') or '')[:3]
@@ -1869,6 +1881,8 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         # Kullanıcı bu ürün için karar verdiyse kontrol et
         resolution = conflict_resolutions.get(row['name'], {})
 
+        excel_unit_price = float(row.get('unit_price') or 0)
+
         if not product and (not row.get('is_auto_hammadde') or _is_priceable_raw_material_name(row['name'])):
             base_code = _make_product_code(row['name'], excel_code)
             code = _unique_product_code(base_code)
@@ -1879,22 +1893,31 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
                 type=item_type,
                 material=(row['name'] if row.get('is_auto_hammadde') else (row.get('material') or None)),
                 notes=product_notes,
+                unit_cost=excel_unit_price,
                 category_id=category_id if row['level'] == 0 else None
             )
             db.session.add(product)
             db.session.flush()
             products_c += 1
+            if excel_unit_price > 0:
+                prices_set_c += 1
         elif not product and row.get('is_auto_hammadde'):
             unresolved_materials_c += 1
         elif product:
             # Mevcut ürün - kullanıcı kararlarına göre güncelle
             product_updated = False
-            
+
+            # Fiyat: Excel'deki Birim Fiyat kesin kaynak kabul edilir, farklıysa güncellenir.
+            if excel_unit_price > 0 and abs(float(product.unit_cost or 0) - excel_unit_price) > 0.005:
+                product.unit_cost = excel_unit_price
+                product_updated = True
+                prices_set_c += 1
+
             # Malzeme güncellemesi yalnızca kullanıcı seçerse yapılır.
             if resolution.get('update_material', False) and row.get('material') and row['material'] != (product.material or ''):
                 product.material = row['material']
                 product_updated = True
-            
+
             # Tip güncellemesi
             if resolution.get('update_type', False):
                 product.type = item_type
@@ -1970,11 +1993,12 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
 
     db.session.commit()
     return {
-        'nodes': nodes_c, 
-        'edges': edges_c, 
-        'items': items_c, 
+        'nodes': nodes_c,
+        'edges': edges_c,
+        'items': items_c,
         'products': products_c,
         'updated': updated_products_c,
+        'prices_set': prices_set_c,
         'unresolved_materials': unresolved_materials_c
     }
 

@@ -520,6 +520,7 @@ def bom_import_v2():
                     f'{stats["nodes"]} düğüm | {stats["items"]} parça | '
                     f'{stats["products"]} yeni ürün | {stats["updated"]} güncelleme | '
                     f'{stats["edges"]} ilişki oluşturuldu'
+                    + (f' | {stats["prices_set"]} fiyat Excel\'den ayarlandı' if stats.get("prices_set") else '')
                     + (f' | {stats["unresolved_materials"]} hammadde eşleşmedi.' if stats.get("unresolved_materials") else '.'),
                     'success'
                 )
@@ -641,6 +642,7 @@ def bom_update_excel(bom_id):
                     f'BOM #{bom_id} için yeni revizyon BOM #{new_bom_id} olarak oluşturuldu. '
                     f'{stats["nodes"]} düğüm | {stats["products"]} yeni ürün | '
                     f'{stats["updated"]} güncelleme'
+                    + (f' | {stats["prices_set"]} fiyat Excel\'den ayarlandı' if stats.get('prices_set') else '')
                     + (f' | {stats["unresolved_materials"]} hammadde eşleşmedi.' if stats.get('unresolved_materials') else '.'),
                     'success'
                 )
