@@ -30,8 +30,14 @@ def upgrade():
     op.drop_table('recipe_items')
     op.drop_table('recipes')
 
-    with op.batch_alter_table('products', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('image', sa.String(length=255), nullable=True))
+    # 'image' kolonu bazı ortamlarda (migration geçmişi dışında, örn. eski
+    # create_all() kurulumuyla) zaten eklenmiş olabilir — var olup olmadığını
+    # kontrol ederek tekrar eklemeyi engelliyoruz.
+    conn = op.get_bind()
+    existing_columns = {c['name'] for c in sa.inspect(conn).get_columns('products')}
+    if 'image' not in existing_columns:
+        with op.batch_alter_table('products', schema=None) as batch_op:
+            batch_op.add_column(sa.Column('image', sa.String(length=255), nullable=True))
 
     # ### end Alembic commands ###
 

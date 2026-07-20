@@ -15,8 +15,11 @@ depends_on = None
 
 
 def upgrade():
-    with op.batch_alter_table('bom_nodes', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('piece_count', sa.Numeric(12, 4), nullable=True, server_default='1'))
+    conn = op.get_bind()
+    existing_columns = {c['name'] for c in sa.inspect(conn).get_columns('bom_nodes')}
+    if 'piece_count' not in existing_columns:
+        with op.batch_alter_table('bom_nodes', schema=None) as batch_op:
+            batch_op.add_column(sa.Column('piece_count', sa.Numeric(12, 4), nullable=True, server_default='1'))
 
 
 def downgrade():
