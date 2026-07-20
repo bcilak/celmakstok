@@ -14,6 +14,19 @@
     </div>
 </div>
 
+{% if unlinked %}
+<div class="alert alert-warning">
+    <i class="fas fa-exclamation-triangle"></i>
+    <strong>Bağlı stok kartı olmayan malzemeler var</strong> — bunlar için hiç stok düşümü yapılmayacak
+    (üretim yine de kaydedilebilir, ama bu malzemelerin tüketimi izlenemeyecek):
+    <ul class="mb-0 mt-1">
+        {% for u in unlinked %}
+        <li>{{ u.num }} {{ u.name }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- Üretim Formu -->
     <div class="col-md-4">

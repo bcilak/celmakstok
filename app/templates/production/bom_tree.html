@@ -335,6 +335,9 @@
         <a href="{{ url_for('production.bom_material_audit', bom_id=bom_id) }}" class="btn btn-sm btn-outline-info">
             <i class="bi bi-shield-check me-1"></i>Hammadde Kontrol
         </a>
+        <a href="{{ url_for('production.bom_cost_audit', bom_id=bom_id) }}" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-receipt me-1"></i>Maliyet Dökümü
+        </a>
         <a href="{{ url_for('production.bom_download_excel', bom_id=bom_id) }}" class="btn btn-sm btn-success">
             <i class="bi bi-file-earmark-excel me-1"></i>Excel İndir
         </a>
@@ -773,10 +776,16 @@
         /* Maliyet */
         const costInfoEl = document.getElementById('det-cost-info');
         if (node.total_cost !== null && node.total_cost !== undefined) {
-            costInfoEl.textContent = `Toplam Maliyet: ${parseFloat(node.total_cost).toFixed(2)} ${node.currency || 'TL'}`;
+            let costHtml = `Toplam Maliyet: ${parseFloat(node.total_cost).toFixed(2)} ${node.currency || 'TL'}`;
             if (node.unit_cost !== null && node.unit_cost !== undefined) {
-                costInfoEl.textContent += ` (Birim: ${parseFloat(node.unit_cost).toFixed(2)})`;
+                costHtml += ` (Birim: ${parseFloat(node.unit_cost).toFixed(2)})`;
             }
+            if (node.cost_substituted) {
+                costHtml += ` <span class="badge bg-warning text-dark" title="Bu maliyet, bağlı stok kartı yerine benzer bulunan '${node.cost_source_code || '?'}' kartından alındı">
+                    <i class="bi bi-arrow-left-right"></i> İkame kart
+                </span>`;
+            }
+            costInfoEl.innerHTML = costHtml;
             costInfoEl.style.display = 'inline-block';
         } else {
             costInfoEl.style.display = 'none';

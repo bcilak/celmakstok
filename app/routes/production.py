@@ -18,6 +18,8 @@ from app.utils.bom_utils import (
     compare_bom_update,
     audit_bom_material_links,
     analyze_bom_delete,
+    audit_bom_costs,
+    explode_bom_materials,
 )
 import pickle
 import os
@@ -287,8 +289,10 @@ def consume(id):
         notes = request.form.get('notes', '')
         
         product = Product.query.get_or_404(product_id)
-        
-        if quantity <= 0:
+
+        if quantity is None:
+            flash('Geçerli bir miktar girmelisiniz.', 'error')
+        elif quantity <= 0:
             flash('Miktar sıfırdan büyük olmalıdır.', 'error')
         elif quantity > product.current_stock:
             flash(f'Yetersiz stok! Mevcut: {product.current_stock} {product.unit_type}', 'error')
@@ -825,6 +829,28 @@ def bom_material_audit(bom_id):
     )
 
 
+@production_bp.route('/bom/<int:bom_id>/cost-audit')
+@login_required
+@roles_required('Yönetici', 'Genel')
+def bom_cost_audit(bom_id):
+    """Her yaprak malzeme için maliyetin hangi kart ve hangi birim dönüşümüyle
+    hesaplandığını gösteren döküm — beklenmedik yüksek maliyetlerin kaynağını
+    bulmak için kullanılır."""
+    from app.models import BomNode
+    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root_node:
+        flash(f'BOM #{bom_id} bulunamadı.', 'error')
+        return redirect(url_for('production.bom_list'))
+
+    audit = audit_bom_costs(bom_id, db)
+    return render_template(
+        'production/bom_cost_audit.html',
+        bom_id=bom_id,
+        root_name=root_node.display_name,
+        audit=audit
+    )
+
+
 @production_bp.route('/bom/<int:bom_id>/sync-prices', methods=['POST'])
 @login_required
 @roles_required('YÃ¶netici', 'Genel')
@@ -1006,62 +1032,37 @@ def bom_delete(bom_id):
 def bom_produce(bom_id, node_id):
     from app.models import BomNode, BomEdge
     bom_node = BomNode.query.filter_by(id=node_id, bom_id=bom_id).first_or_404()
-    
+
     # Kendi ürünü (üretilecek hedef)
     target_product = bom_node.item.product if bom_node.item else None
     if not target_product:
         flash('Bu düğümün bağlı olduğu bir ana ürün(Product) yok. Üretim yapılamaz.', 'error')
         return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
-    # Alt bileşenleri reçetenin en alt seviyesine kadar patlat.
-    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
-    child_edges = {}
-    for edge in edges:
-        child_edges.setdefault(edge.parent_node_id, []).append(edge)
+    has_children = BomEdge.query.filter_by(bom_id=bom_id, parent_node_id=node_id).first() is not None
+    if not has_children:
+        flash('Bu düğümün hiç alt bileşeni (malzemesi) yok, üretim yapılamaz. Önce BOM detayını içe aktarın.', 'error')
+        return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
-    def explode_leaf_materials(start_node_id, build_qty):
-        required = {}
-
-        def walk(current_node_id, current_qty):
-            children = child_edges.get(current_node_id, [])
-            if not children:
-                node = BomNode.query.get(current_node_id)
-                product = node.item.product if node and node.item else None
-                if product:
-                    if product.id not in required:
-                        required[product.id] = {'product': product, 'quantity': 0.0, 'node': node}
-                    required[product.id]['quantity'] += float(current_qty or 0)
-                return
-
-            for child_edge in children:
-                try:
-                    edge_qty = float(child_edge.quantity or 1)
-                except (TypeError, ValueError):
-                    edge_qty = 1.0
-                walk(child_edge.child_node_id, float(current_qty or 0) * edge_qty)
-
-        walk(start_node_id, build_qty)
-        return list(required.values())
-    
     # Kullanıcı sadece "Üret" dediğinde doğrudan üretim formu açılacak.
     # GET: Gerekli malzemeleri göster
     if request.method == 'GET':
+        explosion = explode_bom_materials(bom_id, node_id, 1, db)
         materials = []
-        for item in explode_leaf_materials(node_id, 1):
+        for item in explosion['materials']:
             child = item['node']
             c_product = item['product']
-            # Bir mamul için gereken toplam en alt parça miktarı.
-            req_q = item['quantity']
             materials.append({
                 'child_node': child,
                 'product': c_product,
-                'req_qty_per_unit': req_q,
+                'req_qty_per_unit': item['quantity'],
                 'stock': c_product.current_stock if c_product else 0
             })
-        return render_template('production/bom_produce.html', 
-                               bom_node=bom_node, 
+        return render_template('production/bom_produce.html',
+                               bom_node=bom_node,
                                target_product=target_product,
-                               materials=materials)
+                               materials=materials,
+                               unlinked=explosion['unlinked'])
 
     # POST: Üretimi gerçekleştir
     quantity = request.form.get('quantity', type=float, default=1.0)
@@ -1071,21 +1072,30 @@ def bom_produce(bom_id, node_id):
         flash('Üretim miktarı sıfırdan büyük olmalıdır.', 'error')
         return redirect(url_for('production.bom_produce', bom_id=bom_id, node_id=node_id))
 
+    explosion = explode_bom_materials(bom_id, node_id, quantity, db)
+
     # 1. Stok yetiyor mu kontrolü
     insufficient = []
     required_consumptions = [] # [(product, total_req_qty, child_node)]
-    for item in explode_leaf_materials(node_id, quantity):
+    for item in explosion['materials']:
         child = item['node']
         c_product = item['product']
         total_req = float(item['quantity'])
         if c_product.current_stock < total_req:
-            insufficient.append(f"{c_product.name} (Gereken: {total_req}, Mevcut: {c_product.current_stock})")
+            insufficient.append(f"{c_product.name} (Gereken: {total_req:.2f}, Mevcut: {c_product.current_stock})")
         else:
             required_consumptions.append((c_product, total_req, child))
 
     if insufficient:
         _limited_flash_list('Yetersiz stok:', insufficient)
         return redirect(url_for('production.bom_produce', bom_id=bom_id, node_id=node_id))
+
+    if explosion['unlinked']:
+        names = [f"{u['num']} {u['name']}" for u in explosion['unlinked']]
+        _limited_flash_list(
+            'Stok kartı bulunamadığı için sarf edilemeyen malzemeler var (üretim yine de kaydedildi):',
+            names, category='warning'
+        )
 
     # 2. Üretim kaydı oluştur
     production = None
@@ -1174,47 +1184,38 @@ def work_order():
         return redirect(url_for('production.work_order'))
         
     target_product = root_node.item.product if root_node.item else None
-    
+
     if not target_product:
         flash('Bu BOM ağacında bir ana ürün (Product) eşleşmesi yok.', 'error')
         return redirect(url_for('production.work_order'))
-        
-    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
-    child_edges = {}
-    for e in edges:
-        child_edges.setdefault(e.parent_node_id, []).append(e)
-        
-    required_materials = {}
-    
-    def explode(node_id, current_qty):
-        subs = child_edges.get(node_id, [])
-        if not subs:
-            # Leave node -> Hammadde
-            n = BomNode.query.get(node_id)
-            p = n.item.product if n.item else None
-            # If no product linked, we just ignore it for stock (or should we raise error?)
-            if p:
-                required_materials[p.id] = required_materials.get(p.id, 0.0) + current_qty
-        else:
-            for sub in subs:
-                try:    eq = float(sub.quantity)
-                except: eq = 1.0
-                explode(sub.child_node_id, current_qty * eq)
-                
-    explode(root_node.id, quantity)
-    
+
+    has_children = BomEdge.query.filter_by(bom_id=bom_id, parent_node_id=root_node.id).first() is not None
+    if not has_children:
+        flash('Bu BOM ağacının hiç alt bileşeni (malzemesi) yok, üretim yapılamaz. Önce BOM detayını içe aktarın.', 'error')
+        return redirect(url_for('production.work_order'))
+
+    explosion = explode_bom_materials(bom_id, root_node.id, quantity, db)
+
     insufficient = []
     consume_list = []
-    for pid, req in required_materials.items():
-        p = Product.query.get(pid)
+    for item in explosion['materials']:
+        p = item['product']
+        req = float(item['quantity'])
         if p.current_stock < req:
             insufficient.append(f"{p.name} (Eksik: {req - p.current_stock:.2f})")
         else:
             consume_list.append((p, req))
-            
+
     if insufficient:
         _limited_flash_list('Yetersiz stoklar:', insufficient)
         return redirect(url_for('production.work_order'))
+
+    if explosion['unlinked']:
+        names = [f"{u['num']} {u['name']}" for u in explosion['unlinked']]
+        _limited_flash_list(
+            'Stok kartı bulunamadığı için sarf edilemeyen malzemeler var (üretim yine de kaydedildi):',
+            names, category='warning'
+        )
         
     # 1. Deduct Materials
     for p, req in consume_list:

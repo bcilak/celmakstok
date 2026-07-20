@@ -685,11 +685,22 @@ def _cost_basis_quantity(quantity: float, quantity_net: float = None) -> float:
     return float(quantity_net or 0)
 
 
-def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: float = 0.0) -> bool:
-    """Materials priced by kg when BOM provides kg-per-unit data."""
+def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: float = 0.0,
+                            product_unit: str = None) -> bool:
+    """Materials priced by kg when BOM provides kg-per-unit data.
+
+    ÖNEMLİ: Bu karar yalnızca malzeme metnine (SAC/LAMA/BORU vb. kelimelere)
+    bakarak veriliyordu — bağlı stok kartının GERÇEKTEN kg bazlı olup
+    olmadığını hiç kontrol etmiyordu. Kart aslında metre/adet bazlıysa,
+    miktarı ağırlığa çevirip yanlış (genelde çok daha yüksek) bir maliyet/
+    sarfiyat hesaplanmasına yol açıyordu. `product_unit` verildiğinde artık
+    kart gerçekten kg/gr/ton değilse bu yol devre dışı bırakılır.
+    """
     if not weight_per_unit:
         return False
     if (row_unit or '').lower() not in {'metre', 'mt', 'adet'}:
+        return False
+    if product_unit is not None and (product_unit or '').lower() not in {'kg', 'gr', 'ton'}:
         return False
     tokens = _material_tokens(material_text or '')
     if {'CELIK', 'CEKME', 'BORU'}.issubset(tokens):
@@ -700,7 +711,11 @@ def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: f
     return bool(signature and signature.get('family') in {'SAC', 'LAMA'})
 
 
-def _force_cost_by_length(material_text: str) -> bool:
+def _force_cost_by_length(material_text: str, product_unit: str = None) -> bool:
+    """Bkz. `_should_cost_by_weight` — aynı gerekçeyle kart birimi metre
+    değilse bu yol artık devre dışı kalır."""
+    if product_unit is not None and (product_unit or '').lower() not in {'metre', 'mt'}:
+        return False
     tokens = _material_tokens(material_text or '')
     return {'SANAYI', 'BORU'}.issubset(tokens)
 
@@ -1672,9 +1687,9 @@ def estimate_bom_rows_cost(rows: list[dict]) -> float:
         unit_cost = float(product.unit_cost or 0)
         cost_basis_qty = _cost_basis_quantity(row.get('quantity') or 0, row.get('quantity_net'))
         material_text = row.get('material') or row.get('name') or ''
-        if _force_cost_by_length(material_text):
+        if _force_cost_by_length(material_text, product.unit_type):
             qty = cost_basis_qty
-        elif _should_cost_by_weight(material_text, row.get('unit_type'), row.get('weight_per_unit') or 0):
+        elif _should_cost_by_weight(material_text, row.get('unit_type'), row.get('weight_per_unit') or 0, product.unit_type):
             qty = _weight_cost_quantity(cost_basis_qty, row.get('weight_per_unit') or 0)
         else:
             qty = _cost_quantity_for_unit(
@@ -2055,7 +2070,8 @@ def get_bom_tree(bom_id: int, db) -> dict:
             product.name if product else '',
             n.display_name or '',
         ])
-        if _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0):
+        if _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0,
+                                   costing_product.unit_type if costing_product else None):
             is_hazir = False
 
         if built_children and not is_hazir:
@@ -2077,7 +2093,7 @@ def get_bom_tree(bom_id: int, db) -> dict:
             if is_hazir:
                 p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0
                 cost_basis_qty = _cost_basis_quantity(q_fireli or p_count, q_firesiz)
-                if _force_cost_by_length(material_text):
+                if _force_cost_by_length(material_text, costing_product.unit_type if costing_product else None):
                     cost_qty = cost_basis_qty
                 else:
                     cost_qty = _cost_quantity_for_unit(
@@ -2090,9 +2106,10 @@ def get_bom_tree(bom_id: int, db) -> dict:
                 calc_total_cost = calc_unit_cost * cost_qty
             else:
                 cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
-                if _force_cost_by_length(material_text):
+                if _force_cost_by_length(material_text, costing_product.unit_type if costing_product else None):
                     cost_qty = cost_basis_qty
-                elif _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0):
+                elif _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0,
+                                             costing_product.unit_type if costing_product else None):
                     cost_qty = _weight_cost_quantity(cost_basis_qty, w_per_unit or 0)
                 else:
                     cost_qty = _cost_quantity_for_unit(
@@ -2124,6 +2141,8 @@ def get_bom_tree(bom_id: int, db) -> dict:
             'unit_cost': calc_unit_cost,
             'currency': calc_currency,
             'total_cost': calc_total_cost,
+            'cost_substituted': bool(costing_product and (not product or costing_product.id != product.id)),
+            'cost_source_code': costing_product.code if (costing_product and (not product or costing_product.id != product.id)) else None,
             'children': built_children
         }
 
@@ -2294,4 +2313,229 @@ def analyze_bom_delete(bom_id: int, db) -> dict:
             'keep': len(keep),
             'total': len(products_by_id),
         }
+    }
+
+
+# ---------------------------------------------------------------------------
+# Maliyet Dökümü (Görünürlük)
+# ---------------------------------------------------------------------------
+
+def audit_bom_costs(bom_id: int, db) -> dict:
+    """BOM ağacındaki her yaprak (hammadde/hazır/standart parça) düğümü için
+    maliyetin nasıl hesaplandığını satır satır döker: hangi kart kullanıldı,
+    bu kart doğrudan bağlı olan mı yoksa ikame mi, hangi birim dönüşüm yolu
+    seçildi, sonuç şüpheli mi (metin bazlı tahminle kart birimi uyuşmuyor mu)."""
+    from app.models import BomNode, BomEdge, BomItem, Product
+    from sqlalchemy.orm import joinedload
+
+    nodes = (
+        BomNode.query
+        .options(joinedload(BomNode.item).joinedload(BomItem.product))
+        .filter(BomNode.bom_id == bom_id)
+        .order_by(BomNode.num)
+        .all()
+    )
+    if not nodes:
+        return {'bom_id': bom_id, 'rows': [], 'stats': {}, 'error': 'BOM bulunamadı.'}
+
+    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
+    children_of = {}
+    for e in edges:
+        children_of.setdefault(e.parent_node_id, []).append(e.child_node_id)
+
+    candidates = Product.query.filter(Product.is_active == True, Product.type == 'hammadde').all()
+
+    rows = []
+    for n in nodes:
+        if children_of.get(n.id):
+            continue  # sadece yaprak düğümler doğrudan maliyet kaynağıdır
+        item = n.item
+        if not item:
+            continue
+        product = item.product
+
+        material_text = ' '.join(_c(v) for v in [
+            product.material if product else '',
+            product.name if product else '',
+            n.display_name or '',
+        ])
+        ready_purchase = _is_ready_purchase_text(material_text)
+        code_str = str(item.code) if item.code else (str(product.code) if product else '')
+        code_prefix = code_str[:3]
+        is_hazir = (
+            code_prefix in STANDARD_PREFIXES
+            or ready_purchase
+            or item.type in ('hazir_parca', 'standart_parca')
+        )
+
+        costing_product = product
+        substituted = False
+        if item.type == 'hammadde':
+            fallback_product = _find_costing_raw_material({
+                'name': n.display_name or item.name,
+                'unit_type': n.unit_type,
+                'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
+                'material': (product.material if product else None) or item.name or n.display_name or '',
+                'is_auto_hammadde': True,
+            }, exclude_product_id=product.id if product else None, candidates=candidates)
+            if not costing_product or not (costing_product.unit_cost and costing_product.unit_cost > 0):
+                if fallback_product and fallback_product.unit_cost and fallback_product.unit_cost > 0:
+                    costing_product = fallback_product
+                    substituted = True
+            elif fallback_product and fallback_product.unit_cost and fallback_product.unit_cost > 0:
+                costing_code = (costing_product.code or '').upper()
+                fallback_code = (fallback_product.code or '').upper()
+                if costing_code.startswith('3TB-') and not fallback_code.startswith('3TB-'):
+                    costing_product = fallback_product
+                    substituted = True
+
+        w_per_unit = float(n.weight_per_unit) if n.weight_per_unit else 0.0
+        p_count = float(n.piece_count) if n.piece_count else 1.0
+        q_fireli = float(n.quantity) if n.quantity else 0.0
+        q_firesiz = float(n.quantity_net) if n.quantity_net is not None else None
+        product_unit = costing_product.unit_type if costing_product else n.unit_type
+        unit_cost = float(costing_product.unit_cost) if costing_product and costing_product.unit_cost else 0.0
+
+        if is_hazir:
+            cost_basis_qty = _cost_basis_quantity(q_fireli or p_count, q_firesiz)
+            if _force_cost_by_length(material_text, product_unit):
+                cost_qty = cost_basis_qty
+                method = 'hazır/standart parça — uzunluk (metin ile tespit)'
+            else:
+                cost_qty = _cost_quantity_for_unit(product_unit, n.unit_type, cost_basis_qty, p_count, w_per_unit)
+                method = 'hazır/standart parça — adet/birim dönüşümü'
+            suspicious = False
+        else:
+            cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
+            if _force_cost_by_length(material_text, product_unit):
+                cost_qty = cost_basis_qty
+                method = 'uzunluk bazlı (malzeme metninden tespit)'
+                suspicious = (product_unit or '').lower() not in ('metre', 'mt')
+            elif _should_cost_by_weight(material_text, n.unit_type, w_per_unit, product_unit):
+                cost_qty = _weight_cost_quantity(cost_basis_qty, w_per_unit)
+                method = 'ağırlık bazlı (malzeme metninden tespit)'
+                suspicious = (product_unit or '').lower() not in ('kg', 'gr', 'ton')
+            else:
+                cost_qty = _cost_quantity_for_unit(product_unit, n.unit_type, cost_basis_qty, p_count, w_per_unit)
+                method = 'birim dönüşümü (kart birimine göre)'
+                suspicious = False
+
+        total_cost = round(unit_cost * cost_qty, 2)
+
+        rows.append({
+            'node_id': n.id,
+            'num': n.num,
+            'name': n.display_name or (item.name if item else ''),
+            'material': material_text,
+            'node_unit': n.unit_type,
+            'quantity': q_fireli,
+            'weight_per_unit': w_per_unit,
+            'piece_count': p_count,
+            'linked_product': _product_snapshot(product),
+            'costing_product': _product_snapshot(costing_product) if costing_product else None,
+            'substituted': substituted,
+            'method': method,
+            'cost_qty': round(cost_qty, 4),
+            'unit_cost': unit_cost,
+            'total_cost': total_cost,
+            'suspicious': suspicious,
+        })
+
+    rows.sort(key=lambda r: r['total_cost'], reverse=True)
+    return {
+        'bom_id': bom_id,
+        'rows': rows,
+        'stats': {
+            'total_rows': len(rows),
+            'substituted': sum(1 for r in rows if r['substituted']),
+            'suspicious': sum(1 for r in rows if r['suspicious']),
+            'total_cost': round(sum(r['total_cost'] for r in rows), 2),
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# Üretim Sarfiyatı — Ortak Patlatma (bom_produce ve work_order tarafından kullanılır)
+# ---------------------------------------------------------------------------
+
+def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> dict:
+    """Bir BOM düğümünü build_qty kadar üretmek için gereken en alt seviye
+    malzeme ihtiyaçlarını, stok kartı BİRİMİNE göre doğru dönüştürülmüş
+    miktarlarla hesaplar. Maliyet hesaplamasıyla (get_bom_tree) AYNI birim
+    dönüşüm mantığını kullanır — böylece "5 metre boru" gibi bir satır, kg
+    bazlı bir stok kartından yanlış miktarda düşülmez.
+
+    Bağlı stok kartı olmayan yaprak malzemeler ayrıca 'unlinked' listesinde
+    döner (sessizce atlanmaz, çağıran taraf kullanıcıyı uyarabilir).
+    """
+    from app.models import BomNode, BomEdge, BomItem
+    from sqlalchemy.orm import joinedload
+
+    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
+    children_of = {}
+    for e in edges:
+        children_of.setdefault(e.parent_node_id, []).append(e)
+
+    nodes = (
+        BomNode.query
+        .options(joinedload(BomNode.item).joinedload(BomItem.product))
+        .filter(BomNode.bom_id == bom_id)
+        .all()
+    )
+    node_map = {n.id: n for n in nodes}
+
+    required: dict[int, dict] = {}
+    unlinked = []
+
+    def walk(current_node_id, current_qty):
+        node = node_map.get(current_node_id)
+        if not node:
+            return
+        children = children_of.get(current_node_id, [])
+        if not children:
+            item = node.item
+            product = item.product if item else None
+            if not product:
+                unlinked.append({
+                    'node_id': node.id,
+                    'num': node.num,
+                    'name': node.display_name or (item.name if item else ''),
+                })
+                return
+
+            material_text = ' '.join(_c(v) for v in [
+                product.material or '', product.name or '', node.display_name or ''
+            ])
+            w_per_unit = float(node.weight_per_unit) if node.weight_per_unit else 0.0
+            product_unit = product.unit_type
+
+            if _force_cost_by_length(material_text, product_unit):
+                consume_qty = current_qty
+            elif _should_cost_by_weight(material_text, node.unit_type, w_per_unit, product_unit):
+                consume_qty = _weight_cost_quantity(current_qty, w_per_unit)
+            else:
+                # current_qty, hem 'quantity' hem (adet/hazır satırlarda) 'piece_count'
+                # yerine geçer — bkz. parse_bom_excel_v2: bu iki alan adet bazlı
+                # satırlarda zaten birbirine eşit üretiliyor.
+                consume_qty = _cost_quantity_for_unit(
+                    product_unit, node.unit_type, current_qty, current_qty, w_per_unit
+                )
+
+            key = product.id
+            if key not in required:
+                required[key] = {'product': product, 'quantity': 0.0, 'node': node}
+            required[key]['quantity'] += consume_qty
+            return
+
+        for child_edge in children:
+            try:
+                edge_qty = float(child_edge.quantity or 1)
+            except (TypeError, ValueError):
+                edge_qty = 1.0
+            walk(child_edge.child_node_id, float(current_qty or 0) * edge_qty)
+
+    walk(node_id, build_qty)
+    return {
+        'materials': list(required.values()),
+        'unlinked': unlinked,
     }
