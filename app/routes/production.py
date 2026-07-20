@@ -17,6 +17,7 @@ from app.utils.bom_utils import (
     analyze_bom_for_import,
     compare_bom_update,
     audit_bom_material_links,
+    analyze_bom_delete,
 )
 import pickle
 import os
@@ -957,17 +958,47 @@ def bom_download_excel(bom_id, node_id=None):
         return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
 
-@production_bp.route('/bom/<int:bom_id>/delete', methods=['POST'])
+@production_bp.route('/bom/<int:bom_id>/delete', methods=['GET', 'POST'])
 @login_required
 @roles_required('Yönetici')
 def bom_delete(bom_id):
-    """Bir BOM'un tüm düğüm ve edge'lerini sil."""
-    from app.models import BomNode, BomEdge
-    BomEdge.query.filter_by(bom_id=bom_id).delete()
-    BomNode.query.filter_by(bom_id=bom_id).delete()
-    db.session.commit()
-    flash(f'BOM #{bom_id} silindi.', 'success')
-    return redirect(url_for('production.bom_list'))
+    """Bir BOM'un tüm düğüm ve edge'lerini sil; önce hangi ürünlerin
+    güvenle pasifleştirilebileceğini gösteren bir önizleme sunar."""
+    from app.models import BomNode, BomEdge, Product
+
+    root_node = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root_node:
+        flash(f'BOM #{bom_id} bulunamadı.', 'error')
+        return redirect(url_for('production.bom_list'))
+
+    if request.method == 'POST':
+        deactivate_ids = request.form.getlist('deactivate_ids', type=int)
+        deactivated_count = 0
+        if deactivate_ids:
+            deactivated_count = (
+                Product.query
+                .filter(Product.id.in_(deactivate_ids))
+                .update({'is_active': False}, synchronize_session=False)
+            )
+
+        BomEdge.query.filter_by(bom_id=bom_id).delete()
+        BomNode.query.filter_by(bom_id=bom_id).delete()
+        db.session.commit()
+
+        flash(
+            f'BOM #{bom_id} silindi.'
+            + (f' {deactivated_count} ürün pasifleştirildi.' if deactivated_count else ''),
+            'success'
+        )
+        return redirect(url_for('production.bom_list'))
+
+    analysis = analyze_bom_delete(bom_id, db)
+    return render_template(
+        'production/bom_delete_preview.html',
+        bom_id=bom_id,
+        root_name=root_node.display_name,
+        analysis=analysis
+    )
 
 @production_bp.route('/bom/<int:bom_id>/produce/<int:node_id>', methods=['GET', 'POST'])
 @login_required

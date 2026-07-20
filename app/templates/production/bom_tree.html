@@ -344,12 +344,9 @@
         <a href="{{ url_for('production.bom_import_v2') }}" class="btn btn-sm btn-primary">
             <i class="bi bi-upload me-1"></i>Yeni Import
         </a>
-        <form action="{{ url_for('production.bom_delete', bom_id=bom_id) }}" method="POST" class="d-inline"
-            onsubmit="return confirm('BOM #{{ bom_id }} kalıcı olarak silinsin mi?')">
-            <button type="submit" class="btn btn-sm btn-outline-danger">
-                <i class="bi bi-trash me-1"></i>Sil
-            </button>
-        </form>
+        <a href="{{ url_for('production.bom_delete', bom_id=bom_id) }}" class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-trash me-1"></i>Sil
+        </a>
     </div>
 </div>
 

@@ -2222,3 +2222,76 @@ def next_bom_id(db) -> int:
     from app.models import BomNode
     from sqlalchemy import func
     return (db.session.query(func.max(BomNode.bom_id)).scalar() or 0) + 1
+
+
+# ---------------------------------------------------------------------------
+# BOM Silme Analizi
+# ---------------------------------------------------------------------------
+
+def analyze_bom_delete(bom_id: int, db) -> dict:
+    """Bir BOM silinmeden önce, ağaçtaki hangi ürünlerin güvenle pasifleştirilebileceğini
+    (başka ağaçta kullanılmıyor, stok hareketi yok, standart/hazır parça değil) analiz eder."""
+    from app.models import BomNode, BomItem, Product, StockMovement
+    from sqlalchemy.orm import joinedload
+
+    nodes = (
+        BomNode.query
+        .options(joinedload(BomNode.item).joinedload(BomItem.product))
+        .filter(BomNode.bom_id == bom_id)
+        .all()
+    )
+
+    products_by_id = {}
+    for node in nodes:
+        item = node.item
+        product = item.product if item else None
+        if product and product.id not in products_by_id:
+            products_by_id[product.id] = product
+
+    deactivate = []
+    keep = []
+    for product in products_by_id.values():
+        reasons = []
+
+        other_usage = (
+            db.session.query(BomNode.id)
+            .join(BomItem, BomNode.item_id == BomItem.id)
+            .filter(BomItem.product_id == product.id, BomNode.bom_id != bom_id)
+            .first()
+        )
+        if other_usage:
+            reasons.append('Başka bir BOM ağacında da kullanılıyor')
+
+        has_movement = StockMovement.query.filter_by(product_id=product.id).first() is not None
+        if has_movement:
+            reasons.append('Stok hareketi geçmişi var')
+
+        if product.type in ('standart_parca', 'hazir_parca'):
+            reasons.append('Standart/hazır parça (tekrar kullanım için korunur)')
+
+        entry = {
+            'id': product.id,
+            'code': product.code,
+            'name': product.name,
+            'type': product.type,
+            'current_stock': float(product.current_stock or 0),
+        }
+        if reasons:
+            entry['reasons'] = reasons
+            keep.append(entry)
+        else:
+            deactivate.append(entry)
+
+    deactivate.sort(key=lambda e: e['name'] or '')
+    keep.sort(key=lambda e: e['name'] or '')
+
+    return {
+        'bom_id': bom_id,
+        'deactivate': deactivate,
+        'keep': keep,
+        'stats': {
+            'deactivate': len(deactivate),
+            'keep': len(keep),
+            'total': len(products_by_id),
+        }
+    }
