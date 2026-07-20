@@ -23,7 +23,7 @@ from decimal import Decimal
 import unicodedata
 from collections import Counter
 
-from app.utils import sanitize_part_code, generate_missing_part_code
+from app.utils import sanitize_part_code, generate_missing_part_code, tr_lower as _tr_lower
 
 
 # ---------------------------------------------------------------------------
@@ -587,21 +587,6 @@ def _c(v) -> str:
     """None → '' temizleyici."""
     return '' if v is None else str(v).strip()
 
-
-def _tr_lower(v) -> str:
-    """Anahtar kelime eşleştirmesi için Türkçe-güvenli küçük harfe çevirme.
-
-    Python'un standart `str.lower()` metodu Türkçe 'İ' harfini (U+0130) tek bir
-    ASCII 'i' değil, 'i' + görünmez birleşik nokta (U+0307) olarak küçültür
-    (`'İ'.lower() == 'i̇'`, 2 karakter). Bu, "FİRELİ", "ADLANDIRMASI" gibi
-    başlıklarda `'fireli' in text.lower()` türü kontrolleri sessizce başarısız
-    kılar. Doğru Türkçe kuralı: noktalı 'İ' → 'i', noktasız 'I' → 'ı' — bu
-    yüzden 'I'yı da düz 'i'ye çevirmek "AĞIRLIK" gibi kelimeleri de bozar
-    ("ağırlık" değil "ağirlik" üretir). Bu fonksiyon her ikisini de doğru
-    eşlemeyle çevirir.
-    """
-    text = str(v) if v is not None else ''
-    return text.replace('İ', 'i').replace('I', 'ı').lower()
 
 
 def _float(v, default=1.0) -> float:

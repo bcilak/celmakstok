@@ -992,3 +992,143 @@ def confirm_import():
         db.session.rollback()
         flash(f'Ürünler kaydedilirken hata oluştu: {str(e)}', 'error')
         return redirect(url_for('products.import_preview'))
+
+
+# ==================== FİYAT LİSTESİ İÇE AKTARMA (KODU → Birim Fiyat) ====================
+
+@products_bp.route('/price-import')
+@login_required
+@roles_required('Yönetici')
+def price_import_page():
+    """Fiyat listesi Excel'i yükleme sayfası."""
+    return render_template('products/price_import.html')
+
+
+@products_bp.route('/price-import/upload', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def price_import_upload():
+    """Fiyat listesi Excel'ini yükle, parse et ve önizlemeye yönlendir."""
+    if 'file' not in request.files or request.files['file'].filename == '':
+        flash('Dosya seçilmedi.', 'error')
+        return redirect(url_for('products.price_import_page'))
+
+    file = request.files['file']
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Sadece Excel dosyaları yükleyebilirsiniz (.xlsx, .xls)', 'error')
+        return redirect(url_for('products.price_import_page'))
+
+    from app.utils.excel_utils import parse_price_list_excel
+
+    rows, errors = parse_price_list_excel(file)
+
+    if not rows:
+        if errors:
+            flash(f'Dosya okunamadı: {errors[0]["error"]}', 'error')
+        else:
+            flash('Excel dosyasında KODU + Birim Fiyat içeren bir satır bulunamadı.', 'warning')
+        return redirect(url_for('products.price_import_page'))
+
+    from flask import session
+    session['price_import_rows'] = rows
+    session['price_import_errors'] = errors
+
+    return redirect(url_for('products.price_import_preview'))
+
+
+@products_bp.route('/price-import/preview')
+@login_required
+@roles_required('Yönetici')
+def price_import_preview():
+    """Excel'deki fiyatları mevcut ürün kartlarıyla eşleştirip önizler."""
+    from flask import session
+
+    rows = session.get('price_import_rows', [])
+    errors = session.get('price_import_errors', [])
+
+    if not rows:
+        flash('Önizlenecek fiyat bulunamadı. Lütfen önce Excel dosyasını yükleyin.', 'warning')
+        return redirect(url_for('products.price_import_page'))
+
+    by_code = {}
+    for r in rows:
+        by_code[r['code']] = r  # aynı kod tekrar geçiyorsa son satır kazanır (parse aşamasında zaten uyarılmıştı)
+
+    existing = {p.code: p for p in Product.query.filter(Product.code.in_(list(by_code.keys()))).all()}
+
+    updates = []
+    unchanged = []
+    not_found = []
+    for code, r in by_code.items():
+        product = existing.get(code)
+        if not product:
+            not_found.append(r)
+            continue
+        old_price = float(product.unit_cost or 0)
+        new_price = r['price']
+        if abs(old_price - new_price) < 0.005:
+            unchanged.append({'code': code, 'name': product.name, 'price': new_price})
+        else:
+            updates.append({
+                'product_id': product.id,
+                'code': code,
+                'name': product.name,
+                'old_price': old_price,
+                'new_price': new_price,
+            })
+
+    updates.sort(key=lambda u: u['name'] or '')
+    not_found.sort(key=lambda u: u['code'] or '')
+
+    stats = {
+        'total_rows': len(rows),
+        'unique_codes': len(by_code),
+        'will_update': len(updates),
+        'unchanged': len(unchanged),
+        'not_found': len(not_found),
+        'parse_errors': len(errors),
+    }
+
+    return render_template(
+        'products/price_import_preview.html',
+        updates=updates,
+        unchanged=unchanged,
+        not_found=not_found,
+        errors=errors,
+        stats=stats,
+    )
+
+
+@products_bp.route('/price-import/confirm', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def price_import_confirm():
+    """Önizlenen fiyat güncellemelerini uygular."""
+    from flask import session
+
+    product_ids = request.form.getlist('product_ids', type=int)
+
+    if not product_ids:
+        flash('Güncellenecek ürün seçilmedi.', 'warning')
+        return redirect(url_for('products.price_import_preview'))
+
+    products = Product.query.filter(Product.id.in_(product_ids)).all()
+
+    updated = 0
+    for product in products:
+        price_str = request.form.get(f'price_{product.id}')
+        if price_str is None:
+            continue
+        try:
+            product.unit_cost = float(price_str)
+        except (TypeError, ValueError):
+            continue
+        updated += 1
+
+    db.session.commit()
+
+    session.pop('price_import_rows', None)
+    session.pop('price_import_errors', None)
+
+    flash(f'{updated} ürünün fiyatı Excel\'den güncellendi.', 'success')
+    return redirect(url_for('products.index'))

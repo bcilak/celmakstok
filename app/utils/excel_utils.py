@@ -5,12 +5,12 @@ Excel/CSV Import/Export Utility Fonksiyonları
 
 import pandas as pd
 from io import BytesIO
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 
-from app.utils import sanitize_part_code
+from app.utils import sanitize_part_code, tr_lower
 
 
 def create_product_template_simple():
@@ -892,6 +892,92 @@ def create_bom_tree_excel(tree_data: dict, bom_id: int, node_info: dict = None) 
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    
+
     return output
+
+
+# ---------------------------------------------------------------------------
+# Fiyat Listesi İçe Aktarma (KODU → Birim Fiyat)
+# ---------------------------------------------------------------------------
+# Ana ürün ağacı / maliyet Excel'lerindeki (ör. "Birim Fiyat" sütunlu ÇELMAK
+# şablonu) KODU + Birim Fiyat sütunlarını okuyup ürün kartlarının unit_cost
+# alanını güncellemek için kullanılır. Başlık satırı sabit bir konumda değil;
+# "KODU" ve "Birim Fiyat" sütunlarını içeren ilk satır otomatik bulunur.
+
+def _price_list_header_row(ws):
+    """KODU ve Birim Fiyat sütunlarını içeren başlık satırını ve kolon
+    indekslerini bulur. Bulunamazsa (None, {}) döner."""
+    for row_idx, row in enumerate(ws.iter_rows(max_row=min(ws.max_row, 20), values_only=True), start=1):
+        vals = [tr_lower(v).strip() if v is not None else '' for v in row]
+        col_map = {}
+        for c, v in enumerate(vals):
+            if not v:
+                continue
+            if v == 'kodu' or 'parça kodu' in v or 'ürün kodu' in v:
+                col_map.setdefault('code', c)
+            elif 'malzeme adı' in v or 'adlandır' in v:
+                col_map.setdefault('name', c)
+            elif 'malzeme cinsi' in v:
+                col_map.setdefault('type', c)
+            elif 'birim fiyat' in v:
+                col_map.setdefault('price', c)
+        if 'code' in col_map and 'price' in col_map:
+            return row_idx, col_map
+    return None, {}
+
+
+def parse_price_list_excel(file_stream):
+    """KODU + Birim Fiyat sütunlu bir Excel'i (ÇELMAK ürün ağacı/maliyet
+    şablonu) parse edip [{'code','name','price','excel_row'}, ...] listesi
+    ve hata listesi döndürür. Aynı kod birden fazla satırda farklı fiyatla
+    geçiyorsa bu durum ayrıca bir hata olarak raporlanır (çakışma).
+    """
+    try:
+        wb = load_workbook(file_stream, data_only=True)
+        ws = wb.active
+    except Exception as exc:
+        return [], [{'row': 0, 'error': f'Dosya okuma hatası: {exc}'}]
+
+    header_row_idx, col_map = _price_list_header_row(ws)
+    if header_row_idx is None:
+        return [], [{'row': 0, 'error':
+            'Başlık satırı bulunamadı. Excel\'de "KODU" ve "Birim Fiyat" sütunları olmalı.'}]
+
+    rows = []
+    errors = []
+    seen_prices = {}
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=header_row_idx + 1, values_only=True), start=header_row_idx + 1):
+        if not any(row):
+            continue
+
+        code_raw = row[col_map['code']] if col_map['code'] < len(row) else None
+        price_raw = row[col_map['price']] if col_map['price'] < len(row) else None
+        code = sanitize_part_code(str(code_raw).strip()) if code_raw is not None and str(code_raw).strip() else ''
+
+        if not code or price_raw is None or str(price_raw).strip() == '':
+            continue
+
+        try:
+            price = float(str(price_raw).replace(',', '.').strip())
+        except (TypeError, ValueError):
+            errors.append({'row': row_idx, 'error': f'Geçersiz fiyat: {price_raw!r} (kod: {code})'})
+            continue
+
+        if price < 0:
+            errors.append({'row': row_idx, 'error': f'Negatif fiyat: {price} (kod: {code})'})
+            continue
+
+        name = ''
+        if 'name' in col_map and col_map['name'] < len(row) and row[col_map['name']] is not None:
+            name = str(row[col_map['name']]).strip()
+
+        if code in seen_prices and abs(seen_prices[code] - price) > 0.005:
+            errors.append({'row': row_idx, 'error':
+                f'"{code}" kodu için birden fazla farklı fiyat bulundu ({seen_prices[code]} ve {price}) — son değer kullanılacak.'})
+        seen_prices[code] = price
+
+        rows.append({'code': code, 'name': name, 'price': price, 'excel_row': row_idx})
+
+    return rows, errors
 

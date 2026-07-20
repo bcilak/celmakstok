@@ -748,6 +748,11 @@
                 <i class="bi bi-file-earmark-excel"></i>
                 <span>Excel'den Aktar</span>
             </a>
+            <a href="{{ url_for('products.price_import_page') }}"
+                class="nav-link {% if request.endpoint in ['products.price_import_page', 'products.price_import_preview'] %}active{% endif %}">
+                <i class="bi bi-cash-coin"></i>
+                <span>Fiyat Listesi Aktar</span>
+            </a>
             {% endif %}
 
             <div class="nav-section mt-3">Üretim</div>

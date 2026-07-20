@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Fiyat Listesi Önizleme{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-cash-coin text-primary me-2"></i>Fiyat Listesi Önizleme</h2>
+            <div class="text-muted">Excel'den okunan fiyatlar mevcut ürün kartlarıyla eşleştirildi. Onayladığınız satırlar güncellenecek.</div>
+        </div>
+        <a href="{{ url_for('products.price_import_page') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Geri
+        </a>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0">{{ stats.unique_codes }}</div><div class="text-muted small">Benzersiz Kod</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-success">{{ stats.will_update }}</div><div class="text-muted small">Güncellenecek</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-muted">{{ stats.unchanged }}</div><div class="text-muted small">Zaten Aynı</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-warning">{{ stats.not_found }}</div><div class="text-muted small">Kod Bulunamadı</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-danger">{{ stats.parse_errors }}</div><div class="text-muted small">Ayrıştırma Uyarısı</div>
+            </div></div>
+        </div>
+    </div>
+
+    {% if errors %}
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle me-1"></i><strong>Ayrıştırma uyarıları:</strong>
+        <ul class="mb-0 mt-1">
+            {% for e in errors[:10] %}
+            <li>Satır {{ e.row }}: {{ e.error }}</li>
+            {% endfor %}
+            {% if errors|length > 10 %}
+            <li>{{ errors|length - 10 }} uyarı daha var…</li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('products.price_import_confirm') }}"
+          onsubmit="return confirm('Seçili ürünlerin fiyatı güncellenecek. Emin misiniz?');">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-check2-circle text-success me-1"></i>Güncellenecek ürünler</span>
+                <label class="mb-0"><input type="checkbox" id="select-all" checked> Tümünü seç</label>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:40px"></th>
+                            <th>Kod</th>
+                            <th>Ürün</th>
+                            <th class="text-end">Eski Fiyat</th>
+                            <th class="text-end">Yeni Fiyat</th>
+                            <th class="text-end">Fark</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in updates %}
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input update-checkbox" checked
+                                       name="product_ids" value="{{ u.product_id }}">
+                                <input type="hidden" name="price_{{ u.product_id }}" value="{{ u.new_price }}">
+                            </td>
+                            <td><code>{{ u.code }}</code></td>
+                            <td>{{ u.name }}</td>
+                            <td class="text-end">{{ "%.2f"|format(u.old_price) }}</td>
+                            <td class="text-end fw-bold">{{ "%.2f"|format(u.new_price) }}</td>
+                            <td class="text-end {{ 'text-danger' if u.new_price > u.old_price else 'text-success' }}">
+                                {{ "%+.2f"|format(u.new_price - u.old_price) }}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" class="text-center text-muted py-4">Güncellenecek ürün yok.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mb-4">
+            <a href="{{ url_for('products.price_import_page') }}" class="btn btn-outline-secondary">Vazgeç</a>
+            <button type="submit" class="btn btn-success" {% if not updates %}disabled{% endif %}>
+                <i class="bi bi-check2-circle me-1"></i>Seçili Fiyatları Güncelle
+            </button>
+        </div>
+    </form>
+
+    {% if not_found %}
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white">
+            <i class="bi bi-question-circle text-warning me-1"></i>Sistemde bulunamayan kodlar
+            <span class="text-muted small">(bu kodlarla eşleşen ürün kartı yok, hiçbir işlem yapılmadı)</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead class="table-light"><tr><th>Kod</th><th>Excel'deki Ad</th><th class="text-end">Fiyat</th></tr></thead>
+                <tbody>
+                    {% for n in not_found %}
+                    <tr><td><code>{{ n.code }}</code></td><td>{{ n.name }}</td><td class="text-end">{{ "%.2f"|format(n.price) }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.getElementById('select-all').addEventListener('change', function () {
+    document.querySelectorAll('.update-checkbox').forEach(cb => cb.checked = this.checked);
+});
+</script>
+{% endblock %}
