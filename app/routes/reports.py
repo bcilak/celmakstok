@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, Response, current_app, jsonify, session, redirect, url_for, g
+from flask import Blueprint, render_template, request, Response, current_app, jsonify, session, redirect, url_for, g, send_file
 from flask_login import login_required, current_user
 from app.models import Product, Category, StockMovement, CountSession, CountItem, ProductionRecord
 from app import db
@@ -2539,6 +2539,33 @@ def ai_assistant_clear():
 @roles_required('Genel')
 def index():
     return render_template('reports/index.html')
+
+
+@reports_bp.route('/catalog-consistency')
+@login_required
+@roles_required('Genel', 'Yönetici')
+def catalog_consistency():
+    """İsim/kod tutarsızlıkları raporu: aynı isim farklı kod, aynı kod farklı isim."""
+    from app.utils.bom_utils import analyze_catalog_inconsistencies
+    analysis = analyze_catalog_inconsistencies(db)
+    return render_template('reports/catalog_consistency.html', analysis=analysis)
+
+
+@reports_bp.route('/catalog-consistency/export')
+@login_required
+@roles_required('Genel', 'Yönetici')
+def catalog_consistency_export():
+    """İsim/kod tutarsızlıkları raporunu detaylı Excel olarak indir."""
+    from app.utils.bom_utils import analyze_catalog_inconsistencies
+    from app.utils.excel_utils import export_catalog_inconsistencies_to_excel
+    analysis = analyze_catalog_inconsistencies(db)
+    excel_file = export_catalog_inconsistencies_to_excel(analysis)
+    return send_file(
+        excel_file,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'katalog_tutarsizlik_{datetime.now().strftime("%Y%m%d")}.xlsx'
+    )
 
 
 def _cost_report_analysis(stats):

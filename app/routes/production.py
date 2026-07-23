@@ -20,6 +20,8 @@ from app.utils.bom_utils import (
     analyze_bom_delete,
     audit_bom_costs,
     explode_bom_materials,
+    preview_standardize_name,
+    standardize_bom_item_name,
 )
 import pickle
 import os
@@ -1272,3 +1274,48 @@ def work_order():
     db.session.commit()
     flash(f"{target_product.name} için {quantity} adet üretim başarıyla tamamlandı.", 'success')
     return redirect(url_for('production.index'))
+
+
+# ==================== İSİM STANDARTLAŞTIRMA (Aynı kod, farklı isim) ====================
+
+@production_bp.route('/standardize-preview')
+@login_required
+@roles_required('Yönetici')
+def standardize_preview():
+    """Bir parça koduna ait isim varyantlarını gösterip kanonik isim seçtirir."""
+    code = request.args.get('code', '')
+    if not code:
+        flash('Kod belirtilmedi.', 'error')
+        return redirect(url_for('reports.catalog_consistency'))
+
+    preview = preview_standardize_name(code, db)
+    if preview.get('error'):
+        flash(preview['error'], 'error')
+        return redirect(url_for('reports.catalog_consistency'))
+
+    return render_template('production/standardize_preview.html', preview=preview)
+
+
+@production_bp.route('/standardize-confirm', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def standardize_confirm():
+    """Seçilen kanonik ismi, kodun geçtiği tüm BOM düğümlerine uygular."""
+    code = request.form.get('code', '')
+    canonical_name = request.form.get('canonical_name', '').strip()
+
+    if not code or not canonical_name:
+        flash('Kod veya kanonik isim eksik.', 'error')
+        return redirect(url_for('reports.catalog_consistency'))
+
+    result = standardize_bom_item_name(code, canonical_name, db)
+    if result.get('error'):
+        flash(result['error'], 'error')
+    else:
+        flash(
+            f'"{canonical_name}" ismi {result["updated_nodes"]} BOM düğümüne uygulandı'
+            + (f', {result["merged_items"]} yinelenen kayıt birleştirildi' if result['merged_items'] else '')
+            + (', bağlı ürün kartının ismi de güncellendi.' if result['product_renamed'] else '.'),
+            'success'
+        )
+    return redirect(url_for('reports.catalog_consistency'))

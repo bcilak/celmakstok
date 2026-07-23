@@ -1466,16 +1466,36 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
         }
     """
     from app.models import Product, BomItem
-    
+
     new_products = []
     existing_products = []
     conflicts = []
     matched_materials = []
     missing_materials = []
-    
+
     # Excel dosyasındaki tekrarları (aynı isme sahip aynı parçalar) yakalamak için
     seen_in_excel = {}
-    
+
+    # --- Excel içi fiyat çakışması: aynı kod, farklı satırlarda farklı Birim Fiyat ---
+    price_by_code: dict[str, float] = {}
+    price_conflicts = []
+    flagged_price_codes = set()
+    for row in parsed_rows:
+        code = sanitize_part_code(row.get('code')) or ''
+        price = float(row.get('unit_price') or 0)
+        if not code or price <= 0:
+            continue
+        if code in price_by_code:
+            if abs(price_by_code[code] - price) > 0.005 and code not in flagged_price_codes:
+                price_conflicts.append({
+                    'code': code,
+                    'name': row.get('name'),
+                    'prices': sorted({price_by_code[code], price}),
+                })
+                flagged_price_codes.add(code)
+        else:
+            price_by_code[code] = price
+
     for row in parsed_rows:
         code_prefix = str(row.get('code') or '')[:3]
         if code_prefix in STANDARD_PREFIXES or str(row.get('material', '')).lower() == 'standart parça':
@@ -1572,7 +1592,17 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
                     'type': 'material_mismatch',
                     'message': f"Malzeme farklı: Mevcut '{product.material}' vs Excel '{row['material']}'"
                 })
-            
+
+            # Fiyat farklıysa UYARI (sistemdeki mevcut fiyat ile Excel'in getirdiği fiyat)
+            excel_price = float(row.get('unit_price') or 0)
+            if excel_price > 0 and abs(float(product.unit_cost or 0) - excel_price) > 0.005:
+                entry['old_price'] = float(product.unit_cost or 0)
+                entry['new_price'] = excel_price
+                issues.append({
+                    'type': 'price_mismatch',
+                    'message': f"Fiyat farklı: Mevcut {float(product.unit_cost or 0):.2f} vs Excel {excel_price:.2f}"
+                })
+
             entry['issues'] = issues
             entry['updates'] = updates
             
@@ -1590,15 +1620,17 @@ def analyze_bom_for_import(parsed_rows: list[dict], category_id: int = None) -> 
         'conflicts': len(conflicts),
         'will_update': sum(1 for p in existing_products if p.get('updates')),
         'matched_materials': len(matched_materials),
-        'missing_materials': len(missing_materials)
+        'missing_materials': len(missing_materials),
+        'price_conflicts': len(price_conflicts),
     }
-    
+
     return {
         'new_products': new_products,
         'existing_products': existing_products,
         'conflicts': conflicts,
         'matched_materials': matched_materials,
         'missing_materials': missing_materials,
+        'price_conflicts': price_conflicts,
         'raw_material_summary': _aggregate_raw_material_usage(parsed_rows),
         'stats': stats
     }
@@ -2601,4 +2633,350 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
     return {
         'materials': list(required.values()),
         'unlinked': unlinked,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Katalog Tutarsızlıkları — İsim/Kod Uyuşmazlığı Raporu
+# ---------------------------------------------------------------------------
+
+def analyze_catalog_inconsistencies(db) -> dict:
+    """Ürün kataloğunda isim/kod tutarsızlıklarını tarar.
+
+    1) Aynı isim, farklı kodlar (Product tablosu) — Product.code veritabanında
+       benzersizdir, dolayısıyla aynı isimde birden fazla ürün varsa bunlar
+       muhtemelen yinelenen kartlardır (ör. eski -01/-02 suffix sorunundan kalma).
+    2) Aynı kod, farklı isimler (BomItem tablosu) — BomItem.code kasıtlı olarak
+       benzersiz değildir (aynı parça farklı BOM'larda tekrar kullanılabilir),
+       ama isim varyasyonları ("Hava Tapası" vs "3/8 Hava Tapası" gibi) burada
+       tutarsızlık olarak yakalanır.
+    """
+    from app.models import Product, BomItem, StockMovement
+
+    # --- 1) Aynı isim, farklı kod ---
+    products = Product.query.filter(Product.is_active == True).all()
+    by_norm_name: dict[str, list] = {}
+    for p in products:
+        key = _tr_lower(p.name).strip()
+        if not key:
+            continue
+        by_norm_name.setdefault(key, []).append(p)
+
+    same_name_diff_code = []
+    for key, plist in by_norm_name.items():
+        codes = {p.code for p in plist}
+        if len(codes) <= 1:
+            continue
+
+        variants = []
+        for p in plist:
+            movement_count = StockMovement.query.filter_by(product_id=p.id).count()
+            variants.append({
+                'id': p.id,
+                'code': p.code,
+                'name': p.name,
+                'current_stock': float(p.current_stock or 0),
+                'unit_cost': float(p.unit_cost or 0),
+                'type': p.type,
+                'category_name': p.category.name if p.category else None,
+                'movement_count': movement_count,
+                'created_at': p.created_at,
+            })
+
+        # Öneri: en çok stok hareketi olan (eşitse en eski kayıt) kanonik ürün adayı.
+        variants.sort(key=lambda v: (-v['movement_count'], v['created_at'] is None, v['created_at']))
+        for i, v in enumerate(variants):
+            v['suggested_canonical'] = (i == 0)
+            v['created_at'] = v['created_at'].strftime('%Y-%m-%d') if v['created_at'] else None
+
+        same_name_diff_code.append({
+            'name': plist[0].name,
+            'variant_count': len(variants),
+            'total_stock': round(sum(v['current_stock'] for v in variants), 2),
+            'variants': variants,
+        })
+
+    same_name_diff_code.sort(key=lambda g: -g['variant_count'])
+
+    # --- 2) Aynı kod, farklı isim ---
+    items = (
+        BomItem.query
+        .filter(BomItem.code.isnot(None), BomItem.code != '')
+        .all()
+    )
+    by_code: dict[str, list] = {}
+    for it in items:
+        by_code.setdefault(it.code, []).append(it)
+
+    same_code_diff_name = []
+    for code, ilist in by_code.items():
+        seen_names = {}
+        for it in ilist:
+            nkey = _tr_lower(it.name).strip()
+            if not nkey:
+                continue
+            if nkey not in seen_names:
+                bom_ids = sorted({n.bom_id for n in it.nodes.all()})
+                seen_names[nkey] = {
+                    'item_id': it.id,
+                    'name': it.name,
+                    'product_id': it.product_id,
+                    'product_name': it.product.name if it.product else None,
+                    'bom_count': len(bom_ids),
+                    'bom_ids': bom_ids,
+                }
+            else:
+                # Aynı isimli başka bir BomItem satırı da varsa BOM sayısını topla.
+                bom_ids = {n.bom_id for n in it.nodes.all()}
+                existing = seen_names[nkey]
+                existing['bom_ids'] = sorted(set(existing['bom_ids']) | bom_ids)
+                existing['bom_count'] = len(existing['bom_ids'])
+
+        if len(seen_names) <= 1:
+            continue
+
+        variants = list(seen_names.values())
+        variants.sort(key=lambda v: -v['bom_count'])
+        for i, v in enumerate(variants):
+            v['suggested_canonical'] = (i == 0)
+
+        same_code_diff_name.append({
+            'code': code,
+            'variant_count': len(variants),
+            'total_bom_usage': sum(v['bom_count'] for v in variants),
+            'variants': variants,
+        })
+
+    same_code_diff_name.sort(key=lambda g: -g['variant_count'])
+
+    return {
+        'same_name_diff_code': same_name_diff_code,
+        'same_code_diff_name': same_code_diff_name,
+        'stats': {
+            'same_name_diff_code_groups': len(same_name_diff_code),
+            'same_code_diff_name_groups': len(same_code_diff_name),
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# Ürün Birleştirme (Aynı isim, farklı kod)
+# ---------------------------------------------------------------------------
+
+def preview_product_merge(product_ids: list[int], db) -> dict:
+    """Birleştirme önizlemesi: verilen ürünleri, önerilen kanonik ürünü ve
+    birim tipi uyuşmazlığı gibi uyarıları döndürür."""
+    from app.models import Product, StockMovement
+
+    products = Product.query.filter(Product.id.in_(product_ids)).all()
+    if len(products) < 2:
+        return {'products': [], 'error': 'Birleştirmek için en az 2 ürün gerekli.'}
+
+    variants = []
+    for p in products:
+        variants.append({
+            'id': p.id,
+            'code': p.code,
+            'name': p.name,
+            'type': p.type,
+            'unit_type': p.unit_type,
+            'current_stock': float(p.current_stock or 0),
+            'unit_cost': float(p.unit_cost or 0),
+            'category_name': p.category.name if p.category else None,
+            'movement_count': StockMovement.query.filter_by(product_id=p.id).count(),
+            'created_at': p.created_at.strftime('%Y-%m-%d') if p.created_at else None,
+        })
+
+    variants.sort(key=lambda v: (-v['movement_count'], v['created_at'] or ''))
+    for i, v in enumerate(variants):
+        v['suggested_canonical'] = (i == 0)
+
+    unit_types = {v['unit_type'] for v in variants}
+    combined_stock = round(sum(v['current_stock'] for v in variants), 2)
+
+    return {
+        'variants': variants,
+        'unit_mismatch': len(unit_types) > 1,
+        'combined_stock': combined_stock,
+    }
+
+
+def merge_products(canonical_id: int, all_ids: list[int], db) -> dict:
+    """Verilen ürün kartlarını canonical_id'ye birleştirir.
+
+    Tüm bağımlı kayıtlar (stok hareketleri, sayım kalemleri, üretim tüketimleri,
+    üretim kayıtları, BOM bağlantıları, lokasyon bazlı stoklar) kanonik ürüne
+    yönlendirilir; mevcut stok miktarları toplanır. Birleştirilen (kanonik
+    olmayan) ürünler KALICI SİLİNMEZ — is_active=False yapılır, geri dönüş
+    gerekirse mümkün olur.
+    """
+    from app.models import (
+        Product, StockMovement, LocationStock, StockCurrent,
+        CountItem, ProductionConsumption, ProductionRecord, BomItem
+    )
+
+    duplicate_ids = [pid for pid in all_ids if pid != canonical_id]
+    if not duplicate_ids:
+        return {'merged': 0, 'error': 'Birleştirilecek başka ürün seçilmedi.'}
+
+    canonical = Product.query.get(canonical_id)
+    if not canonical:
+        return {'merged': 0, 'error': 'Kanonik ürün bulunamadı.'}
+
+    duplicates = Product.query.filter(Product.id.in_(duplicate_ids)).all()
+    if not duplicates:
+        return {'merged': 0, 'error': 'Birleştirilecek ürün bulunamadı.'}
+
+    combined_stock = float(canonical.current_stock or 0)
+
+    for dup in duplicates:
+        combined_stock += float(dup.current_stock or 0)
+
+        StockMovement.query.filter_by(product_id=dup.id).update(
+            {'product_id': canonical.id}, synchronize_session=False)
+        CountItem.query.filter_by(product_id=dup.id).update(
+            {'product_id': canonical.id}, synchronize_session=False)
+        ProductionConsumption.query.filter_by(product_id=dup.id).update(
+            {'product_id': canonical.id}, synchronize_session=False)
+        ProductionRecord.query.filter_by(product_id=dup.id).update(
+            {'product_id': canonical.id}, synchronize_session=False)
+        BomItem.query.filter_by(product_id=dup.id).update(
+            {'product_id': canonical.id}, synchronize_session=False)
+
+        # LocationStock: (location_id, product_id) benzersiz — aynı lokasyonda
+        # ikisinin de stoğu varsa miktarları topla, yoksa product_id'yi kanoniğe çevir.
+        for ls in LocationStock.query.filter_by(product_id=dup.id).all():
+            existing = LocationStock.query.filter_by(
+                location_id=ls.location_id, product_id=canonical.id
+            ).first()
+            if existing:
+                existing.quantity = float(existing.quantity or 0) + float(ls.quantity or 0)
+                db.session.delete(ls)
+            else:
+                ls.product_id = canonical.id
+
+        # StockCurrent: product_id üzerinde benzersiz — kanonikte zaten kayıt
+        # varsa miktarları topla, yoksa product_id'yi kanoniğe çevir.
+        dup_stock_current = StockCurrent.query.filter_by(product_id=dup.id).first()
+        if dup_stock_current:
+            canonical_stock_current = StockCurrent.query.filter_by(product_id=canonical.id).first()
+            if canonical_stock_current:
+                canonical_stock_current.quantity = (
+                    float(canonical_stock_current.quantity or 0) + float(dup_stock_current.quantity or 0)
+                )
+                db.session.delete(dup_stock_current)
+            else:
+                dup_stock_current.product_id = canonical.id
+
+        dup.is_active = False
+        merge_note = f"{canonical.code} koduna birleştirildi."
+        dup.notes = f'{dup.notes} | {merge_note}'.strip(' |') if dup.notes else merge_note
+
+    canonical.current_stock = combined_stock
+    db.session.commit()
+
+    return {
+        'merged': len(duplicates),
+        'canonical_id': canonical.id,
+        'canonical_code': canonical.code,
+    }
+
+
+# ---------------------------------------------------------------------------
+# İsim Standartlaştırma (Aynı kod, farklı isim)
+# ---------------------------------------------------------------------------
+
+def preview_standardize_name(code: str, db) -> dict:
+    """Bir parça koduna ait tüm isim varyantlarını ve hangisinin kanonik isim
+    olarak önerildiğini (en çok BOM'da kullanılan) döndürür."""
+    from app.models import BomItem
+
+    items = BomItem.query.filter_by(code=code).all()
+    if not items:
+        return {'variants': [], 'error': f'"{code}" koduna ait kayıt bulunamadı.'}
+
+    seen: dict[str, dict] = {}
+    for it in items:
+        key = it.name.strip()
+        if not key:
+            continue
+        bom_ids = {n.bom_id for n in it.nodes.all()}
+        if key not in seen:
+            seen[key] = {
+                'item_id': it.id,
+                'name': it.name,
+                'product_id': it.product_id,
+                'product_name': it.product.name if it.product else None,
+                'bom_ids': set(bom_ids),
+            }
+        else:
+            seen[key]['bom_ids'] |= bom_ids
+
+    variants = list(seen.values())
+    for v in variants:
+        v['bom_count'] = len(v['bom_ids'])
+        del v['bom_ids']
+    variants.sort(key=lambda v: -v['bom_count'])
+    for i, v in enumerate(variants):
+        v['suggested_canonical'] = (i == 0)
+
+    distinct_products = {v['product_id'] for v in variants if v['product_id']}
+
+    return {
+        'code': code,
+        'variants': variants,
+        'multiple_products': len(distinct_products) > 1,
+    }
+
+
+def standardize_bom_item_name(code: str, canonical_name: str, db) -> dict:
+    """Bir parça kodunun tüm BOM düğümlerindeki/BomItem kayıtlarındaki ismini
+    tek bir kanonik isme standartlaştırır. Aynı koda ait birden fazla BomItem
+    satırı varsa (eski veriden kalma, kod-bazlı eşleştirmeden önceki dönemden),
+    tek bir satırda birleştirilir; diğerleri silinir (Product kartlarına
+    dokunulmaz, sadece bağlantı survivor'a taşınır)."""
+    from app.models import BomItem, BomNode, Product
+
+    items = BomItem.query.filter_by(code=code).all()
+    if not items:
+        return {'updated_nodes': 0, 'error': f'"{code}" koduna ait kayıt bulunamadı.'}
+
+    canonical_name = canonical_name.strip()
+    if not canonical_name:
+        return {'updated_nodes': 0, 'error': 'Kanonik isim boş olamaz.'}
+
+    survivor = None
+    for it in items:
+        if it.name.strip() == canonical_name:
+            survivor = it
+            break
+    if survivor is None:
+        survivor = items[0]
+        survivor.name = canonical_name
+
+    merged_items = 0
+    for it in items:
+        if it.id == survivor.id:
+            continue
+        BomNode.query.filter_by(item_id=it.id).update(
+            {'item_id': survivor.id}, synchronize_session=False)
+        db.session.delete(it)
+        merged_items += 1
+
+    updated_nodes = BomNode.query.filter_by(item_id=survivor.id).update(
+        {'display_name': canonical_name}, synchronize_session=False)
+
+    product_renamed = False
+    if survivor.product_id:
+        product = Product.query.get(survivor.product_id)
+        if product and product.name != canonical_name:
+            product.name = canonical_name
+            product_renamed = True
+
+    db.session.commit()
+
+    return {
+        'updated_nodes': updated_nodes,
+        'merged_items': merged_items,
+        'product_renamed': product_renamed,
     }

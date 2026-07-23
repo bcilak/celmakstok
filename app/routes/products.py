@@ -1132,3 +1132,56 @@ def price_import_confirm():
 
     flash(f'{updated} ürünün fiyatı Excel\'den güncellendi.', 'success')
     return redirect(url_for('products.index'))
+
+
+# ==================== ÜRÜN BİRLEŞTİRME (Aynı isim, farklı kod) ====================
+
+@products_bp.route('/merge-preview')
+@login_required
+@roles_required('Yönetici')
+def merge_preview():
+    """Aynı isimdeki farklı kodlu ürünleri birleştirme önizlemesi."""
+    from app.utils.bom_utils import preview_product_merge
+
+    ids_raw = request.args.get('ids', '')
+    try:
+        product_ids = [int(x) for x in ids_raw.split(',') if x.strip()]
+    except ValueError:
+        product_ids = []
+
+    if len(product_ids) < 2:
+        flash('Birleştirmek için en az 2 ürün seçilmeli.', 'error')
+        return redirect(url_for('reports.catalog_consistency'))
+
+    preview = preview_product_merge(product_ids, db)
+    if preview.get('error'):
+        flash(preview['error'], 'error')
+        return redirect(url_for('reports.catalog_consistency'))
+
+    return render_template('products/merge_preview.html', preview=preview, ids=ids_raw)
+
+
+@products_bp.route('/merge-confirm', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def merge_confirm():
+    """Seçilen kanonik ürüne göre birleştirmeyi uygular."""
+    from app.utils.bom_utils import merge_products
+
+    canonical_id = request.form.get('canonical_id', type=int)
+    all_ids = request.form.getlist('all_ids', type=int)
+
+    if not canonical_id or canonical_id not in all_ids:
+        flash('Geçerli bir kanonik ürün seçilmedi.', 'error')
+        return redirect(url_for('reports.catalog_consistency'))
+
+    result = merge_products(canonical_id, all_ids, db)
+    if result.get('error'):
+        flash(result['error'], 'error')
+    else:
+        flash(
+            f'{result["merged"]} ürün, {result["canonical_code"]} koduna birleştirildi. '
+            f'Birleştirilen kartlar pasifleştirildi (kalıcı silinmedi).',
+            'success'
+        )
+    return redirect(url_for('reports.catalog_consistency'))

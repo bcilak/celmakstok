@@ -981,3 +981,105 @@ def parse_price_list_excel(file_stream):
 
     return rows, errors
 
+
+# ---------------------------------------------------------------------------
+# Katalog Tutarsızlıkları — Excel Dökümü
+# ---------------------------------------------------------------------------
+
+def export_catalog_inconsistencies_to_excel(analysis: dict):
+    """analyze_catalog_inconsistencies() çıktısını iki sayfalı, açıklamalı bir
+    Excel dosyası olarak dışa aktarır."""
+    wb = Workbook()
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    canonical_fill = PatternFill(start_color="D9F2D9", end_color="D9F2D9", fill_type="solid")
+    note_font = Font(italic=True, color="666666", size=10)
+
+    def _write_header(ws, headers):
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    # --- Sayfa 1: Aynı isim, farklı kodlar ---
+    ws1 = wb.active
+    ws1.title = "Aynı İsim Farklı Kod"
+    ws1.cell(row=1, column=1, value=(
+        "Aynı ürün adı birden fazla farklı koda dağılmış olabilir (Product.code veritabanında "
+        "benzersiz olduğundan, bu genellikle yinelenen kartlar anlamına gelir). "
+        "'Öneri' kolonu işaretli satır, en çok stok hareketi olan/en eski kayıt olduğu için "
+        "kalıcı (kanonik) ürün olarak önerilir."
+    )).font = note_font
+    ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=9)
+    ws1.row_dimensions[1].height = 30
+
+    headers1 = ['Ürün Adı', 'Varyant Sayısı', 'Kod', 'Tip', 'Kategori',
+                'Mevcut Stok', 'Birim Maliyet', 'Hareket Sayısı', 'Öneri']
+    for col_num, header in enumerate(headers1, 1):
+        cell = ws1.cell(row=2, column=col_num, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    row_num = 3
+    for group in analysis.get('same_name_diff_code', []):
+        for v in group['variants']:
+            ws1.cell(row=row_num, column=1, value=group['name'])
+            ws1.cell(row=row_num, column=2, value=group['variant_count'])
+            ws1.cell(row=row_num, column=3, value=v['code'])
+            ws1.cell(row=row_num, column=4, value=v['type'])
+            ws1.cell(row=row_num, column=5, value=v['category_name'] or '')
+            ws1.cell(row=row_num, column=6, value=v['current_stock'])
+            ws1.cell(row=row_num, column=7, value=v['unit_cost'])
+            ws1.cell(row=row_num, column=8, value=v['movement_count'])
+            cell = ws1.cell(row=row_num, column=9, value='ÖNERİLEN KANONİK' if v['suggested_canonical'] else '')
+            if v['suggested_canonical']:
+                for c in range(1, 10):
+                    ws1.cell(row=row_num, column=c).fill = canonical_fill
+            row_num += 1
+
+    for col, width in enumerate([28, 14, 20, 14, 16, 12, 12, 12, 18], 1):
+        ws1.column_dimensions[get_column_letter(col)].width = width
+
+    # --- Sayfa 2: Aynı kod, farklı isimler ---
+    ws2 = wb.create_sheet("Aynı Kod Farklı İsim")
+    ws2.cell(row=1, column=1, value=(
+        "Aynı parça kodu, farklı BOM ağaçlarında veya satırlarda farklı isimlerle "
+        "kaydedilmiş (ör. 'Hava Tapası' vs '3/8 Hava Tapası'). BomItem.code kasıtlı olarak "
+        "benzersiz değildir; asıl sorun isim tutarsızlığıdır. 'Öneri' kolonu, en çok BOM'da "
+        "kullanılan ismi kanonik isim olarak önerir."
+    )).font = note_font
+    ws2.merge_cells(start_row=1, start_column=1, end_row=1, end_column=6)
+    ws2.row_dimensions[1].height = 30
+
+    headers2 = ['Parça Kodu', 'Varyant Sayısı', 'İsim', 'Bağlı Ürün', 'Kaç BOM\'da Kullanılıyor', 'Öneri']
+    for col_num, header in enumerate(headers2, 1):
+        cell = ws2.cell(row=2, column=col_num, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    row_num = 3
+    for group in analysis.get('same_code_diff_name', []):
+        for v in group['variants']:
+            ws2.cell(row=row_num, column=1, value=group['code'])
+            ws2.cell(row=row_num, column=2, value=group['variant_count'])
+            ws2.cell(row=row_num, column=3, value=v['name'])
+            ws2.cell(row=row_num, column=4, value=v['product_name'] or '')
+            ws2.cell(row=row_num, column=5, value=v['bom_count'])
+            cell = ws2.cell(row=row_num, column=6, value='ÖNERİLEN KANONİK' if v['suggested_canonical'] else '')
+            if v['suggested_canonical']:
+                for c in range(1, 7):
+                    ws2.cell(row=row_num, column=c).fill = canonical_fill
+            row_num += 1
+
+    for col, width in enumerate([20, 14, 32, 28, 20, 18], 1):
+        ws2.column_dimensions[get_column_letter(col)].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+

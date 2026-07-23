@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h2 class="mb-1">
+                <i class="bi bi-exclamation-diamond text-warning me-2"></i>İsim / Kod Tutarsızlıkları
+            </h2>
+            <div class="text-muted">Aynı üründe farklı kod, aynı kodda farklı isim kullanımlarını tarar.</div>
+        </div>
+        <a href="{{ url_for('reports.catalog_consistency_export') }}" class="btn btn-success">
+            <i class="bi bi-file-earmark-excel me-1"></i>Excel Dökümü İndir
+        </a>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-danger">{{ analysis.stats.same_name_diff_code_groups }}</div>
+                <div class="text-muted small">Aynı isim, farklı kod grubu</div>
+            </div></div>
+        </div>
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm"><div class="card-body">
+                <div class="h3 mb-0 text-warning">{{ analysis.stats.same_code_diff_name_groups }}</div>
+                <div class="text-muted small">Aynı kod, farklı isim grubu</div>
+            </div></div>
+        </div>
+    </div>
+
+    <!-- ================= AYNI İSİM, FARKLI KOD ================= -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-diagram-2 text-danger me-1"></i><strong>Aynı isim, farklı kodlar</strong>
+                <span class="text-muted small ms-2">Ürün kodu benzersiz olduğundan bu genellikle yinelenen kartlar demektir.</span>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Ürün Adı</th>
+                        <th>Kod</th>
+                        <th>Tip</th>
+                        <th>Kategori</th>
+                        <th class="text-end">Stok</th>
+                        <th class="text-end">Birim Maliyet</th>
+                        <th class="text-end">Hareket Sayısı</th>
+                        <th>İşlem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in analysis.same_name_diff_code %}
+                    {% for v in group.variants %}
+                    <tr class="{{ 'table-success' if v.suggested_canonical else '' }}">
+                        {% if loop.first %}
+                        <td rowspan="{{ group.variant_count }}" class="align-middle fw-semibold border-end">
+                            {{ group.name }}
+                            <div class="small text-muted">{{ group.variant_count }} varyant</div>
+                        </td>
+                        {% endif %}
+                        <td><code>{{ v.code }}</code></td>
+                        <td><span class="badge bg-secondary">{{ v.type }}</span></td>
+                        <td>{{ v.category_name or '-' }}</td>
+                        <td class="text-end">{{ v.current_stock }}</td>
+                        <td class="text-end">{{ "%.2f"|format(v.unit_cost) }}</td>
+                        <td class="text-end">{{ v.movement_count }}</td>
+                        {% if loop.first %}
+                        <td rowspan="{{ group.variant_count }}" class="align-middle border-start">
+                            <a href="{{ url_for('products.merge_preview', ids=group.variants|map(attribute='id')|join(',')) }}"
+                               class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-arrow-down-up"></i> Birleştir
+                            </a>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted py-5">
+                        <i class="bi bi-check-circle fs-1 text-success d-block mb-2"></i>
+                        Aynı isimde farklı kod tutarsızlığı bulunamadı.
+                    </td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ================= AYNI KOD, FARKLI İSİM ================= -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white">
+            <i class="bi bi-tag text-warning me-1"></i><strong>Aynı kod, farklı isimler</strong>
+            <span class="text-muted small ms-2">Parça kodu tekrar kullanılabilir; sorun burada isim tutarsızlığı.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Kod</th>
+                        <th>İsim</th>
+                        <th>Bağlı Ürün</th>
+                        <th class="text-end">Kaç BOM'da</th>
+                        <th>İşlem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in analysis.same_code_diff_name %}
+                    {% for v in group.variants %}
+                    <tr class="{{ 'table-success' if v.suggested_canonical else '' }}">
+                        {% if loop.first %}
+                        <td rowspan="{{ group.variant_count }}" class="align-middle fw-semibold border-end">
+                            <code>{{ group.code }}</code>
+                            <div class="small text-muted">{{ group.variant_count }} varyant</div>
+                        </td>
+                        {% endif %}
+                        <td>{{ v.name }}</td>
+                        <td>{{ v.product_name or '-' }}</td>
+                        <td class="text-end">{{ v.bom_count }}</td>
+                        {% if loop.first %}
+                        <td rowspan="{{ group.variant_count }}" class="align-middle border-start">
+                            <a href="{{ url_for('production.standardize_preview', code=group.code) }}"
+                               class="btn btn-sm btn-outline-warning">
+                                <i class="bi bi-pencil-square"></i> İsmi Standartlaştır
+                            </a>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr><td colspan="5" class="text-center text-muted py-5">
+                        <i class="bi bi-check-circle fs-1 text-success d-block mb-2"></i>
+                        Aynı kodda farklı isim tutarsızlığı bulunamadı.
+                    </td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

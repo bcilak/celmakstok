@@ -220,6 +220,12 @@
                     <div class="stat-label">⚠️ Dikkat Gerekiyor</div>
                 </div>
                 {% endif %}
+                {% if analysis.stats.price_conflicts > 0 %}
+                <div class="stat-box danger">
+                    <div class="stat-number">{{ analysis.stats.price_conflicts }}</div>
+                    <div class="stat-label">💰 Excel İçi Fiyat Çakışması</div>
+                </div>
+                {% endif %}
                 {% if analysis.stats.will_update > 0 %}
                 <div class="stat-box">
                     <div class="stat-number">{{ analysis.stats.will_update }}</div>
@@ -232,6 +238,32 @@
 
     <form method="POST" action="{{ url_for('production.bom_import_v2') }}" id="confirmForm">
         <input type="hidden" name="action" value="confirm_import">
+
+        <!-- Excel İçi Fiyat Çakışması -->
+        {% if analysis.price_conflicts %}
+        <div class="preview-card">
+            <h3>💰 Excel İçi Fiyat Çakışması ({{ analysis.price_conflicts|length }})</h3>
+            <p style="color:#666;">Aşağıdaki kodlar, bu Excel dosyasının farklı satırlarında farklı Birim Fiyat ile geçiyor. En son görülen değer kullanılacaktır — dosyayı kontrol etmenizi öneririz.</p>
+            <table style="width:100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="text-align:left; border-bottom:1px solid #ddd;">
+                        <th style="padding:6px;">Kod</th>
+                        <th style="padding:6px;">İsim</th>
+                        <th style="padding:6px;">Farklı Fiyatlar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pc in analysis.price_conflicts %}
+                    <tr style="border-bottom:1px solid #eee;">
+                        <td style="padding:6px;"><code>{{ pc.code }}</code></td>
+                        <td style="padding:6px;">{{ pc.name }}</td>
+                        <td style="padding:6px; color:#c0392b; font-weight:bold;">{{ pc.prices|join(' / ') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
 
         <!-- Çakışmalar / Uyarılar -->
         <!-- Eşleşmeyen Hammaddeler -->

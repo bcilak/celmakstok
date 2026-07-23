@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="mb-4">
+        <h2 class="mb-1"><i class="bi bi-pencil-square text-warning me-2"></i>İsim Standartlaştırma</h2>
+        <div class="text-muted">Parça kodu: <code>{{ preview.code }}</code></div>
+    </div>
+
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-1"></i>
+        Seçtiğiniz isim, bu kodun geçtiği <strong>tüm BOM düğümlerine</strong> uygulanır. Eğer bu koda ait
+        birden fazla ayrı kayıt varsa (eski veriden kalma), tek bir kayda birleştirilir.
+    </div>
+
+    {% if preview.multiple_products %}
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-octagon me-1"></i>
+        <strong>Dikkat:</strong> Bu isim varyantları farklı ürün kartlarına bağlı! Standartlaştırma sonrası
+        tüm düğümler, seçtiğiniz varyantın bağlı olduğu ürün kartını kullanacak. Devam etmeden önce kontrol edin.
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('production.standardize_confirm') }}"
+          onsubmit="return confirm('Seçili isim tüm BOM düğümlerine uygulanacak. Emin misiniz?');">
+        <input type="hidden" name="code" value="{{ preview.code }}">
+
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:60px">Kanonik</th>
+                            <th>İsim</th>
+                            <th>Bağlı Ürün</th>
+                            <th class="text-end">Kaç BOM'da</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for v in preview.variants %}
+                        <tr class="{{ 'table-success' if v.suggested_canonical else '' }}">
+                            <td>
+                                <input type="radio" name="canonical_name" value="{{ v.name }}"
+                                       class="form-check-input" {{ 'checked' if v.suggested_canonical else '' }}>
+                            </td>
+                            <td>{{ v.name }}</td>
+                            <td>{{ v.product_name or '-' }}</td>
+                            <td class="text-end">{{ v.bom_count }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2">
+            <a href="{{ url_for('reports.catalog_consistency') }}" class="btn btn-outline-secondary">Vazgeç</a>
+            <button type="submit" class="btn btn-warning">
+                <i class="bi bi-pencil-square me-1"></i>Seçili İsimle Standartlaştır
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

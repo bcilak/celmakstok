@@ -46,6 +46,25 @@
         </div>
     </div>
 
+    <!-- İsim/Kod Tutarsızlıkları -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body text-center py-5">
+                <div class="rounded-circle mx-auto mb-4 d-flex align-items-center justify-content-center"
+                    style="width: 64px; height: 64px; background: linear-gradient(135deg, #b45309 0%, #f59e0b 100%);">
+                    <i class="bi bi-exclamation-diamond text-white" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title">İsim / Kod Tutarsızlıkları</h5>
+                <p class="card-text text-muted mb-4">
+                    Aynı isimde farklı kod, aynı kodda farklı isim kullanımlarını bulur
+                </p>
+                <a href="{{ url_for('reports.catalog_consistency') }}" class="btn btn-warning w-100">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Raporu Görüntüle
+                </a>
+            </div>
+        </div>
+    </div>
+
     <!-- Stok Raporları -->
     <div class="col-lg-4 col-md-6">
         <div class="card border-0 shadow-sm h-100 hover-shadow">
