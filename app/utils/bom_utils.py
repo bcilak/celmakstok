@@ -2814,6 +2814,7 @@ def merge_products(canonical_id: int, all_ids: list[int], db) -> dict:
         Product, StockMovement, LocationStock, StockCurrent,
         CountItem, ProductionConsumption, ProductionRecord, BomItem
     )
+    from sqlalchemy import inspect as sa_inspect
 
     duplicate_ids = [pid for pid in all_ids if pid != canonical_id]
     if not duplicate_ids:
@@ -2827,6 +2828,15 @@ def merge_products(canonical_id: int, all_ids: list[int], db) -> dict:
     if not duplicates:
         return {'merged': 0, 'error': 'Birleştirilecek ürün bulunamadı.'}
 
+    # Bazı ortamlarda production_records.product_id kolonu şema kaymasından
+    # dolayı eksik olabilir (bkz. production.py: _production_records_support_product_id).
+    # Kolon yoksa bu adımı sessizce atla — yoksa PostgreSQL "UndefinedColumn" ile çöker.
+    try:
+        production_records_columns = {c['name'] for c in sa_inspect(db.engine).get_columns('production_records')}
+    except Exception:
+        production_records_columns = set()
+    production_records_support_product_id = 'product_id' in production_records_columns
+
     combined_stock = float(canonical.current_stock or 0)
 
     for dup in duplicates:
@@ -2838,8 +2848,9 @@ def merge_products(canonical_id: int, all_ids: list[int], db) -> dict:
             {'product_id': canonical.id}, synchronize_session=False)
         ProductionConsumption.query.filter_by(product_id=dup.id).update(
             {'product_id': canonical.id}, synchronize_session=False)
-        ProductionRecord.query.filter_by(product_id=dup.id).update(
-            {'product_id': canonical.id}, synchronize_session=False)
+        if production_records_support_product_id:
+            ProductionRecord.query.filter_by(product_id=dup.id).update(
+                {'product_id': canonical.id}, synchronize_session=False)
         BomItem.query.filter_by(product_id=dup.id).update(
             {'product_id': canonical.id}, synchronize_session=False)
 
