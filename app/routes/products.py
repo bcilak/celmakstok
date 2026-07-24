@@ -1185,3 +1185,45 @@ def merge_confirm():
             'success'
         )
     return redirect(url_for('reports.catalog_consistency'))
+
+
+@products_bp.route('/merge-bulk', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def merge_bulk():
+    """Rapor sayfasında işaretlenen tüm grupları, sistemin önerdiği kanonik
+    ürünle tek işlemde birleştirir. Birim tipi uyuşmayan gruplar önizleme
+    ekranında zaten işaretsiz gelir; formda gönderilmemişse burada da atlanır."""
+    from app.utils.bom_utils import merge_products
+
+    group_indices = request.form.getlist('group_selected', type=int)
+
+    if not group_indices:
+        flash('Birleştirilecek grup seçilmedi.', 'warning')
+        return redirect(url_for('reports.catalog_consistency'))
+
+    merged_groups = 0
+    merged_products = 0
+    skipped = []
+
+    for gi in group_indices:
+        ids = request.form.getlist(f'group_{gi}_ids', type=int)
+        canonical_id = request.form.get(f'group_{gi}_canonical', type=int)
+
+        if not canonical_id or not ids or canonical_id not in ids:
+            skipped.append(gi)
+            continue
+
+        result = merge_products(canonical_id, ids, db)
+        if result.get('error'):
+            skipped.append(gi)
+        else:
+            merged_groups += 1
+            merged_products += result['merged']
+
+    flash(
+        f'{merged_groups} grup birleştirildi ({merged_products} ürün pasifleştirildi).'
+        + (f' {len(skipped)} grup atlandı (geçersiz veri).' if skipped else ''),
+        'success' if merged_groups else 'warning'
+    )
+    return redirect(url_for('reports.catalog_consistency'))

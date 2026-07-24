@@ -2693,6 +2693,7 @@ def analyze_catalog_inconsistencies(db) -> dict:
             'name': plist[0].name,
             'variant_count': len(variants),
             'total_stock': round(sum(v['current_stock'] for v in variants), 2),
+            'unit_mismatch': len({p.unit_type for p in plist}) > 1,
             'variants': variants,
         })
 

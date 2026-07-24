@@ -36,11 +36,23 @@
                 <i class="bi bi-diagram-2 text-danger me-1"></i><strong>Aynı isim, farklı kodlar</strong>
                 <span class="text-muted small ms-2">Ürün kodu benzersiz olduğundan bu genellikle yinelenen kartlar demektir.</span>
             </div>
+            {% if analysis.same_name_diff_code %}
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllGroups(true)">Tümünü Seç</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllGroups(false)">Hiçbirini Seçme</button>
+                <button type="submit" form="bulk-merge-form" class="btn btn-sm btn-danger">
+                    <i class="bi bi-arrow-down-up"></i> Seçilenleri Toplu Birleştir
+                </button>
+            </div>
+            {% endif %}
         </div>
+        <form id="bulk-merge-form" method="POST" action="{{ url_for('products.merge_bulk') }}"
+              onsubmit="return confirm('İşaretli gruplar, sistemin önerdiği kanonik ürünlerle birleştirilecek. Emin misiniz?');">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr>
+                        <th style="width:40px"></th>
                         <th>Ürün Adı</th>
                         <th>Kod</th>
                         <th>Tip</th>
@@ -53,12 +65,22 @@
                 </thead>
                 <tbody>
                     {% for group in analysis.same_name_diff_code %}
+                    {% set gi = loop.index0 %}
                     {% for v in group.variants %}
+                    <input type="hidden" name="group_{{ gi }}_ids" value="{{ v.id }}">
+                    {% if v.suggested_canonical %}<input type="hidden" name="group_{{ gi }}_canonical" value="{{ v.id }}">{% endif %}
                     <tr class="{{ 'table-success' if v.suggested_canonical else '' }}">
                         {% if loop.first %}
+                        <td rowspan="{{ group.variant_count }}" class="align-middle">
+                            <input type="checkbox" class="form-check-input group-checkbox" name="group_selected"
+                                   value="{{ gi }}" {{ 'checked' if not group.unit_mismatch else '' }}>
+                        </td>
                         <td rowspan="{{ group.variant_count }}" class="align-middle fw-semibold border-end">
                             {{ group.name }}
                             <div class="small text-muted">{{ group.variant_count }} varyant</div>
+                            {% if group.unit_mismatch %}
+                            <span class="badge bg-danger">Birim tipi uyuşmuyor — elle kontrol edin</span>
+                            {% endif %}
                         </td>
                         {% endif %}
                         <td><code>{{ v.code }}</code></td>
@@ -71,14 +93,14 @@
                         <td rowspan="{{ group.variant_count }}" class="align-middle border-start">
                             <a href="{{ url_for('products.merge_preview', ids=group.variants|map(attribute='id')|join(',')) }}"
                                class="btn btn-sm btn-outline-danger">
-                                <i class="bi bi-arrow-down-up"></i> Birleştir
+                                <i class="bi bi-arrow-down-up"></i> Tek Tek İncele
                             </a>
                         </td>
                         {% endif %}
                     </tr>
                     {% endfor %}
                     {% else %}
-                    <tr><td colspan="8" class="text-center text-muted py-5">
+                    <tr><td colspan="9" class="text-center text-muted py-5">
                         <i class="bi bi-check-circle fs-1 text-success d-block mb-2"></i>
                         Aynı isimde farklı kod tutarsızlığı bulunamadı.
                     </td></tr>
@@ -86,7 +108,14 @@
                 </tbody>
             </table>
         </div>
+        </form>
     </div>
+
+    <script>
+    function toggleAllGroups(checked) {
+        document.querySelectorAll('.group-checkbox').forEach(function (cb) { cb.checked = checked; });
+    }
+    </script>
 
     <!-- ================= AYNI KOD, FARKLI İSİM ================= -->
     <div class="card border-0 shadow-sm mb-4">
