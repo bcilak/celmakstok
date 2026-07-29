@@ -207,6 +207,23 @@ def edit(id):
     product = Product.query.get_or_404(id)
     
     if request.method == 'POST':
+        new_code = sanitize_part_code(request.form.get('code'))
+        if not new_code:
+            flash('Ürün kodu boş olamaz.', 'error')
+            return redirect(url_for('products.edit', id=product.id))
+
+        if new_code != product.code:
+            existing = Product.query.filter(Product.code == new_code, Product.id != product.id).first()
+            if existing:
+                flash(f'"{new_code}" kodu zaten "{existing.name}" ürününde kullanılıyor.', 'error')
+                return redirect(url_for('products.edit', id=product.id))
+
+            old_code = product.code
+            product.code = new_code
+            # Bu koda bağlı BOM satırlarının kodunu da güncelle, tutarlılık bozulmasın.
+            from app.models import BomItem
+            BomItem.query.filter_by(code=old_code).update({'code': new_code}, synchronize_session=False)
+
         product.name = request.form.get('name')
         product.category_id = request.form.get('category_id', type=int)
         product.unit_type = request.form.get('unit_type', 'adet')
@@ -215,7 +232,7 @@ def edit(id):
         product.barcode = request.form.get('barcode', '')
         product.notes = request.form.get('notes', '')
         product.material = request.form.get('material') or None
-        
+
         # Resim upload işlemi
         if 'image' in request.files:
             file = request.files['image']

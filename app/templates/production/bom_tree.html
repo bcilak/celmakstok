@@ -647,13 +647,11 @@
 
         row.appendChild(toggleEl);
 
-        // Ürün adına link ekleme
+        // Ürün adı: satıra tıklanınca sağda detay paneli açılsın (row.onclick).
+        // Stok kartına gitmek isteyenler için link, sağdaki detay panelindeki
+        // "Stok Kaydı" bağlantısından (det-product-link) hâlâ mevcut.
         let nameHtml = `<span class="bt-num">${node.num}</span>`;
-        if (node.product_id) {
-            nameHtml += `<a href="/products/${node.product_id}" class="bt-name bt-name-link" onclick="event.stopPropagation();" target="_blank">${node.name}</a>`;
-        } else {
-            nameHtml += `<span class="bt-name">${node.name}</span>`;
-        }
+        nameHtml += `<span class="bt-name">${node.name}</span>`;
 
         // Malzeme/Ölçü bilgisi (sadece hammadde için)
         let materialBadge = '';
