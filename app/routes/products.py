@@ -215,14 +215,19 @@ def edit(id):
         if new_code != product.code:
             existing = Product.query.filter(Product.code == new_code, Product.id != product.id).first()
             if existing:
-                flash(f'"{new_code}" kodu zaten "{existing.name}" ürününde kullanılıyor.', 'error')
-                return redirect(url_for('products.edit', id=product.id))
+                flash(
+                    f'"{new_code}" kodu zaten "{existing.name}" ({existing.code}) ürününde kullanılıyor. '
+                    f'Bu muhtemelen aynı parçanın yinelenen kaydı — birleştirme ekranında inceleyebilirsiniz.',
+                    'error'
+                )
+                return redirect(url_for('products.merge_preview', ids=f'{product.id},{existing.id}'))
 
-            old_code = product.code
             product.code = new_code
-            # Bu koda bağlı BOM satırlarının kodunu da güncelle, tutarlılık bozulmasın.
+            # Bu ürüne BAĞLI BOM satırlarının kodunu da güncelle (product_id üzerinden —
+            # eski kod metniyle eşleştirmek, kod zaten üründen sapmışsa hiçbir şeyi
+            # güncellemeden sessizce başarısız olur).
             from app.models import BomItem
-            BomItem.query.filter_by(code=old_code).update({'code': new_code}, synchronize_session=False)
+            BomItem.query.filter_by(product_id=product.id).update({'code': new_code}, synchronize_session=False)
 
         product.name = request.form.get('name')
         product.category_id = request.form.get('category_id', type=int)
