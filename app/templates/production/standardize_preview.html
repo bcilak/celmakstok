@@ -16,13 +16,14 @@
     {% if preview.multiple_products %}
     <div class="alert alert-danger">
         <i class="bi bi-exclamation-octagon me-1"></i>
-        <strong>Dikkat:</strong> Bu isim varyantları farklı ürün kartlarına bağlı! Standartlaştırma sonrası
-        tüm düğümler, seçtiğiniz varyantın bağlı olduğu ürün kartını kullanacak. Devam etmeden önce kontrol edin.
+        <strong>Dikkat:</strong> Bu isim varyantları farklı ürün kartlarına bağlı! Aşağıda hangi ürünlerin
+        birleşeceğini görebilirsiniz — onaylarsanız bu ürünler de (başka BOM ağaçlarında kullanılsalar bile)
+        tek üründe birleştirilir.
     </div>
     {% endif %}
 
     <form method="POST" action="{{ url_for('production.standardize_confirm') }}"
-          onsubmit="return confirm('Seçili isim tüm BOM düğümlerine uygulanacak. Emin misiniz?');">
+          onsubmit="return confirm('Seçili isim tüm BOM düğümlerine uygulanacak{{ ' ve ürünler birleştirilecek' if preview.multiple_products else '' }}. Emin misiniz?');">
         <input type="hidden" name="code" value="{{ preview.code }}">
 
         <div class="card border-0 shadow-sm mb-4">
@@ -52,6 +53,56 @@
                 </table>
             </div>
         </div>
+
+        {% if preview.multiple_products and preview.product_merge_preview %}
+        {% set mp = preview.product_merge_preview %}
+        <div class="card border-0 shadow-sm mb-4 border-start border-danger border-4">
+            <div class="card-header bg-white">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="merge_products" id="merge_products_cb" checked>
+                    <label class="form-check-label fw-semibold" for="merge_products_cb">
+                        Bu ürünleri de birleştir
+                    </label>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:60px">Kanonik</th>
+                            <th>Kod</th>
+                            <th>Ad</th>
+                            <th>Durum</th>
+                            <th class="text-end">Stok</th>
+                            <th class="text-end">Hareket Sayısı</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for v in mp.variants %}
+                        <tr class="{{ 'table-success' if v.suggested_canonical else '' }}">
+                            <td>
+                                <input type="radio" name="canonical_product_id" value="{{ v.id }}"
+                                       class="form-check-input" {{ 'checked' if v.suggested_canonical else '' }}>
+                            </td>
+                            <td><code>{{ v.code }}</code></td>
+                            <td>{{ v.name }}</td>
+                            <td>{% if not v.is_active %}<span class="badge bg-secondary">Pasif</span>{% else %}<span class="badge bg-success">Aktif</span>{% endif %}</td>
+                            <td class="text-end">{{ v.current_stock }}</td>
+                            <td class="text-end">{{ v.movement_count }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="table-light fw-bold">
+                            <td colspan="4">Birleştirme sonrası toplam stok</td>
+                            <td class="text-end">{{ mp.combined_stock }}</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        {% endif %}
 
         <div class="d-flex justify-content-end gap-2">
             <a href="{{ url_for('reports.catalog_consistency') }}" class="btn btn-outline-secondary">Vazgeç</a>

@@ -1315,22 +1315,77 @@ def standardize_preview():
 @login_required
 @roles_required('Yönetici')
 def standardize_confirm():
-    """Seçilen kanonik ismi, kodun geçtiği tüm BOM düğümlerine uygular."""
+    """Seçilen kanonik ismi, kodun geçtiği tüm BOM düğümlerine uygular.
+    Grup birden fazla farklı ürüne dağılmışsa ve kullanıcı onayladıysa,
+    o ürünleri de tek üründe birleştirir (başka BOM ağaçlarında kullanılsalar
+    bile — birleştirme product_id ilişkisi üzerinden çalışır)."""
     code = request.form.get('code', '')
     canonical_name = request.form.get('canonical_name', '').strip()
+    merge_products_too = request.form.get('merge_products') == 'on'
+    canonical_product_id = request.form.get('canonical_product_id', type=int)
 
     if not code or not canonical_name:
         flash('Kod veya kanonik isim eksik.', 'error')
         return redirect(url_for('reports.catalog_consistency'))
 
-    result = standardize_bom_item_name(code, canonical_name, db)
+    result = standardize_bom_item_name(
+        code, canonical_name, db,
+        merge_products_too=merge_products_too,
+        canonical_product_id=canonical_product_id,
+    )
     if result.get('error'):
         flash(result['error'], 'error')
     else:
-        flash(
+        message = (
             f'"{canonical_name}" ismi {result["updated_nodes"]} BOM düğümüne uygulandı'
             + (f', {result["merged_items"]} yinelenen kayıt birleştirildi' if result['merged_items'] else '')
-            + (', bağlı ürün kartının ismi de güncellendi.' if result['product_renamed'] else '.'),
-            'success'
+            + (', bağlı ürün kartının ismi de güncellendi' if result['product_renamed'] else '')
         )
+        mp = result.get('merged_products')
+        if mp and not mp.get('error'):
+            message += f'. Ayrıca {mp["merged"]} ürün, {mp["canonical_code"]} koduna birleştirildi (başka BOM ağaçlarında da geçerli).'
+        else:
+            message += '.'
+        flash(message, 'success')
+    return redirect(url_for('reports.catalog_consistency'))
+
+
+@production_bp.route('/standardize-bulk', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def standardize_bulk():
+    """Rapor sayfasında işaretlenen 'basit' (tek ürüne bağlı) kodları, sistemin
+    önerdiği kanonik isimle tek işlemde standartlaştırır. Riskli (birden fazla
+    farklı ürüne dağılmış) gruplar önizleme ekranında zaten işaretsiz gelir;
+    formda gönderilmemişse burada da atlanır — ürün birleştirmesi gerektiren
+    gruplar için ürün birleştirme yapılmaz, sadece tek-ürünlü basit gruplar
+    işlenir."""
+    group_indices = request.form.getlist('group_selected', type=int)
+
+    if not group_indices:
+        flash('Standartlaştırılacak kod seçilmedi.', 'warning')
+        return redirect(url_for('reports.catalog_consistency'))
+
+    standardized = 0
+    skipped = []
+
+    for gi in group_indices:
+        code = request.form.get(f'std_{gi}_code', '')
+        canonical_name = request.form.get(f'std_{gi}_name', '').strip()
+
+        if not code or not canonical_name:
+            skipped.append(gi)
+            continue
+
+        result = standardize_bom_item_name(code, canonical_name, db, merge_products_too=False)
+        if result.get('error'):
+            skipped.append(gi)
+        else:
+            standardized += 1
+
+    flash(
+        f'{standardized} kod standartlaştırıldı.'
+        + (f' {len(skipped)} kod atlandı (geçersiz veri).' if skipped else ''),
+        'success' if standardized else 'warning'
+    )
     return redirect(url_for('reports.catalog_consistency'))

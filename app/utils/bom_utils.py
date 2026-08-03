@@ -2779,10 +2779,19 @@ def analyze_catalog_inconsistencies(db) -> dict:
         for i, v in enumerate(variants):
             v['suggested_canonical'] = (i == 0)
 
+        # Risk seviyesi: bu grup birden fazla FARKLI ürün kartına dağılmışsa
+        # (sadece görünen isim değil, arkadaki stok kartı da farklıysa),
+        # tek başına isim standartlaştırma yetersizdir — ürünlerin de
+        # birleştirilmesi gerekir. Tek ürüne bağlıysa (isim varyasyonu
+        # sadece görüntüde) toplu/otomatik standartlaştırma güvenlidir.
+        distinct_product_ids = {v['product_id'] for v in variants if v['product_id']}
+
         same_code_diff_name.append({
             'code': code,
             'variant_count': len(variants),
             'total_bom_usage': sum(v['bom_count'] for v in variants),
+            'distinct_product_count': len(distinct_product_ids),
+            'risky': len(distinct_product_ids) > 1,
             'variants': variants,
         })
 
@@ -2824,6 +2833,7 @@ def preview_product_merge(product_ids: list[int], db) -> dict:
             'category_name': p.category.name if p.category else None,
             'movement_count': StockMovement.query.filter_by(product_id=p.id).count(),
             'created_at': p.created_at.strftime('%Y-%m-%d') if p.created_at else None,
+            'is_active': p.is_active,
         })
 
     variants.sort(key=lambda v: (-v['movement_count'], v['created_at'] or ''))
@@ -2923,6 +2933,10 @@ def merge_products(canonical_id: int, all_ids: list[int], db) -> dict:
         dup.notes = f'{dup.notes} | {merge_note}'.strip(' |') if dup.notes else merge_note
 
     canonical.current_stock = combined_stock
+    # Kanonik ürün pasif seçilmiş olabilir (ör. gerçek üretimde kullanılan ürün
+    # yanlışlıkla pasifleşmişti) — birleştirme sonrası her zaman aktif olmalı,
+    # aksi halde "kalıcı" seçilen kayıt hâlâ yok sayılmaya devam eder.
+    canonical.is_active = True
     db.session.commit()
 
     return {
@@ -2972,19 +2986,36 @@ def preview_standardize_name(code: str, db) -> dict:
 
     distinct_products = {v['product_id'] for v in variants if v['product_id']}
 
-    return {
+    result = {
         'code': code,
         'variants': variants,
         'multiple_products': len(distinct_products) > 1,
     }
 
+    if len(distinct_products) > 1:
+        # Bu grup birden fazla farklı ürüne dağılmış (sizin "205-00010-000-KP"
+        # örneğiniz gibi) — isim standartlaştırması tek başına yetmez, ürünlerin
+        # de birleştirilmesi gerekir. Önizlemede hangi ürünlerin birleşeceğini
+        # gösterelim (preview_product_merge zaten stok/hareket/kod detaylarını
+        # ve önerilen kanonik ürünü hesaplıyor).
+        result['product_merge_preview'] = preview_product_merge(list(distinct_products), db)
 
-def standardize_bom_item_name(code: str, canonical_name: str, db) -> dict:
+    return result
+
+
+def standardize_bom_item_name(code: str, canonical_name: str, db, merge_products_too: bool = False,
+                               canonical_product_id: int = None) -> dict:
     """Bir parça kodunun tüm BOM düğümlerindeki/BomItem kayıtlarındaki ismini
     tek bir kanonik isme standartlaştırır. Aynı koda ait birden fazla BomItem
     satırı varsa (eski veriden kalma, kod-bazlı eşleştirmeden önceki dönemden),
-    tek bir satırda birleştirilir; diğerleri silinir (Product kartlarına
-    dokunulmaz, sadece bağlantı survivor'a taşınır)."""
+    tek bir satırda birleştirilir; diğerleri silinir.
+
+    `merge_products_too=True` ve bu grup birden fazla FARKLI ürüne dağılmışsa
+    (ör. aynı kod, 3 ayrı stok kartı), o ürünler de merge_products() ile
+    birleştirilir — bu, product_id ilişkisi üzerinden çalıştığı için o ürünlerin
+    kullanıldığı BAŞKA BOM ağaçları da (bu koddan bağımsız olarak) otomatik
+    düzelir.
+    """
     from app.models import BomItem, BomNode, Product
 
     items = BomItem.query.filter_by(code=code).all()
@@ -2994,6 +3025,10 @@ def standardize_bom_item_name(code: str, canonical_name: str, db) -> dict:
     canonical_name = canonical_name.strip()
     if not canonical_name:
         return {'updated_nodes': 0, 'error': 'Kanonik isim boş olamaz.'}
+
+    # Ürün birleştirmesi için, itemlar silinmeden ÖNCE gruptaki tüm farklı
+    # ürünleri toplamamız lazım.
+    distinct_product_ids = list({it.product_id for it in items if it.product_id})
 
     survivor = None
     for it in items:
@@ -3016,6 +3051,15 @@ def standardize_bom_item_name(code: str, canonical_name: str, db) -> dict:
     updated_nodes = BomNode.query.filter_by(item_id=survivor.id).update(
         {'display_name': canonical_name}, synchronize_session=False)
 
+    merged_products_result = None
+    if merge_products_too and len(distinct_product_ids) > 1:
+        chosen_canonical = canonical_product_id or survivor.product_id or distinct_product_ids[0]
+        if chosen_canonical not in distinct_product_ids:
+            distinct_product_ids.append(chosen_canonical)
+        merged_products_result = merge_products(chosen_canonical, distinct_product_ids, db)
+        if not merged_products_result.get('error'):
+            survivor.product_id = chosen_canonical
+
     product_renamed = False
     if survivor.product_id:
         product = Product.query.get(survivor.product_id)
@@ -3029,4 +3073,5 @@ def standardize_bom_item_name(code: str, canonical_name: str, db) -> dict:
         'updated_nodes': updated_nodes,
         'merged_items': merged_items,
         'product_renamed': product_renamed,
+        'merged_products': merged_products_result,
     }
