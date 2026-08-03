@@ -2241,7 +2241,13 @@ def get_bom_tree(bom_id: int, db) -> dict:
         return {
             'id': n.id, 'num': n.num, 'level': n.level,
             'name': n.display_name,
-            'code': item.code if item else None,
+            # ÖNEMLİ: item.code, birleştirme/standartlaştırma sonrası bağlı Product'ın
+            # gerçek kodundan sapmış olabilir (ürünün kendi kodu değişmez, sadece
+            # bağlantı taşınır). "Stok Kaydı" linki ve üretim akışı hep Product'a
+            # gittiğinden, burada gösterilen kod da ONUNLA aynı olmalı — aksi halde
+            # ağaçta bir kod görünüp tıklayınca başka bir kod açılıyor gibi kafa
+            # karıştırıcı bir tutarsızlık oluşuyordu.
+            'code': (product.code if product else None) or (item.code if item else None),
             'quantity':   q_fireli,
             'quantity_net': q_firesiz,
             'piece_count': float(n.piece_count) if getattr(n, 'piece_count', None) else 1,
