@@ -1063,7 +1063,7 @@ def bom_produce(bom_id, node_id):
                 'child_node': child,
                 'product': c_product,
                 'req_qty_per_unit': item['quantity'],
-                'stock': c_product.current_stock if c_product else 0
+                'stock': (c_product.current_stock or 0) if c_product else 0
             })
         return render_template('production/bom_produce.html',
                                bom_node=bom_node,
@@ -1089,8 +1089,9 @@ def bom_produce(bom_id, node_id):
         child = item['node']
         c_product = item['product']
         total_req = float(item['quantity'])
-        if c_product.current_stock < total_req:
-            insufficient.append(f"{c_product.name} (Gereken: {total_req:.2f}, Mevcut: {c_product.current_stock})")
+        c_stock = float(c_product.current_stock or 0)
+        if c_stock < total_req:
+            insufficient.append(f"{c_product.name} (Gereken: {total_req:.2f}, Mevcut: {c_stock})")
         else:
             required_consumptions.append((c_product, total_req, child))
 
@@ -1129,7 +1130,7 @@ def bom_produce(bom_id, node_id):
     # 3. Stoğu Düş ve Tüketim Kaydı oluştur (Kullanılan Alt Bileşenler İçin)
     for c_product, total_req, child_node in required_consumptions:
         # Stoğu düş
-        c_product.current_stock -= total_req
+        c_product.current_stock = float(c_product.current_stock or 0) - total_req
         
         # Tüketim detayı (Üretim emri ile ilişkilendirme)
         if production:
@@ -1153,7 +1154,7 @@ def bom_produce(bom_id, node_id):
         db.session.add(movement_out)
 
     # 4. Stoğu Artır (Üretilen Yarı Mamul/Mamul İçin)
-    target_product.current_stock += quantity
+    target_product.current_stock = float(target_product.current_stock or 0) + quantity
     movement_in = StockMovement(
         product_id=target_product.id,
         movement_type='giris',
@@ -1216,8 +1217,9 @@ def work_order():
     for item in explosion['materials']:
         p = item['product']
         req = float(item['quantity'])
-        if p.current_stock < req:
-            insufficient.append(f"{p.name} (Eksik: {req - p.current_stock:.2f})")
+        p_stock = float(p.current_stock or 0)
+        if p_stock < req:
+            insufficient.append(f"{p.name} (Eksik: {req - p_stock:.2f})")
         else:
             consume_list.append((p, req))
 
@@ -1241,7 +1243,7 @@ def work_order():
 
     # 1. Deduct Materials
     for p, req in consume_list:
-        p.current_stock -= float(req)
+        p.current_stock = float(p.current_stock or 0) - float(req)
         movement = StockMovement(
             product_id=p.id,
             movement_type='cikis',
@@ -1254,7 +1256,7 @@ def work_order():
         db.session.add(movement)
         
     # 2. Add Target Product
-    target_product.current_stock += quantity
+    target_product.current_stock = float(target_product.current_stock or 0) + quantity
     mov_in = StockMovement(
         product_id=target_product.id,
         movement_type='giris',
