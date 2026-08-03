@@ -22,6 +22,9 @@ from app.utils.bom_utils import (
     explode_bom_materials,
     preview_standardize_name,
     standardize_bom_item_name,
+    add_bom_node,
+    delete_bom_node,
+    move_bom_node,
 )
 import pickle
 import os
@@ -1389,3 +1392,43 @@ def standardize_bulk():
         'success' if standardized else 'warning'
     )
     return redirect(url_for('reports.catalog_consistency'))
+
+
+# ==================== BOM DÜZENLEME (parça ekle / çıkar / taşı) ====================
+
+@production_bp.route('/bom/<int:bom_id>/node/<int:parent_node_id>/add', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def bom_node_add(bom_id, parent_node_id):
+    """Seçili düğümün altına yeni bir parça ekler."""
+    data = request.json or {}
+    result = add_bom_node(bom_id, parent_node_id, data, db)
+    if result.get('error'):
+        return jsonify({'success': False, 'error': result['error']})
+    return jsonify({'success': True, 'node_id': result['node_id'], 'num': result['num']})
+
+
+@production_bp.route('/bom/<int:bom_id>/node/<int:node_id>/delete-node', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def bom_node_delete(bom_id, node_id):
+    """Tek bir BOM düğümünü (ve varsa alt ağacını) siler."""
+    result = delete_bom_node(bom_id, node_id, db)
+    if result.get('error'):
+        return jsonify({'success': False, 'error': result['error']})
+    return jsonify({'success': True, 'deleted_count': result['deleted_count']})
+
+
+@production_bp.route('/bom/<int:bom_id>/node/<int:node_id>/move', methods=['POST'])
+@login_required
+@roles_required('Yönetici')
+def bom_node_move(bom_id, node_id):
+    """Bir düğümü başka bir üst düğümün altına taşır."""
+    data = request.json or {}
+    new_parent_node_id = data.get('new_parent_node_id')
+    if not new_parent_node_id:
+        return jsonify({'success': False, 'error': 'Hedef üst düğüm belirtilmedi.'})
+    result = move_bom_node(bom_id, node_id, int(new_parent_node_id), db)
+    if result.get('error'):
+        return jsonify({'success': False, 'error': result['error']})
+    return jsonify({'success': True, 'new_num': result['new_num']})

@@ -3075,3 +3075,191 @@ def standardize_bom_item_name(code: str, canonical_name: str, db, merge_products
         'product_renamed': product_renamed,
         'merged_products': merged_products_result,
     }
+
+
+# ---------------------------------------------------------------------------
+# BOM Düzenleme — İçe Aktarma Sonrası Parça Ekleme / Çıkarma / Taşıma
+# ---------------------------------------------------------------------------
+
+def _next_child_num(bom_id: int, parent_node) -> str:
+    """parent_node'un (None ise kök) altına eklenecek yeni bir çocuğun
+    numarasını hesaplar (ör. parent '1.' ise ilk boş çocuk '1.3.' gibi)."""
+    from app.models import BomNode
+
+    if parent_node is None or parent_node.num == '0.':
+        prefix = ''
+        target_level = 1
+    else:
+        prefix = parent_node.num
+        target_level = parent_node.level + 1
+
+    siblings = BomNode.query.filter_by(bom_id=bom_id, level=target_level).all()
+    max_suffix = 0
+    for n in siblings:
+        if prefix and not n.num.startswith(prefix):
+            continue
+        rest = n.num[len(prefix):].rstrip('.')
+        if rest and '.' not in rest:
+            try:
+                max_suffix = max(max_suffix, int(rest))
+            except ValueError:
+                pass
+    return f'{prefix}{max_suffix + 1}.'
+
+
+def add_bom_node(bom_id: int, parent_node_id: int, data: dict, db) -> dict:
+    """BOM ağacına, seçili düğümün altına yeni bir parça (düğüm) ekler.
+    data: name, code, material, quantity, unit_type, item_type, weight_per_unit."""
+    from app.models import BomNode, BomEdge, BomItem, Product
+
+    parent_node = BomNode.query.filter_by(id=parent_node_id, bom_id=bom_id).first()
+    if not parent_node:
+        return {'error': 'Üst düğüm bulunamadı.'}
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return {'error': 'Parça adı boş olamaz.'}
+
+    excel_code = sanitize_part_code(data.get('code')) or ''
+    item_type = data.get('item_type') or 'hammadde'
+    unit_type = data.get('unit_type') or 'adet'
+    try:
+        quantity = float(data.get('quantity') or 1)
+    except (TypeError, ValueError):
+        quantity = 1.0
+    material = data.get('material') or None
+    try:
+        weight_per_unit = float(data.get('weight_per_unit') or 0) or None
+    except (TypeError, ValueError):
+        weight_per_unit = None
+
+    product = _find_product_by_code_or_name(name, excel_code)
+    if not product:
+        base_code = _make_product_code(name, excel_code)
+        code = _unique_product_code(base_code)
+        product = Product(code=code, name=name, unit_type=unit_type, type=item_type, material=material)
+        db.session.add(product)
+        db.session.flush()
+
+    item = _find_bom_item_by_code_or_name(name, excel_code)
+    if not item:
+        item = BomItem(code=excel_code or None, name=name, unit_type=unit_type, type=item_type, product_id=product.id)
+        db.session.add(item)
+        db.session.flush()
+        if not item.code:
+            item.code = generate_missing_part_code(item.id)
+
+    num = _next_child_num(bom_id, parent_node)
+    level = 1 if parent_node.num == '0.' else parent_node.level + 1
+
+    node = BomNode(
+        bom_id=bom_id, num=num, level=level, item_id=item.id, display_name=name,
+        quantity=Decimal(str(quantity)), quantity_net=Decimal(str(quantity)),
+        unit_type=unit_type, piece_count=Decimal('1'),
+        weight_per_unit=Decimal(str(weight_per_unit)) if weight_per_unit else None,
+    )
+    db.session.add(node)
+    db.session.flush()
+
+    edge = BomEdge(bom_id=bom_id, parent_node_id=parent_node.id, child_node_id=node.id, quantity=Decimal(str(quantity)))
+    db.session.add(edge)
+    db.session.commit()
+
+    return {'node_id': node.id, 'num': num}
+
+
+def _descendant_ids(bom_id: int, node_id: int) -> set[int]:
+    """node_id'nin tüm alt ağacındaki düğüm id'lerini (node_id hariç) döndürür."""
+    from app.models import BomEdge
+
+    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
+    children_of: dict = {}
+    for e in edges:
+        children_of.setdefault(e.parent_node_id, []).append(e.child_node_id)
+
+    descendants = set()
+    queue = [node_id]
+    while queue:
+        cur = queue.pop()
+        for child_id in children_of.get(cur, []):
+            if child_id not in descendants:
+                descendants.add(child_id)
+                queue.append(child_id)
+    return descendants
+
+
+def delete_bom_node(bom_id: int, node_id: int, db) -> dict:
+    """Bir BOM düğümünü (ve varsa tüm alt ağacını) siler. Kök düğüm (mamul,
+    level=0) bu şekilde silinemez — tüm BOM'u silmek için ayrı bir akış var."""
+    from app.models import BomNode, BomEdge
+
+    node = BomNode.query.filter_by(id=node_id, bom_id=bom_id).first()
+    if not node:
+        return {'error': 'Düğüm bulunamadı.'}
+    if node.level == 0:
+        return {'error': "Kök düğüm (mamul) bu şekilde silinemez — tüm BOM'u silmek için BOM Sil'i kullanın."}
+
+    to_delete = {node_id} | _descendant_ids(bom_id, node_id)
+
+    BomEdge.query.filter(
+        BomEdge.bom_id == bom_id,
+        (BomEdge.parent_node_id.in_(to_delete)) | (BomEdge.child_node_id.in_(to_delete))
+    ).delete(synchronize_session=False)
+    BomNode.query.filter(BomNode.id.in_(to_delete)).delete(synchronize_session=False)
+    db.session.commit()
+
+    return {'deleted_count': len(to_delete)}
+
+
+def _renumber_subtree(bom_id: int, node, new_parent_num: str, new_level: int, db):
+    """node'u (ve tüm alt ağacını) yeni konumuna göre yeniden numaralandırır."""
+    from app.models import BomNode, BomEdge
+
+    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
+    children_of: dict = {}
+    for e in edges:
+        children_of.setdefault(e.parent_node_id, []).append(e.child_node_id)
+
+    def recurse(n, num, level):
+        n.num = num
+        n.level = level
+        child_ids = children_of.get(n.id, [])
+        if not child_ids:
+            return
+        child_nodes = BomNode.query.filter(BomNode.id.in_(child_ids)).all()
+        child_nodes.sort(key=lambda x: x.num)
+        for i, child in enumerate(child_nodes, start=1):
+            recurse(child, f'{num}{i}.', level + 1)
+
+    recurse(node, new_parent_num, new_level)
+
+
+def move_bom_node(bom_id: int, node_id: int, new_parent_node_id: int, db) -> dict:
+    """Bir düğümü (ve alt ağacını) başka bir üst düğümün altına taşır,
+    numaralandırmayı yeni konumuna göre yeniden hesaplar."""
+    from app.models import BomNode, BomEdge
+
+    node = BomNode.query.filter_by(id=node_id, bom_id=bom_id).first()
+    new_parent = BomNode.query.filter_by(id=new_parent_node_id, bom_id=bom_id).first()
+    if not node or not new_parent:
+        return {'error': 'Düğüm veya hedef üst düğüm bulunamadı.'}
+    if node.level == 0:
+        return {'error': 'Kök düğüm (mamul) taşınamaz.'}
+
+    descendants = _descendant_ids(bom_id, node_id)
+    if new_parent_node_id == node_id or new_parent_node_id in descendants:
+        return {'error': 'Bir düğüm kendi alt ağacının altına taşınamaz.'}
+
+    old_edge = BomEdge.query.filter_by(bom_id=bom_id, child_node_id=node_id).first()
+    if old_edge:
+        old_edge.parent_node_id = new_parent.id
+    else:
+        db.session.add(BomEdge(bom_id=bom_id, parent_node_id=new_parent.id, child_node_id=node.id, quantity=node.quantity))
+    db.session.flush()
+
+    new_num = _next_child_num(bom_id, new_parent)
+    new_level = 1 if new_parent.num == '0.' else new_parent.level + 1
+    _renumber_subtree(bom_id, node, new_num, new_level, db)
+
+    db.session.commit()
+    return {'moved': True, 'new_num': new_num}

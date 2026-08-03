@@ -397,6 +397,15 @@
                         <span id="det-code-info" class="text-muted small font-monospace"></span>
                         <span id="det-cost-info" class="badge bg-success" style="display:none;"></span>
                         <div class="ms-auto d-flex gap-2">
+                            <button id="det-add-child-btn" type="button" class="btn btn-sm btn-outline-primary" onclick="openAddNodeModal()">
+                                <i class="bi bi-plus-lg me-1"></i>Alt Parça Ekle
+                            </button>
+                            <button id="det-move-btn" type="button" class="btn btn-sm btn-outline-warning" onclick="openMoveNodeModal()">
+                                <i class="bi bi-arrows-move me-1"></i>Taşı
+                            </button>
+                            <button id="det-delete-btn" type="button" class="btn btn-sm btn-outline-danger" onclick="deleteSelectedNode()">
+                                <i class="bi bi-trash me-1"></i>Bu Parçayı Sil
+                            </button>
                             <button id="det-price-edit-btn" type="button" class="btn btn-sm btn-outline-success">
                                 <i class="bi bi-cash-coin me-1"></i>Fiyatları Güncelle
                             </button>
@@ -516,6 +525,94 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
                 <button type="button" class="btn btn-primary" onclick="saveNodeEdit()">Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alt Parça Ekle Modal -->
+<div class="modal fade" id="addNodeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Alt Parça Ekle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    <strong id="add-node-parent-label"></strong> düğümünün altına eklenecek.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Parça Adı *</label>
+                    <input type="text" class="form-control" id="add-node-name">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Parça Kodu (opsiyonel)</label>
+                    <input type="text" class="form-control" id="add-node-code">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Malzeme Cinsi</label>
+                    <input type="text" class="form-control" id="add-node-material">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Tip</label>
+                    <select class="form-select" id="add-node-type">
+                        <option value="hammadde">Hammadde</option>
+                        <option value="yarimamul">Yarı Mamül</option>
+                        <option value="standart_parca">Standart Parça</option>
+                        <option value="hazir_parca">Hazır Parça (Dış Alım)</option>
+                    </select>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Miktar</label>
+                        <input type="number" step="any" class="form-control" id="add-node-quantity" value="1">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Birim</label>
+                        <select class="form-select" id="add-node-unit">
+                            <option value="adet">Adet</option>
+                            <option value="kg">Kg</option>
+                            <option value="metre">Metre</option>
+                            <option value="gr">Gr</option>
+                            <option value="ton">Ton</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3" id="add-node-weight-row" style="display:none;">
+                    <label class="form-label">Birim Ağırlık (kg / metre-adet)</label>
+                    <input type="number" step="any" class="form-control" id="add-node-weight">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="saveNewNode()">Ekle</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Taşı Modal -->
+<div class="modal fade" id="moveNodeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Parçayı Taşı</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    <strong id="move-node-source-label"></strong> parçası ve varsa alt bileşenleri
+                    seçtiğiniz yeni üst parçanın altına taşınacak.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Yeni Üst Parça</label>
+                    <select class="form-select" id="move-node-target"></select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-warning" onclick="saveMoveNode()">Taşı</button>
             </div>
         </div>
     </div>
@@ -701,6 +798,7 @@
        Detay Paneli
     --------------------------------------------------------- */
     function showDetail(node) {
+        window.currentDetailNode = node;
         document.getElementById('bom-welcome').style.display = 'none';
         document.getElementById('bom-content').style.display = 'block';
 
@@ -1049,6 +1147,153 @@
                     location.reload();
                 } else {
                     alert('Kaydedilemedi: ' + (res.error || 'Bilinmeyen hata'));
+                }
+            })
+            .catch(err => alert('Hata: ' + err));
+    }
+
+    /* ---------------------------------------------------------
+       BOM Düzenleme: Parça Ekle / Sil / Taşı
+    --------------------------------------------------------- */
+    const BOM_ID_VAL = {{ bom_id }};
+
+    document.getElementById('add-node-unit').addEventListener('change', function () {
+        const v = this.value;
+        document.getElementById('add-node-weight-row').style.display = (v === 'metre' || v === 'adet') ? '' : 'none';
+    });
+
+    function openAddNodeModal() {
+        const node = window.currentDetailNode;
+        if (!node) { alert('Önce bir parça seçin.'); return; }
+        document.getElementById('add-node-parent-label').textContent = node.num + ' ' + node.name;
+        document.getElementById('add-node-name').value = '';
+        document.getElementById('add-node-code').value = '';
+        document.getElementById('add-node-material').value = '';
+        document.getElementById('add-node-type').value = 'hammadde';
+        document.getElementById('add-node-quantity').value = 1;
+        document.getElementById('add-node-unit').value = 'adet';
+        document.getElementById('add-node-weight').value = '';
+        document.getElementById('add-node-weight-row').style.display = 'none';
+        var modal = new bootstrap.Modal(document.getElementById('addNodeModal'));
+        modal.show();
+    }
+
+    function saveNewNode() {
+        const node = window.currentDetailNode;
+        if (!node) { return; }
+        const name = document.getElementById('add-node-name').value.trim();
+        if (!name) { alert('Parça adı boş olamaz.'); return; }
+
+        const data = {
+            name: name,
+            code: document.getElementById('add-node-code').value,
+            material: document.getElementById('add-node-material').value,
+            item_type: document.getElementById('add-node-type').value,
+            quantity: parseFloat(document.getElementById('add-node-quantity').value) || 1,
+            unit_type: document.getElementById('add-node-unit').value,
+            weight_per_unit: parseFloat(document.getElementById('add-node-weight').value) || 0
+        };
+
+        fetch(`/production/bom/${BOM_ID_VAL}/node/${node.id}/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    location.reload();
+                } else {
+                    alert('Eklenemedi: ' + (res.error || 'Bilinmeyen hata'));
+                }
+            })
+            .catch(err => alert('Hata: ' + err));
+    }
+
+    function deleteSelectedNode() {
+        const node = window.currentDetailNode;
+        if (!node) { alert('Önce bir parça seçin.'); return; }
+        if (node.level === 0) { alert("Kök düğüm (mamul) bu şekilde silinemez — tüm BOM'u silmek için Liste ekranındaki Sil butonunu kullanın."); return; }
+
+        const childCount = (node.children || []).length;
+        const warn = childCount > 0
+            ? `"${node.name}" ve altındaki ${childCount} alt bileşen silinecek. Emin misiniz?`
+            : `"${node.name}" silinecek. Emin misiniz?`;
+        if (!confirm(warn)) return;
+
+        fetch(`/production/bom/${BOM_ID_VAL}/node/${node.id}/delete-node`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    location.reload();
+                } else {
+                    alert('Silinemedi: ' + (res.error || 'Bilinmeyen hata'));
+                }
+            })
+            .catch(err => alert('Hata: ' + err));
+    }
+
+    function _flattenNodes(nodes, excludeIds, out) {
+        for (const n of nodes) {
+            if (excludeIds.has(n.id)) continue;
+            out.push(n);
+            _flattenNodes(n.children || [], excludeIds, out);
+        }
+    }
+
+    function openMoveNodeModal() {
+        const node = window.currentDetailNode;
+        if (!node) { alert('Önce bir parça seçin.'); return; }
+        if (node.level === 0) { alert('Kök düğüm (mamul) taşınamaz.'); return; }
+
+        document.getElementById('move-node-source-label').textContent = node.num + ' ' + node.name;
+
+        // Hedef listesi: kendisi ve kendi alt ağacı hariç tüm düğümler
+        const excludeIds = new Set([node.id]);
+        const collectDescendants = (n) => {
+            for (const c of (n.children || [])) {
+                excludeIds.add(c.id);
+                collectDescendants(c);
+            }
+        };
+        collectDescendants(node);
+
+        const all = [];
+        _flattenNodes(TREE.roots, excludeIds, all);
+
+        const select = document.getElementById('move-node-target');
+        select.innerHTML = '';
+        all.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n.id;
+            opt.textContent = n.num + ' ' + n.name;
+            select.appendChild(opt);
+        });
+
+        var modal = new bootstrap.Modal(document.getElementById('moveNodeModal'));
+        modal.show();
+    }
+
+    function saveMoveNode() {
+        const node = window.currentDetailNode;
+        if (!node) { return; }
+        const newParentId = document.getElementById('move-node-target').value;
+        if (!newParentId) { alert('Hedef üst parça seçin.'); return; }
+
+        fetch(`/production/bom/${BOM_ID_VAL}/node/${node.id}/move`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_parent_node_id: parseInt(newParentId, 10) })
+        })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    location.reload();
+                } else {
+                    alert('Taşınamadı: ' + (res.error || 'Bilinmeyen hata'));
                 }
             })
             .catch(err => alert('Hata: ' + err));
