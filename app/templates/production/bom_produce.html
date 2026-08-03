@@ -103,8 +103,15 @@
                             {% for mat in materials %}
                             <tr>
                                 <td>
-                                    {% if mat.child_node.item and mat.child_node.item.type == 'hammadde' %}
+                                    {% set item_type = mat.child_node.item.type if mat.child_node.item else None %}
+                                    {% if item_type == 'hammadde' %}
                                         <span class="badge bg-secondary">Hammadde</span>
+                                    {% elif item_type == 'standart_parca' %}
+                                        <span class="badge bg-info text-dark">Standart Parça</span>
+                                    {% elif item_type == 'hazir_parca' %}
+                                        <span class="badge bg-primary">Hazır Parça</span>
+                                    {% elif item_type == 'mamul' %}
+                                        <span class="badge bg-success">Mamul</span>
                                     {% else %}
                                         <span class="badge bg-warning text-dark">Yarı Mamul</span>
                                     {% endif %}
