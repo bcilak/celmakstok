@@ -1066,7 +1066,8 @@ def bom_produce(bom_id, node_id):
                                bom_node=bom_node,
                                target_product=target_product,
                                materials=materials,
-                               unlinked=explosion['unlinked'])
+                               unlinked=explosion['unlinked'],
+                               missing_weight=explosion['missing_weight'])
 
     # POST: Üretimi gerçekleştir
     quantity = request.form.get('quantity', type=float, default=1.0)
@@ -1098,6 +1099,13 @@ def bom_produce(bom_id, node_id):
         names = [f"{u['num']} {u['name']}" for u in explosion['unlinked']]
         _limited_flash_list(
             'Stok kartı bulunamadığı için sarf edilemeyen malzemeler var (üretim yine de kaydedildi):',
+            names, category='warning'
+        )
+
+    if explosion['missing_weight']:
+        names = [f"{u['num']} {u['name']} ({u['product_code']})" for u in explosion['missing_weight']]
+        _limited_flash_list(
+            'Ağırlık verisi eksik olduğu için sarf edilemeyen malzemeler var (üretim yine de kaydedildi, bu malzemeleri BOM\'da kontrol edin):',
             names, category='warning'
         )
 
@@ -1220,7 +1228,14 @@ def work_order():
             'Stok kartı bulunamadığı için sarf edilemeyen malzemeler var (üretim yine de kaydedildi):',
             names, category='warning'
         )
-        
+
+    if explosion['missing_weight']:
+        names = [f"{u['num']} {u['name']} ({u['product_code']})" for u in explosion['missing_weight']]
+        _limited_flash_list(
+            'Ağırlık verisi eksik olduğu için sarf edilemeyen malzemeler var (üretim yine de kaydedildi, bu malzemeleri BOM\'da kontrol edin):',
+            names, category='warning'
+        )
+
     # 1. Deduct Materials
     for p, req in consume_list:
         p.current_stock -= float(req)

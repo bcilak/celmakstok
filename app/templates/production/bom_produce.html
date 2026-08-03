@@ -27,6 +27,19 @@
 </div>
 {% endif %}
 
+{% if missing_weight %}
+<div class="alert alert-danger">
+    <i class="fas fa-exclamation-triangle"></i>
+    <strong>Ağırlık verisi eksik olduğu için sarf edilemeyen malzemeler var</strong> — bu malzemelerin BOM satırında
+    fireli ağırlık bilgisi eksik olduğundan metre/adet↔kg dönüşümü yapılamıyor, stoktan hiç düşülmeyecek:
+    <ul class="mb-0 mt-1">
+        {% for u in missing_weight %}
+        <li>{{ u.num }} {{ u.name }} ({{ u.product_code }})</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- Üretim Formu -->
     <div class="col-md-4">

@@ -687,7 +687,23 @@ def _cost_quantity_for_unit(product_unit: str, row_unit: str, quantity: float, p
 
     if product_unit == row_unit:
         return qty
+
+    weight_units = {'kg', 'gr', 'ton'}
+    length_count_units = {'metre', 'adet'}
+    needs_weight_conversion = (
+        (product_unit in weight_units and row_unit in length_count_units)
+        or (product_unit in length_count_units and row_unit in weight_units)
+    )
     if not weight:
+        if needs_weight_conversion:
+            # ÖNEMLİ: kg/gr/ton ile metre/adet arasında gerçek dönüşüm için
+            # BOM'daki ağırlık verisi (FİRELİ AĞIRLIK kolonu) şart. Bu veri
+            # eksikse ham miktarı (yanlış birimde) olduğu gibi fiyatla çarpmak
+            # sessizce çok yanlış bir maliyet üretiyordu (ör. "5 metre lama"
+            # kg fiyatıyla çarpılıyordu). Artık dönüşüm yapılamadığını 0
+            # döndürerek belirtiyoruz; çağıran taraf bunu kullanıcıya
+            # "eksik ağırlık verisi" olarak göstermeli.
+            return 0.0
         return qty
     if product_unit == 'kg' and row_unit == 'metre':
         return qty * weight
@@ -2515,6 +2531,12 @@ def audit_bom_costs(bom_id: int, db) -> dict:
                 method = 'birim dönüşümü (kart birimine göre)'
                 suspicious = False
 
+            # Ağırlık verisi eksik olduğu için dönüşüm yapılamadı (bkz. _cost_quantity_for_unit) —
+            # bu, "0 TL maliyet" olarak sessizce geçmesin, açıkça şüpheli işaretlensin.
+            if cost_qty == 0 and cost_basis_qty > 0 and unit_cost > 0 and (product_unit or '').lower() != (n.unit_type or '').lower():
+                suspicious = True
+                method += ' — AĞIRLIK VERİSİ EKSİK, MALİYET HESAPLANAMADI'
+
         total_cost = round(unit_cost * cost_qty, 2)
 
         rows.append({
@@ -2581,6 +2603,7 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
 
     required: dict[int, dict] = {}
     unlinked = []
+    missing_weight = []
 
     def walk(current_node_id, current_qty):
         node = node_map.get(current_node_id)
@@ -2616,6 +2639,20 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
                     product_unit, node.unit_type, current_qty, current_qty, w_per_unit
                 )
 
+            if (
+                consume_qty == 0 and current_qty > 0
+                and (product_unit or '').lower() != (node.unit_type or '').lower()
+            ):
+                # Ağırlık verisi eksik olduğu için birim dönüşümü yapılamadı — bu
+                # malzeme sessizce 0 tüketilmesin, kullanıcıya ayrıca gösterilsin.
+                missing_weight.append({
+                    'node_id': node.id,
+                    'num': node.num,
+                    'name': node.display_name or (item.name if item else ''),
+                    'product_code': product.code,
+                })
+                return
+
             key = product.id
             if key not in required:
                 required[key] = {'product': product, 'quantity': 0.0, 'node': node}
@@ -2633,6 +2670,7 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
     return {
         'materials': list(required.values()),
         'unlinked': unlinked,
+        'missing_weight': missing_weight,
     }
 
 
