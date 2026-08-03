@@ -739,17 +739,21 @@ def _should_cost_by_weight(material_text: str, row_unit: str, weight_per_unit: f
     """Materials priced by kg when BOM provides kg-per-unit data.
 
     Malzeme cinsine göre kg mı metre mi fiyatlandırılacağı `_costing_unit_family`
-    ile (kullanıcı onaylı eşleme: sac/npu/lama/bandaj/çelik çekme/41xx-10xx kg,
-    profil/sanayi borusu metre) belirlenir. ÖNEMLİ: bağlı stok kartının
-    GERÇEKTEN kg bazlı olup olmadığı da ayrıca kontrol edilir — `product_unit`
-    verildiğinde kart kg/gr/ton değilse bu yol devre dışı bırakılır (aksi halde
-    miktar yanlışlıkla ağırlığa çevrilip maliyet/sarfiyat şişer).
+    ile (kullanıcı onaylı, kesin eşleme: sac/npu/lama/bandaj/çelik çekme/
+    41xx-10xx → HER ZAMAN kg, profil/sanayi borusu → metre) belirlenir.
+
+    ÖNEMLİ: Bu karar artık bağlı stok kartının kendi `unit_type` alanına
+    BAKMIYOR — çünkü o alan yanlış/eski girilmiş olabilir (ör. bir "Lama"
+    kartı yanlışlıkla "metre" olarak kaydedilmiş). Malzeme cinsi bu listede
+    "kg" diyorsa, kart ne derse desin ağırlık bazlı maliyetlendirilir;
+    aksi halde (kart gerçekten metre bazlıysa) miktar yanlışlıkla metre
+    değeriyle çarpılıp maliyet olması gerekenin çok altında çıkıyordu.
+    `product_unit` parametresi artık sadece geriye dönük uyumluluk için
+    duruyor, karara katılmıyor.
     """
     if not weight_per_unit:
         return False
     if (row_unit or '').lower() not in {'metre', 'mt', 'adet'}:
-        return False
-    if product_unit is not None and (product_unit or '').lower() not in {'kg', 'gr', 'ton'}:
         return False
     return _costing_unit_family(material_text) == 'kg'
 
