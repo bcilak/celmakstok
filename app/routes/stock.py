@@ -484,14 +484,14 @@ def bulk_entry():
 def bulk_reset():
     """TEST amaçlı: tüm (ya da tip filtreli) ürünlerin stoğunu toplu sıfırlar/ayarlar.
     Stok hareketi oluşturmaz; sadece current_stock (ve sıfırlamada lokasyon stoğu) güncellenir."""
-    scope = request.form.get('scope', 'all')  # all | hammadde | yarimamul | mamul
+    scope = request.form.get('scope', 'all')  # all | hammadde | yarimamul | mamul | standart_parca
     try:
         value = float(request.form.get('value') or 0)
     except (TypeError, ValueError):
         value = 0.0
 
     q = Product.query.filter_by(is_active=True)
-    if scope in ('hammadde', 'yarimamul', 'mamul'):
+    if scope in ('hammadde', 'yarimamul', 'mamul', 'standart_parca'):
         q = q.filter(Product.type == scope)
     products = q.all()
 
@@ -507,7 +507,8 @@ def bulk_reset():
 
     db.session.commit()
     scope_label = {'all': 'tüm ürünler', 'hammadde': 'hammaddeler',
-                   'yarimamul': 'yarı mamuller', 'mamul': 'mamuller'}.get(scope, scope)
+                   'yarimamul': 'yarı mamuller', 'mamul': 'mamuller',
+                   'standart_parca': 'standart parçalar'}.get(scope, scope)
     flash(f'TEST: {len(products)} üründe ({scope_label}) stok {value:g} olarak ayarlandı.', 'success')
     return redirect(url_for('stock.bulk_entry'))
 
