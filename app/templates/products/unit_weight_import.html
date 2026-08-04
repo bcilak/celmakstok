@@ -56,7 +56,7 @@
                             <tr>
                                 <th>Kod</th><th>Malzeme</th>
                                 <th>Mevcut birim</th><th>Hedef birim</th>
-                                <th class="text-end">1 adet =</th>
+                                <th class="text-end">1 adet =</th><th>Açıklama</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -70,6 +70,7 @@
                                 </td>
                                 <td><span class="badge {{ 'bg-warning text-dark' if r.u_change else 'bg-light text-dark' }}">{{ r.target_unit }}</span></td>
                                 <td class="text-end fw-medium">{{ r.new }} {{ r.target_unit }}</td>
+                                <td class="small text-muted">{{ r.note }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>

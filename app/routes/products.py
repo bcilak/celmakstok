@@ -27,6 +27,39 @@ def natural_sort_key(code):
     parts = re.split(r'(\d+)', code)
     return [int(p) if p.isdigit() else p.lower() for p in parts]
 
+# --- Ozellik-bazli hammadde eslestirme (isimler birebir tutmadigi icin) ---
+def _uw_canon(s):
+    return re.sub(r'\s+', ' ', (s or '').strip().lower())
+
+
+def _uw_thickness(s):
+    """'... 2,5 mm' -> '2.5' (mm'den onceki ilk sayi)."""
+    m = re.search(r'(\d+(?:[.,]\d+)?)\s*mm', (s or '').lower())
+    return m.group(1).replace(',', '.') if m else None
+
+
+def _uw_dim(s):
+    """'70x70x5' / '1500x3000' gibi olcu jetonunu dondurur (nokta ondalik)."""
+    t = re.sub(r'\s+', '', (s or '').lower())
+    m = re.search(r'(\d+(?:[.,]\d+)?)x(\d+(?:[.,]\d+)?)(?:x(\d+(?:[.,]\d+)?))?', t)
+    if not m:
+        return None
+    return 'x'.join(g.replace(',', '.') for g in m.groups() if g)
+
+
+def _uw_family(s):
+    """Malzeme ailesini dondurur: 'profil', 'sanayi_borusu', 'sac:...' ya da None."""
+    t = _uw_canon(s)
+    if 'sanayi boru' in t:
+        return 'sanayi_borusu'
+    if 'profil' in t:
+        return 'profil'
+    for sub in ('siyah sac', 'celik sac', 'çelik sac', 'dkp sac', 'hrp sac'):
+        if sub in t:
+            return 'sac:' + sub.replace('çelik', 'celik')
+    return None
+
+
 @products_bp.route('/unit-weight/import', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')
@@ -56,9 +89,9 @@ def unit_weight_import():
         fix_unit = request.form.get('fix_unit') == '1'  # kart birimini de kg/metre yap
 
         ws = wb['Hammaddeler']
-        # Excel her malzeme icin hedef birim + katsayiyi belirler:
-        # KG>0 -> ('kg', kg) ; yoksa METRE>0 -> ('metre', mt)
-        factors = {}
+        # Excel'i ozelliklere gore indeksle (bu pass: profil, sanayi borusu, sac)
+        prof_idx = {}    # (aile, olcu) -> boy_metre
+        sac_groups = {}  # (sac_ailesi, kalinlik) -> [(olcu, kg), ...]
         excel_samples = []
         for r in range(4, ws.max_row + 1):
             name = ws.cell(r, 1).value
@@ -66,35 +99,64 @@ def unit_weight_import():
             h = ws.cell(r, 8).value   # H = METRE (metre/adet)
             if not name:
                 continue
-            kg = float(g) if isinstance(g, (int, float)) else 0.0
-            mt = float(h) if isinstance(h, (int, float)) else 0.0
-            if kg > 0:
-                factors[_norm(name)] = ('kg', kg)
-            elif mt > 0:
-                factors[_norm(name)] = ('metre', mt)
             if len(excel_samples) < 8:
                 excel_samples.append(str(name))
+            fam = _uw_family(name)
+            if fam in ('profil', 'sanayi_borusu'):
+                dim = _uw_dim(name)
+                if dim:
+                    boy = float(h) if isinstance(h, (int, float)) and h else 6.0
+                    prof_idx[(fam, dim)] = boy
+            elif fam and fam.startswith('sac:'):
+                th = _uw_thickness(name)
+                kg = float(g) if isinstance(g, (int, float)) else 0.0
+                if th and kg > 0:
+                    sac_groups.setdefault((fam, th), []).append((_uw_dim(name) or '', kg))
+
+        def _pick_standard(cands):
+            # tercih: 1500x3000; yoksa en buyuk kg (en buyuk levha)
+            for dim, kg in cands:
+                if dim.replace(' ', '') == '1500x3000':
+                    return dim, kg
+            return max(cands, key=lambda c: c[1])
 
         all_products = Product.query.all()
         rows, updated_w, updated_u, unmatched_samples = [], 0, 0, []
-        unit_dist = {}
-        prod_samples = []
+        unit_dist, prod_samples = {}, []
         for p in all_products:
             cur = (p.unit_type or '').lower() or '(bos)'
             unit_dist[cur] = unit_dist.get(cur, 0) + 1
             if len(prod_samples) < 8:
                 prod_samples.append(p.name)
-            f = factors.get(_norm(p.name))
-            if not f:
-                if len(unmatched_samples) < 8:
+
+            fam = _uw_family(p.name)
+            target_unit = factor = None
+            note = ''
+            if fam in ('profil', 'sanayi_borusu'):
+                dim = _uw_dim(p.name)
+                boy = prof_idx.get((fam, dim))
+                if boy:
+                    target_unit, factor = 'metre', boy
+                    note = f'{dim} · boy {boy:g} m'
+            elif fam and fam.startswith('sac:'):
+                th = _uw_thickness(p.name)
+                cands = sac_groups.get((fam, th))
+                if cands:
+                    dim, kg = _pick_standard(cands)
+                    target_unit, factor = 'kg', kg
+                    note = f'{th} mm · standart {dim}'
+
+            if not target_unit:
+                if len(unmatched_samples) < 10:
                     unmatched_samples.append(p.name)
                 continue
-            target_unit, factor = f
+
+            factor = round(float(factor), 3)
             w_change = (p.unit_weight != factor)
             u_change = fix_unit and ((p.unit_type or '').lower() != target_unit)
             rows.append({'code': p.code, 'name': p.name,
                          'cur_unit': p.unit_type or '(bos)', 'target_unit': target_unit,
-                         'old': p.unit_weight, 'new': factor,
+                         'old': p.unit_weight, 'new': factor, 'note': note,
                          'w_change': w_change, 'u_change': u_change})
             if do_apply:
                 if w_change:
@@ -113,7 +175,7 @@ def unit_weight_import():
             return redirect(url_for('products.index'))
 
         diag = {
-            'excel_count': len(factors),
+            'excel_count': len(prof_idx) + len(sac_groups),
             'excel_samples': excel_samples,
             'product_count': len(all_products),
             'unit_dist': unit_dist,
