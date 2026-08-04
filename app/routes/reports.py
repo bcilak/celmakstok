@@ -2718,23 +2718,34 @@ def stock_report():
     
     products = query.order_by(Product.name).all()
     categories = Category.query.all()
-    
-    # Özet
+
+    # Özet (tüm ürünler üzerinden)
     total_items = len(products)
     critical_items = sum(1 for p in products if p.current_stock < p.minimum_stock)
     empty_items = sum(1 for p in products if p.current_stock <= 0)
-    
+
+    # Sayfalama (200'er ürün)
+    per_page = 200
+    total_pages = max(1, (total_items + per_page - 1) // per_page)
+    page = request.args.get('page', 1, type=int)
+    page = min(max(page or 1, 1), total_pages)
+    start = (page - 1) * per_page
+    page_products = products[start:start + per_page]
+
     # AI summary will be fetched asynchronously.
     ai_summary = None
 
     return render_template('reports/stock.html',
-        products=products,
+        products=page_products,
+        total_items=total_items,
         categories=categories,
         selected_category=category_id,
-        total_items=total_items,
         critical_items=critical_items,
         empty_items=empty_items,
-        ai_summary=ai_summary
+        ai_summary=ai_summary,
+        page=page,
+        total_pages=total_pages,
+        per_page=per_page
     )
 
 @reports_bp.route('/api/stock-summary', methods=['POST'])
