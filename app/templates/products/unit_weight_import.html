@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Birim Ağırlık İçe Aktar - ÇELMAK Stok Takip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Birim Ağırlık İçe Aktar</h1>
+    <p class="page-subtitle">Sayım Excel'indeki KG / METRE değerlerinden kartların "1 adet = ? kg/metre" çevrim katsayısını doldurur</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label class="form-label">Sayım Excel Dosyası (.xlsx) *</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx" required>
+                        <div class="form-text">
+                            "Hammaddeler" sayfası olan dosyayı seçin (A=Malzeme adı, G=KG, H=METRE).
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" name="apply" value="0" class="btn btn-outline-primary">
+                            <i class="bi bi-eye me-1"></i>Önizle (Rapor)
+                        </button>
+                        <button type="submit" name="apply" value="1" class="btn btn-success"
+                            onclick="return confirm('Kartların birim ağırlıkları güncellenecek. Devam edilsin mi?');">
+                            <i class="bi bi-check-lg me-1"></i>Uygula ve Kaydet
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {% if rows is not none %}
+        <div class="card mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-check me-2"></i>Önizleme</span>
+                <span class="small text-muted">Eşleşen: {{ matched }} &middot; Değişecek: <strong class="text-success">{{ changed_count }}</strong></span>
+            </div>
+            <div class="card-body p-0">
+                {% if rows %}
+                <div class="table-responsive" style="max-height:480px; overflow-y:auto;">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light" style="position:sticky; top:0;">
+                            <tr>
+                                <th>Kod</th><th>Malzeme</th><th>Birim</th>
+                                <th class="text-end">Eski</th><th class="text-end">Yeni (1 adet =)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in rows %}
+                            <tr class="{{ 'table-success' if r.changed else '' }}">
+                                <td>{{ r.code }}</td>
+                                <td>{{ r.name }}</td>
+                                <td><span class="badge bg-secondary">{{ r.unit }}</span></td>
+                                <td class="text-end text-muted">{{ r.old if r.old is not none else '—' }}</td>
+                                <td class="text-end fw-medium">{{ r.new }} {{ r.unit }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="p-3 border-top">
+                    Sonuç iyiyse, <strong>aynı dosyayı tekrar seçip</strong> yukarıdaki
+                    <span class="text-success">"Uygula ve Kaydet"</span> butonuna basın.
+                </div>
+                {% else %}
+                <div class="p-4 text-center text-muted">
+                    Eşleşen kg/metre kartı bulunamadı. Ürün adları Excel'deki adlarla birebir eşleşmiyor olabilir.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card bg-info bg-opacity-10">
+            <div class="card-body">
+                <h6 class="card-title text-info"><i class="bi bi-info-circle me-2"></i>Nasıl çalışır?</h6>
+                <ul class="small mb-0">
+                    <li>Birimi <strong>kg</strong> olan kart → Excel'deki <strong>KG</strong> değeri (1 adet kaç kg).</li>
+                    <li>Birimi <strong>metre</strong> olan kart → Excel'deki <strong>METRE</strong> değeri.</li>
+                    <li>Birimi <strong>adet</strong> olanlar atlanır (çevrim gerekmez).</li>
+                    <li>Doldurduktan sonra stok girişi ve sayımda <strong>adet</strong> girip sistem otomatik kg/metreye çevirir.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

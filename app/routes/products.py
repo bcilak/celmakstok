@@ -27,6 +27,75 @@ def natural_sort_key(code):
     parts = re.split(r'(\d+)', code)
     return [int(p) if p.isdigit() else p.lower() for p in parts]
 
+@products_bp.route('/unit-weight/import', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def unit_weight_import():
+    """Excel'deki KG/METRE kolonlarindan Product.unit_weight (1 adet = kac kg/metre) doldurur.
+    Onizleme (rapor) + uygula akisi. scp'ye gerek yok, dosya tarayicidan yuklenir."""
+    import openpyxl
+
+    def _norm(s):
+        return re.sub(r'\s+', ' ', (s or '').strip().lower())
+
+    if request.method == 'POST':
+        file = request.files.get('file')
+        do_apply = request.form.get('apply') == '1'
+        if not file or not file.filename:
+            flash('Lütfen bir Excel dosyası seçin.', 'error')
+            return redirect(url_for('products.unit_weight_import'))
+        try:
+            wb = openpyxl.load_workbook(file, data_only=True)
+        except Exception as e:
+            flash(f'Excel okunamadı: {e}', 'error')
+            return redirect(url_for('products.unit_weight_import'))
+        if 'Hammaddeler' not in wb.sheetnames:
+            flash("Dosyada 'Hammaddeler' sayfası bulunamadı.", 'error')
+            return redirect(url_for('products.unit_weight_import'))
+
+        ws = wb['Hammaddeler']
+        factors = {}
+        for r in range(4, ws.max_row + 1):
+            name = ws.cell(r, 1).value
+            g = ws.cell(r, 7).value   # G = KG (kg/adet)
+            h = ws.cell(r, 8).value   # H = METRE (metre/adet)
+            if not name:
+                continue
+            kg = float(g) if isinstance(g, (int, float)) else 0.0
+            mt = float(h) if isinstance(h, (int, float)) else 0.0
+            factors[_norm(name)] = (kg, mt)
+
+        rows, updated = [], 0
+        for p in Product.query.all():
+            unit = (p.unit_type or '').lower()
+            if unit in ('adet', ''):
+                continue
+            f = factors.get(_norm(p.name))
+            if not f:
+                continue
+            kg, mt = f
+            new_val = kg if unit in ('kg', 'gr', 'ton') else (mt if unit in ('metre', 'mt') else 0)
+            if not new_val:
+                continue
+            changed = (p.unit_weight != new_val)
+            rows.append({'code': p.code, 'name': p.name, 'unit': unit,
+                         'old': p.unit_weight, 'new': new_val, 'changed': changed})
+            if changed and do_apply:
+                p.unit_weight = new_val
+                updated += 1
+
+        if do_apply:
+            db.session.commit()
+            flash(f'{updated} kartın birim ağırlığı güncellendi. Artık giriş/sayımda adet girip kg/metreye çevirebilirsiniz.', 'success')
+            return redirect(url_for('products.index'))
+
+        changed_count = sum(1 for r in rows if r['changed'])
+        return render_template('products/unit_weight_import.html',
+                               rows=rows, matched=len(rows), changed_count=changed_count)
+
+    return render_template('products/unit_weight_import.html', rows=None)
+
+
 @products_bp.route('/')
 @login_required
 @roles_required('Genel', 'Yönetici', 'Personel')
