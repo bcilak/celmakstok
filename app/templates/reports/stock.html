@@ -137,6 +137,7 @@
                         <th class="ps-4">Ürün</th>
                         <th>Kategori</th>
                         <th class="text-end">Mevcut Stok</th>
+                        <th class="text-end">Adet Karşılığı</th>
                         <th class="text-end">Min. Stok</th>
                         <th class="text-center">Durum</th>
                     </tr>
@@ -170,6 +171,14 @@
                                 {{ product.current_stock|round(1) }}
                             </span>
                             <small class="text-muted ms-1">{{ product.unit_type }}</small>
+                        </td>
+                        <td class="text-end">
+                            {% if product.stock_count_equiv is not none %}
+                            <span class="text-info fw-semibold">≈ {{ product.stock_count_equiv|round(1) }}</span>
+                            <small class="text-muted ms-1">adet</small>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
                         </td>
                         <td class="text-end text-muted">
                             {{ product.minimum_stock|round(1) }} {{ product.unit_type }}

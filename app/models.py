@@ -137,6 +137,17 @@ class Product(db.Model):
         """Adet -> stok birimi çevrimi mümkün mü? (katsayı dolu ve birim adet değilse)"""
         return bool(self.unit_weight) and (self.unit_type or '').lower() in self._CONVERTIBLE_UNITS
 
+    @property
+    def stock_count_equiv(self):
+        """kg/metre stoğunun adet karşılığı (mevcut stok / unit_weight).
+        Çevrimi olmayan (adet) kartlarda None döner."""
+        if self.has_conversion and self.unit_weight:
+            try:
+                return (self.current_stock or 0) / float(self.unit_weight)
+            except ZeroDivisionError:
+                return None
+        return None
+
     def to_stock_quantity(self, qty, entry_unit=None):
         """Girilen miktarı kartın stok birimine (unit_type) çevirir.
 
