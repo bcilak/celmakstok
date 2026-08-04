@@ -117,10 +117,14 @@ def count(id):
     if request.method == 'POST':
         item_id = request.form.get('item_id', type=int)
         counted_quantity = request.form.get('counted_quantity', type=float)
+        entry_unit = request.form.get('entry_unit')  # 'adet' ise stok birimine çevrilir
         notes = request.form.get('notes', '')
-        
+
         item = CountItem.query.get_or_404(item_id)
-        
+
+        # İşçi adet saydıysa, kartın stok birimine (kg/metre) çevir. Katsayı yoksa 1:1.
+        counted_quantity = item.product.to_stock_quantity(counted_quantity, entry_unit)
+
         item.counted_quantity = counted_quantity
         item.difference = counted_quantity - item.system_quantity
         item.is_counted = True
@@ -155,8 +159,12 @@ def count_item(id, item_id):
     item = CountItem.query.get_or_404(item_id)
     
     counted_quantity = request.form.get('counted_quantity', type=float)
+    entry_unit = request.form.get('entry_unit')  # 'adet' ise stok birimine çevrilir
     notes = request.form.get('notes', '')
-    
+
+    # İşçi adet saydıysa, kartın stok birimine (kg/metre) çevir. Katsayı yoksa 1:1.
+    counted_quantity = item.product.to_stock_quantity(counted_quantity, entry_unit)
+
     item.counted_quantity = counted_quantity
     item.difference = counted_quantity - item.system_quantity
     item.is_counted = True

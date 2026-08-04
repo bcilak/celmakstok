@@ -102,6 +102,9 @@ class Product(db.Model):
     
     # Birim bilgileri
     unit_type = db.Column(db.String(20), nullable=False, default='adet')  # kg, metre, adet
+    # Çevrim katsayısı: 1 sayım birimi (adet) kaç stok birimi (kg/metre) eder.
+    # Örn. 1,5 mm Sac 1500x3000 -> 53.055 (1 tabla = 53,055 kg). Boşsa çevrim yapılmaz (1:1).
+    unit_weight = db.Column(db.Float, nullable=True)
     
     # Stok bilgileri (Sadece miktar)
     current_stock = db.Column(db.Float, default=0)  # Aktif stok miktarı
@@ -126,6 +129,27 @@ class Product(db.Model):
     stock_movements = db.relationship('StockMovement', backref='product', lazy='dynamic')
     location_stocks = db.relationship('LocationStock', backref='product', lazy='dynamic')
     
+    # Adet dışı (ağırlık/uzunluk) stok birimleri — bunlarda adet->stok çevrimi yapılabilir
+    _CONVERTIBLE_UNITS = {'kg', 'gr', 'ton', 'metre', 'mt'}
+
+    @property
+    def has_conversion(self):
+        """Adet -> stok birimi çevrimi mümkün mü? (katsayı dolu ve birim adet değilse)"""
+        return bool(self.unit_weight) and (self.unit_type or '').lower() in self._CONVERTIBLE_UNITS
+
+    def to_stock_quantity(self, qty, entry_unit=None):
+        """Girilen miktarı kartın stok birimine (unit_type) çevirir.
+
+        - entry_unit == 'adet' VE çevrim katsayısı varsa: qty * unit_weight
+          (ör. 10 adet sac -> 10 * 53,055 = 530,55 kg)
+        - Aksi halde (giriş zaten stok biriminde ya da katsayı yok): qty aynen döner.
+        entry_unit boş bırakılırsa güvenli tarafta kalmak için çevrim YAPILMAZ
+        (eski çağrı noktaları etkilenmesin diye)."""
+        qty = float(qty or 0)
+        if (entry_unit or '').strip().lower() == 'adet' and self.has_conversion:
+            return qty * float(self.unit_weight)
+        return qty
+
     @property
     def stock_status(self):
         """Stok durumu"""

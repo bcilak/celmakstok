@@ -109,8 +109,39 @@
 
                     <div class="mb-3">
                         <label class="form-label">Sayılan Miktar *</label>
-                        <input type="number" name="counted_quantity" class="form-control form-control-lg text-center"
-                            step="0.01" min="0" required autofocus>
+                        {% set conv = product.unit_weight or 0 %}
+                        {% set can_convert = conv and product.unit_type|lower in ['kg','gr','ton','metre','mt'] %}
+                        <div class="input-group input-group-lg">
+                            <input type="number" name="counted_quantity" id="countQty"
+                                class="form-control text-center" step="0.001" min="0" required autofocus>
+                            <select name="entry_unit" id="countEntryUnit" class="form-select" style="max-width:120px;">
+                                {% if can_convert %}
+                                <option value="adet" selected>adet</option>
+                                <option value="{{ product.unit_type }}">{{ product.unit_type }}</option>
+                                {% else %}
+                                <option value="{{ product.unit_type }}">{{ product.unit_type }}</option>
+                                {% endif %}
+                            </select>
+                        </div>
+                        {% if can_convert %}
+                        <div id="countPreview" class="form-text text-success fw-medium mt-1"></div>
+                        <script>
+                            (function () {
+                                var w = {{ conv }}, u = "{{ product.unit_type }}";
+                                var q = document.getElementById('countQty');
+                                var eu = document.getElementById('countEntryUnit');
+                                var pv = document.getElementById('countPreview');
+                                function upd() {
+                                    var v = parseFloat(q.value) || 0;
+                                    pv.textContent = (eu.value === 'adet' && v > 0)
+                                        ? '= ' + (v * w).toLocaleString('tr-TR') + ' ' + u + '  (1 adet = ' + w.toLocaleString('tr-TR') + ' ' + u + ')'
+                                        : '';
+                                }
+                                q.addEventListener('input', upd);
+                                eu.addEventListener('change', upd);
+                            })();
+                        </script>
+                        {% endif %}
                     </div>
 
                     <div class="mb-4">

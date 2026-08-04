@@ -25,7 +25,7 @@
                                     {% for p in products %}
                                     <option value="{{ p.id }}" data-unit="{{ p.unit_type }}"
                                         data-stock="{{ p.current_stock }}" data-code="{{ p.code }}"
-                                        data-name="{{ p.name }}">
+                                        data-name="{{ p.name }}" data-uweight="{{ p.unit_weight or 0 }}">
                                         {{ p.code }} - {{ p.name }} (Mevcut: {{ p.current_stock }} {{ p.unit_type }})
                                     </option>
                                     {% endfor %}
@@ -42,10 +42,13 @@
                         <div class="col-md-6">
                             <label class="form-label">Giriş Miktarı *</label>
                             <div class="input-group">
-                                <input type="number" name="quantity" class="form-control" step="0.01" min="0.01"
-                                    required>
-                                <span class="input-group-text" id="unitDisplay">birim</span>
+                                <input type="number" name="quantity" id="qtyInput" class="form-control" step="0.001"
+                                    min="0.001" required>
+                                <select name="entry_unit" id="entryUnit" class="form-select" style="max-width:120px;">
+                                    <option value="">birim</option>
+                                </select>
                             </div>
+                            <div id="convPreview" class="form-text text-success fw-medium"></div>
                         </div>
 
                         <div class="col-md-6">
@@ -137,6 +140,7 @@
                 name: option.dataset.name || '',
                 unit: option.dataset.unit || 'birim',
                 stock: option.dataset.stock || '0',
+                uweight: parseFloat(option.dataset.uweight || '0') || 0,
                 text: option.textContent
             });
         }
@@ -160,8 +164,8 @@
             searchResults.innerHTML = '<div class="list-group-item text-muted">Sonuç bulunamadı</div>';
         } else {
             searchResults.innerHTML = filtered.map(p => `
-                <button type="button" class="list-group-item list-group-item-action" 
-                    onclick="selectProduct('${p.id}', '${p.code}', '${p.name.replace(/'/g, "\\'")}', '${p.unit}', '${p.stock}')">
+                <button type="button" class="list-group-item list-group-item-action"
+                    onclick="selectProduct('${p.id}', '${p.code}', '${p.name.replace(/'/g, "\\'")}', '${p.unit}', '${p.stock}', ${p.uweight})">
                     <strong>${p.code}</strong> - ${p.name}
                     <span class="badge bg-secondary float-end">${p.stock} ${p.unit}</span>
                 </button>
@@ -170,8 +174,14 @@
         searchResults.style.display = 'block';
     });
 
+    const entryUnit = document.getElementById('entryUnit');
+    const qtyInput = document.getElementById('qtyInput');
+    const convPreview = document.getElementById('convPreview');
+    let currentUnit = 'birim';
+    let currentUWeight = 0;
+
     // Ürün seçme
-    function selectProduct(id, code, name, unit, stock) {
+    function selectProduct(id, code, name, unit, stock, uweight) {
         productSelect.value = id;
         searchInput.value = '';
         searchResults.style.display = 'none';
@@ -179,10 +189,42 @@
         selectedProductName.textContent = code + ' - ' + name + ' (Stok: ' + stock + ' ' + unit + ')';
         selectedProductDiv.style.display = 'block';
 
-        document.getElementById('unitDisplay').textContent = unit;
         document.getElementById('currentStock').textContent = stock + ' ' + unit;
         document.getElementById('productInfo').style.display = 'block';
+
+        currentUnit = unit;
+        currentUWeight = parseFloat(uweight) || 0;
+        buildEntryUnitOptions();
     }
+
+    // Birim seçeneklerini ürüne göre kur: çevrim katsayısı varsa "adet" ve stok birimi;
+    // yoksa yalnızca stok birimi.
+    function buildEntryUnitOptions() {
+        const canConvert = currentUWeight > 0 && ['kg', 'gr', 'ton', 'metre', 'mt'].includes((currentUnit || '').toLowerCase());
+        if (canConvert) {
+            entryUnit.innerHTML =
+                '<option value="adet" selected>adet</option>' +
+                '<option value="' + currentUnit + '">' + currentUnit + '</option>';
+        } else {
+            entryUnit.innerHTML = '<option value="' + currentUnit + '">' + currentUnit + '</option>';
+        }
+        updatePreview();
+    }
+
+    // "10 adet = 530,55 kg" canlı önizlemesi
+    function updatePreview() {
+        const q = parseFloat(qtyInput.value) || 0;
+        if (entryUnit.value === 'adet' && currentUWeight > 0 && q > 0) {
+            const conv = q * currentUWeight;
+            convPreview.textContent = '= ' + conv.toLocaleString('tr-TR') + ' ' + currentUnit
+                + '  (1 adet = ' + currentUWeight.toLocaleString('tr-TR') + ' ' + currentUnit + ')';
+        } else {
+            convPreview.textContent = '';
+        }
+    }
+
+    if (qtyInput) qtyInput.addEventListener('input', updatePreview);
+    if (entryUnit) entryUnit.addEventListener('change', updatePreview);
 
     // Seçimi temizle
     function clearSelection() {
@@ -207,7 +249,8 @@
             '{{ selected_product.code }}',
             '{{ selected_product.name|replace("'", "\\'")|safe }}',
             '{{ selected_product.unit_type }}',
-            '{{ selected_product.current_stock }}'
+            '{{ selected_product.current_stock }}',
+            {{ selected_product.unit_weight or 0 }}
         );
     });
     {% endif %}

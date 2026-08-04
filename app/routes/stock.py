@@ -70,19 +70,24 @@ def stock_in():
     if request.method == 'POST':
         product_id = request.form.get('product_id', type=int)
         quantity = request.form.get('quantity', type=float)
+        entry_unit = request.form.get('entry_unit')  # 'adet' ise stok birimine çevrilir
         movement_type = request.form.get('movement_type', 'satin_alma')
         notes = request.form.get('notes', '')
         location_id = request.form.get('location_id', type=int)
-        
+
         product = Product.query.get_or_404(product_id)
-        
-        if quantity <= 0:
+
+        # İşçi adet girdiyse, kartın stok birimine (kg/metre) çevir. Katsayı yoksa 1:1.
+        entered_qty = quantity
+        quantity = product.to_stock_quantity(quantity, entry_unit)
+
+        if not quantity or quantity <= 0:
             flash('Miktar sıfırdan büyük olmalıdır.', 'error')
         elif not location_id:
             flash('Lütfen giriş yapılacak lokasyonu seçin.', 'error')
         else:
             product.current_stock += quantity
-            
+
             # Lokasyon stoğunu güncelle
             from app.models import LocationStock
             loc_stock = LocationStock.query.filter_by(location_id=location_id, product_id=product_id).first()
@@ -113,8 +118,11 @@ def stock_in():
             )
             db.session.add(movement)
             db.session.commit()
-            
-            flash(f'{product.name} için {quantity} {product.unit_type} giriş yapıldı.', 'success')
+
+            if (entry_unit or '').strip().lower() == 'adet' and product.has_conversion:
+                flash(f'{product.name}: {entered_qty:g} adet = {quantity:g} {product.unit_type} giriş yapıldı.', 'success')
+            else:
+                flash(f'{product.name} için {quantity:g} {product.unit_type} giriş yapıldı.', 'success')
             return redirect(url_for('stock.index'))
     
     products = Product.query.filter_by(is_active=True).order_by(Product.name).all()

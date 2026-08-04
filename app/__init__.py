@@ -11,6 +11,21 @@ login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 login_manager.login_message = 'Bu sayfayı görüntülemek için giriş yapmalısınız.'
 
+def _ensure_unit_weight_column(app):
+    """products tablosunda unit_weight kolonu yoksa ekler (adet->kg/metre çevrimi için).
+    Migration çalıştırılmamış ortamlarda bile alanın var olmasını garanti eder."""
+    from sqlalchemy import inspect, text
+    with app.app_context():
+        try:
+            cols = [c['name'] for c in inspect(db.engine).get_columns('products')]
+            if 'unit_weight' not in cols:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE products ADD COLUMN unit_weight FLOAT'))
+                app.logger.info("products.unit_weight kolonu eklendi.")
+        except Exception as e:
+            app.logger.warning(f"unit_weight kolonu kontrol/eklenemedi: {e}")
+
+
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
@@ -50,6 +65,10 @@ def create_app(config_class=Config):
     app.register_blueprint(api_bp, url_prefix='/api')
     # Internal AI endpoints (protected by API key, register under /internal/ai)
     app.register_blueprint(ai_bp, url_prefix='/internal/ai')
+
+    # unit_weight kolonu yoksa güvenle ekle (adet->kg/metre çevrimi için).
+    # Böylece `flask db upgrade` çalıştırılmasa bile alan hazır olur.
+    _ensure_unit_weight_column(app)
 
     # Eski sohbet geçmişini session'dan temizle (cookie overflow fix)
     from flask import session as flask_session
