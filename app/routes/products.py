@@ -60,6 +60,49 @@ def _uw_family(s):
     return None
 
 
+def _uw_estimate(name, unit):
+    """Eslesmeyen kartlara MEVCUT birimine gore YAKLASIK katsayi uretir.
+    - metre/mt -> 6.0 (standart boy)
+    - kg/gr/ton -> isimdeki olculerden celik geometrisiyle kg/boy tahmini
+    Hesaplanamazsa None."""
+    import math
+    u = (unit or '').lower()
+    if u in ('metre', 'mt'):
+        return 6.0
+    if u not in ('kg', 'gr', 'ton'):
+        return None
+    s = (name or '').lower().replace(',', '.')
+    nums = [float(x) for x in re.findall(r'\d+(?:\.\d+)?', s)]
+    # kalite kodlari (Ç1040/4140/ST37) ve mm boy/levha olculerini ele
+    drop = {6000.0, 12000.0, 3000.0, 2500.0, 2400.0, 2000.0, 1500.0, 1250.0,
+            1200.0, 1000.0, 1040.0, 4140.0, 1010.0, 37.0}
+    nums = [n for n in nums if n not in drop]
+    if not nums:
+        return None
+    dens = 0.00785   # kg / (mm^2 * metre)  (celik ~7850 kg/m3)
+    boy = 6.0
+    is_tube = ('boru' in s)
+    is_round = ('ø' in (name or '').lower()) or ('mil' in s) or ('bandaj' in s)
+    area = None
+    if is_tube and len(nums) >= 2:
+        d, w = nums[0], nums[1]
+        area = math.pi / 4 * (d * d - max(d - 2 * w, 0.0) ** 2)
+    elif is_round and len(nums) >= 1:
+        d = nums[0]
+        area = math.pi / 4 * d * d
+    elif 'profil' in s and len(nums) >= 3:
+        a, b, tk = nums[0], nums[1], nums[2]
+        area = a * b - max(a - 2 * tk, 0.0) * max(b - 2 * tk, 0.0)
+    elif ('köşebent' in s or 'kosebent' in s) and len(nums) >= 3:
+        a, b, tk = nums[0], nums[1], nums[2]
+        area = (a + b - tk) * tk
+    elif len(nums) >= 2:      # lama / kare demir / dolu dikdortgen
+        area = nums[0] * nums[1]
+    if not area or area <= 0:
+        return None
+    return round(area * dens * boy, 3)
+
+
 @products_bp.route('/unit-weight/import', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')
@@ -86,7 +129,8 @@ def unit_weight_import():
             flash("Dosyada 'Hammaddeler' sayfası bulunamadı.", 'error')
             return redirect(url_for('products.unit_weight_import'))
 
-        fix_unit = request.form.get('fix_unit') == '1'  # kart birimini de kg/metre yap
+        fix_unit = request.form.get('fix_unit') == '1'      # kart birimini de kg/metre yap
+        fill_approx = request.form.get('fill_approx') == '1'  # eslesmeyenlere yaklasik deger
 
         ws = wb['Hammaddeler']
         # Excel'i ozelliklere gore indeksle (bu pass: profil, sanayi borusu, sac)
@@ -146,6 +190,14 @@ def unit_weight_import():
                     target_unit, factor = 'kg', kg
                     note = f'{th} mm · standart {dim}'
 
+            # Eslesme yoksa ve istenmisse: mevcut birime gore YAKLASIK deger ata
+            if not target_unit and fill_approx:
+                est = _uw_estimate(p.name, p.unit_type)
+                if est:
+                    target_unit = (p.unit_type or '').lower()
+                    factor = est
+                    note = 'yaklaşık · ' + ('boy 6 m' if target_unit in ('metre', 'mt') else 'geometri tahmini')
+
             if not target_unit:
                 if len(unmatched_samples) < 10:
                     unmatched_samples.append(p.name)
@@ -185,7 +237,7 @@ def unit_weight_import():
         changed_count = sum(1 for r in rows if r['w_change'] or r['u_change'])
         return render_template('products/unit_weight_import.html',
                                rows=rows, matched=len(rows), changed_count=changed_count,
-                               fix_unit=fix_unit, diag=diag)
+                               fix_unit=fix_unit, fill_approx=fill_approx, diag=diag)
 
     return render_template('products/unit_weight_import.html', rows=None)
 
