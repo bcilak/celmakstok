@@ -858,6 +858,48 @@ def bom_cost_audit(bom_id):
     )
 
 
+@production_bp.route('/weight-audit')
+@login_required
+@roles_required('Genel', 'Yönetici')
+def weight_audit():
+    """Tüm ürün ağaçlarını tarayıp üretimde SARF EDİLEMEYECEK parçaları listeler:
+    - kartsız (unlinked): bağlı stok kartı yok
+    - ağırlık/birim eksik (missing_weight): kart var ama birim uyuşmuyor + fireli ağırlık yok
+    Salt-okunur; hiçbir stok/üretim değişikliği yapmaz."""
+    from app.models import BomNode
+
+    roots = BomNode.query.filter_by(level=0).all()
+    unlinked_map, missing_map = {}, {}
+    bom_count = 0
+    for root in roots:
+        try:
+            exp = explode_bom_materials(root.bom_id, root.id, 1, db)
+        except Exception:
+            continue
+        bom_count += 1
+        bom_label = root.display_name or f'BOM #{root.bom_id}'
+        for u in exp.get('unlinked', []):
+            key = (u.get('name') or '').strip().lower()
+            e = unlinked_map.setdefault(key, {'name': u.get('name'), 'boms': set()})
+            e['boms'].add(bom_label)
+        for m in exp.get('missing_weight', []):
+            key = (m.get('product_code') or (m.get('name') or '')).strip().lower()
+            e = missing_map.setdefault(key, {'name': m.get('name'), 'code': m.get('product_code'), 'boms': set()})
+            e['boms'].add(bom_label)
+
+    def _finish(d):
+        rows = list(d.values())
+        for e in rows:
+            e['bom_count'] = len(e['boms'])
+            e['boms'] = sorted(e['boms'])[:6]
+        return sorted(rows, key=lambda x: -x['bom_count'])
+
+    unlinked = _finish(unlinked_map)
+    missing = _finish(missing_map)
+    return render_template('production/weight_audit.html',
+                           unlinked=unlinked, missing=missing, bom_count=bom_count)
+
+
 @production_bp.route('/bom/<int:bom_id>/sync-prices', methods=['POST'])
 @login_required
 @roles_required('YÃ¶netici', 'Genel')

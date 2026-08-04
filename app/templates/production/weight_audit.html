@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Üretim Eksik Veri Denetimi - ÇELMAK{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start gap-3">
+    <div>
+        <h1 class="page-title">Üretim Eksik Veri Denetimi</h1>
+        <p class="page-subtitle">
+            {{ bom_count }} ürün ağacı tarandı. Aşağıdaki parçalar üretimde <strong>stoktan düşülemez</strong>.
+            (Salt-okunur — hiçbir değişiklik yapılmaz.)
+        </p>
+    </div>
+    <a href="{{ url_for('production.bom_list') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Ürün Ağaçları
+    </a>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card border-warning h-100">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle p-3 me-3" style="background:rgba(245,158,11,.12);">
+                    <i class="bi bi-link-45deg fs-4 text-warning"></i>
+                </div>
+                <div>
+                    <h3 class="mb-0 fw-bold text-warning">{{ unlinked|length }}</h3>
+                    <small class="text-muted">Kartsız parça çeşidi</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-danger h-100">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle p-3 me-3" style="background:rgba(239,68,68,.12);">
+                    <i class="bi bi-exclamation-octagon fs-4 text-danger"></i>
+                </div>
+                <div>
+                    <h3 class="mb-0 fw-bold text-danger">{{ missing|length }}</h3>
+                    <small class="text-muted">Ağırlık/birim eksik parça çeşidi</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Kırmızı: ağırlık/birim eksik -->
+<div class="card border-danger mb-4">
+    <div class="card-header bg-danger bg-opacity-10 d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-exclamation-octagon me-2 text-danger"></i>Ağırlık / Birim Eksik (kartı var ama çevrilemiyor)</span>
+        <span class="badge bg-danger rounded-pill">{{ missing|length }}</span>
+    </div>
+    {% if missing %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light"><tr>
+                <th class="ps-3">Parça</th><th>Kod</th>
+                <th class="text-center">Kaç ürün ağacında</th><th>Örnek ürünler</th>
+            </tr></thead>
+            <tbody>
+                {% for e in missing %}
+                <tr>
+                    <td class="ps-3 fw-semibold">{{ e.name }}</td>
+                    <td><code>{{ e.code or '—' }}</code></td>
+                    <td class="text-center"><span class="badge bg-danger bg-opacity-10 text-danger">{{ e.bom_count }}</span></td>
+                    <td class="small text-muted">{{ e.boms|join(', ') }}{% if e.bom_count > 6 %} …{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-center text-muted py-4">Ağırlık/birim eksik parça yok. 🎉</div>
+    {% endif %}
+</div>
+
+<!-- Sarı: kartsız -->
+<div class="card border-warning mb-4">
+    <div class="card-header bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-link-45deg me-2 text-warning"></i>Kartsız Parçalar (bağlı stok kartı yok)</span>
+        <span class="badge bg-warning text-dark rounded-pill">{{ unlinked|length }}</span>
+    </div>
+    {% if unlinked %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light"><tr>
+                <th class="ps-3">Parça</th>
+                <th class="text-center">Kaç ürün ağacında</th><th>Örnek ürünler</th>
+            </tr></thead>
+            <tbody>
+                {% for e in unlinked %}
+                <tr>
+                    <td class="ps-3 fw-semibold">{{ e.name }}</td>
+                    <td class="text-center"><span class="badge bg-warning bg-opacity-10 text-dark">{{ e.bom_count }}</span></td>
+                    <td class="small text-muted">{{ e.boms|join(', ') }}{% if e.bom_count > 6 %} …{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-center text-muted py-4">Kartsız parça yok. 🎉</div>
+    {% endif %}
+</div>
+{% endblock %}
