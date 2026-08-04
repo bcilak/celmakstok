@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-header">
     <h1 class="page-title">Birim Ağırlık İçe Aktar</h1>
-    <p class="page-subtitle">Sayım Excel'indeki KG / METRE değerlerinden kartların "1 adet = ? kg/metre" çevrim katsayısını doldurur</p>
+    <p class="page-subtitle">Sayım Excel'indeki KG / METRE değerlerinden kartların birimini ve "1 adet = ? kg/metre" çevrim katsayısını doldurur</p>
 </div>
 
 <div class="row">
@@ -20,12 +20,21 @@
                             "Hammaddeler" sayfası olan dosyayı seçin (A=Malzeme adı, G=KG, H=METRE).
                         </div>
                     </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="fix_unit" value="1" id="fixUnit"
+                            {% if fix_unit %}checked{% endif %}>
+                        <label class="form-check-label" for="fixUnit">
+                            <strong>Kart birimini de düzelt</strong> — birimi <code>adet</code> olan kartları
+                            Excel'e göre <code>kg</code> / <code>metre</code> yap.
+                            <span class="text-danger">(Bu, kartın stok birimini değiştirir; mevcut stok sayısı aynı kalır.)</span>
+                        </label>
+                    </div>
                     <div class="d-flex gap-2">
                         <button type="submit" name="apply" value="0" class="btn btn-outline-primary">
                             <i class="bi bi-eye me-1"></i>Önizle (Rapor)
                         </button>
                         <button type="submit" name="apply" value="1" class="btn btn-success"
-                            onclick="return confirm('Kartların birim ağırlıkları güncellenecek. Devam edilsin mi?');">
+                            onclick="return confirm('Kartlar güncellenecek. Devam edilsin mi?');">
                             <i class="bi bi-check-lg me-1"></i>Uygula ve Kaydet
                         </button>
                     </div>
@@ -41,38 +50,64 @@
             </div>
             <div class="card-body p-0">
                 {% if rows %}
-                <div class="table-responsive" style="max-height:480px; overflow-y:auto;">
+                <div class="table-responsive" style="max-height:420px; overflow-y:auto;">
                     <table class="table table-sm table-hover mb-0">
                         <thead class="table-light" style="position:sticky; top:0;">
                             <tr>
-                                <th>Kod</th><th>Malzeme</th><th>Birim</th>
-                                <th class="text-end">Eski</th><th class="text-end">Yeni (1 adet =)</th>
+                                <th>Kod</th><th>Malzeme</th>
+                                <th>Mevcut birim</th><th>Hedef birim</th>
+                                <th class="text-end">1 adet =</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for r in rows %}
-                            <tr class="{{ 'table-success' if r.changed else '' }}">
+                            <tr class="{{ 'table-success' if (r.w_change or r.u_change) else '' }}">
                                 <td>{{ r.code }}</td>
                                 <td>{{ r.name }}</td>
-                                <td><span class="badge bg-secondary">{{ r.unit }}</span></td>
-                                <td class="text-end text-muted">{{ r.old if r.old is not none else '—' }}</td>
-                                <td class="text-end fw-medium">{{ r.new }} {{ r.unit }}</td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ r.cur_unit }}</span>
+                                    {% if r.u_change %}<i class="bi bi-arrow-right"></i>{% endif %}
+                                </td>
+                                <td><span class="badge {{ 'bg-warning text-dark' if r.u_change else 'bg-light text-dark' }}">{{ r.target_unit }}</span></td>
+                                <td class="text-end fw-medium">{{ r.new }} {{ r.target_unit }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
                 <div class="p-3 border-top">
-                    Sonuç iyiyse, <strong>aynı dosyayı tekrar seçip</strong> yukarıdaki
+                    Sonuç iyiyse, <strong>aynı dosyayı tekrar seçip</strong> (birim de düzeltilecekse kutucuğu işaretleyip)
                     <span class="text-success">"Uygula ve Kaydet"</span> butonuna basın.
                 </div>
                 {% else %}
                 <div class="p-4 text-center text-muted">
-                    Eşleşen kg/metre kartı bulunamadı. Ürün adları Excel'deki adlarla birebir eşleşmiyor olabilir.
+                    Eşleşen kart bulunamadı. Aşağıdaki teşhis bilgisine bakın (isimler tutuyor mu?).
                 </div>
                 {% endif %}
             </div>
         </div>
+
+        {% if diag %}
+        <div class="card mt-3 border-info">
+            <div class="card-header bg-info bg-opacity-10"><i class="bi bi-bug me-2"></i>Teşhis</div>
+            <div class="card-body small">
+                <p class="mb-1">Excel'den okunan katsayı: <strong>{{ diag.excel_count }}</strong> malzeme</p>
+                <p class="mb-1">Sistemdeki ürün sayısı: <strong>{{ diag.product_count }}</strong></p>
+                <p class="mb-1">Ürün birim dağılımı:
+                    {% for u, c in diag.unit_dist.items() %}<span class="badge bg-secondary me-1">{{ u }}: {{ c }}</span>{% endfor %}
+                </p>
+                <hr class="my-2">
+                <p class="mb-1"><strong>Örnek Excel adları:</strong></p>
+                <ul class="mb-2">{% for n in diag.excel_samples %}<li><code>{{ n }}</code></li>{% endfor %}</ul>
+                <p class="mb-1"><strong>Örnek sistem ürün adları:</strong></p>
+                <ul class="mb-2">{% for n in diag.prod_samples %}<li><code>{{ n }}</code></li>{% endfor %}</ul>
+                {% if diag.unmatched_samples %}
+                <p class="mb-1"><strong>Eşleşmeyen örnek ürünler:</strong></p>
+                <ul class="mb-0">{% for n in diag.unmatched_samples %}<li><code>{{ n }}</code></li>{% endfor %}</ul>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
         {% endif %}
     </div>
 
@@ -81,10 +116,10 @@
             <div class="card-body">
                 <h6 class="card-title text-info"><i class="bi bi-info-circle me-2"></i>Nasıl çalışır?</h6>
                 <ul class="small mb-0">
-                    <li>Birimi <strong>kg</strong> olan kart → Excel'deki <strong>KG</strong> değeri (1 adet kaç kg).</li>
-                    <li>Birimi <strong>metre</strong> olan kart → Excel'deki <strong>METRE</strong> değeri.</li>
-                    <li>Birimi <strong>adet</strong> olanlar atlanır (çevrim gerekmez).</li>
-                    <li>Doldurduktan sonra stok girişi ve sayımda <strong>adet</strong> girip sistem otomatik kg/metreye çevirir.</li>
+                    <li>Excel'de <strong>KG</strong> değeri olan malzeme → hedef birim <strong>kg</strong>.</li>
+                    <li>Sadece <strong>METRE</strong> değeri olan → hedef birim <strong>metre</strong>.</li>
+                    <li>"Kart birimini de düzelt" işaretliyse <code>adet</code> kartlar bu birime çevrilir.</li>
+                    <li>Sonra stok girişi/sayımda <strong>adet</strong> girip sistem otomatik kg/metreye çevirir.</li>
                 </ul>
             </div>
         </div>

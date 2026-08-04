@@ -53,8 +53,13 @@ def unit_weight_import():
             flash("Dosyada 'Hammaddeler' sayfası bulunamadı.", 'error')
             return redirect(url_for('products.unit_weight_import'))
 
+        fix_unit = request.form.get('fix_unit') == '1'  # kart birimini de kg/metre yap
+
         ws = wb['Hammaddeler']
+        # Excel her malzeme icin hedef birim + katsayiyi belirler:
+        # KG>0 -> ('kg', kg) ; yoksa METRE>0 -> ('metre', mt)
         factors = {}
+        excel_samples = []
         for r in range(4, ws.max_row + 1):
             name = ws.cell(r, 1).value
             g = ws.cell(r, 7).value   # G = KG (kg/adet)
@@ -63,35 +68,62 @@ def unit_weight_import():
                 continue
             kg = float(g) if isinstance(g, (int, float)) else 0.0
             mt = float(h) if isinstance(h, (int, float)) else 0.0
-            factors[_norm(name)] = (kg, mt)
+            if kg > 0:
+                factors[_norm(name)] = ('kg', kg)
+            elif mt > 0:
+                factors[_norm(name)] = ('metre', mt)
+            if len(excel_samples) < 8:
+                excel_samples.append(str(name))
 
-        rows, updated = [], 0
-        for p in Product.query.all():
-            unit = (p.unit_type or '').lower()
-            if unit in ('adet', ''):
-                continue
+        all_products = Product.query.all()
+        rows, updated_w, updated_u, unmatched_samples = [], 0, 0, []
+        unit_dist = {}
+        prod_samples = []
+        for p in all_products:
+            cur = (p.unit_type or '').lower() or '(bos)'
+            unit_dist[cur] = unit_dist.get(cur, 0) + 1
+            if len(prod_samples) < 8:
+                prod_samples.append(p.name)
             f = factors.get(_norm(p.name))
             if not f:
+                if len(unmatched_samples) < 8:
+                    unmatched_samples.append(p.name)
                 continue
-            kg, mt = f
-            new_val = kg if unit in ('kg', 'gr', 'ton') else (mt if unit in ('metre', 'mt') else 0)
-            if not new_val:
-                continue
-            changed = (p.unit_weight != new_val)
-            rows.append({'code': p.code, 'name': p.name, 'unit': unit,
-                         'old': p.unit_weight, 'new': new_val, 'changed': changed})
-            if changed and do_apply:
-                p.unit_weight = new_val
-                updated += 1
+            target_unit, factor = f
+            w_change = (p.unit_weight != factor)
+            u_change = fix_unit and ((p.unit_type or '').lower() != target_unit)
+            rows.append({'code': p.code, 'name': p.name,
+                         'cur_unit': p.unit_type or '(bos)', 'target_unit': target_unit,
+                         'old': p.unit_weight, 'new': factor,
+                         'w_change': w_change, 'u_change': u_change})
+            if do_apply:
+                if w_change:
+                    p.unit_weight = factor
+                    updated_w += 1
+                if u_change:
+                    p.unit_type = target_unit
+                    updated_u += 1
 
         if do_apply:
             db.session.commit()
-            flash(f'{updated} kartın birim ağırlığı güncellendi. Artık giriş/sayımda adet girip kg/metreye çevirebilirsiniz.', 'success')
+            msg = f'{updated_w} kartın birim ağırlığı güncellendi.'
+            if updated_u:
+                msg += f' {updated_u} kartın birimi kg/metre olarak düzeltildi.'
+            flash(msg + ' Artık giriş/sayımda adet girip kg/metreye çevirebilirsiniz.', 'success')
             return redirect(url_for('products.index'))
 
-        changed_count = sum(1 for r in rows if r['changed'])
+        diag = {
+            'excel_count': len(factors),
+            'excel_samples': excel_samples,
+            'product_count': len(all_products),
+            'unit_dist': unit_dist,
+            'prod_samples': prod_samples,
+            'unmatched_samples': unmatched_samples,
+        }
+        changed_count = sum(1 for r in rows if r['w_change'] or r['u_change'])
         return render_template('products/unit_weight_import.html',
-                               rows=rows, matched=len(rows), changed_count=changed_count)
+                               rows=rows, matched=len(rows), changed_count=changed_count,
+                               fix_unit=fix_unit, diag=diag)
 
     return render_template('products/unit_weight_import.html', rows=None)
 
