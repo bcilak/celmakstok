@@ -78,6 +78,36 @@
     </a>
 </div>
 
+<div class="card border-danger mb-3">
+    <div class="card-body py-2">
+        <form method="POST" action="{{ url_for('stock.bulk_reset') }}"
+            class="d-flex flex-wrap align-items-end gap-2"
+            onsubmit="return confirm('DİKKAT (TEST): Seçilen kapsamdaki TÜM ürünlerin stoğu bu değere ayarlanacak. Geri alınamaz. Emin misin?');">
+            <div>
+                <label class="form-label small mb-1 text-danger fw-bold">
+                    <i class="bi bi-exclamation-triangle me-1"></i>Test: Toplu Stok Sıfırla / Ata
+                </label>
+                <div class="d-flex gap-2">
+                    <select name="scope" class="form-select form-select-sm" style="max-width:180px;">
+                        <option value="all">Tüm ürünler</option>
+                        <option value="hammadde">Sadece hammadde</option>
+                        <option value="yarimamul">Sadece yarı mamul</option>
+                        <option value="mamul">Sadece mamul</option>
+                    </select>
+                    <input type="number" name="value" step="0.01" value="0"
+                        class="form-control form-control-sm" style="max-width:120px;" placeholder="değer">
+                    <button type="submit" class="btn btn-sm btn-danger">
+                        <i class="bi bi-eraser me-1"></i>Uygula
+                    </button>
+                </div>
+            </div>
+            <div class="form-text ms-2 mb-1">
+                Değer <strong>0</strong> = sıfırla. Stok hareketi oluşturmaz, yalnızca test amaçlıdır.
+            </div>
+        </form>
+    </div>
+</div>
+
 <form method="POST" id="bulkEntryForm">
     <input type="hidden" name="items_json" id="itemsJson">
     <input type="hidden" name="operation" id="operationInput" value="production">

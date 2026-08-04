@@ -478,6 +478,40 @@ def bulk_entry():
     )
 
 
+@stock_bp.route('/bulk-reset', methods=['POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def bulk_reset():
+    """TEST amaçlı: tüm (ya da tip filtreli) ürünlerin stoğunu toplu sıfırlar/ayarlar.
+    Stok hareketi oluşturmaz; sadece current_stock (ve sıfırlamada lokasyon stoğu) güncellenir."""
+    scope = request.form.get('scope', 'all')  # all | hammadde | yarimamul | mamul
+    try:
+        value = float(request.form.get('value') or 0)
+    except (TypeError, ValueError):
+        value = 0.0
+
+    q = Product.query.filter_by(is_active=True)
+    if scope in ('hammadde', 'yarimamul', 'mamul'):
+        q = q.filter(Product.type == scope)
+    products = q.all()
+
+    for p in products:
+        p.current_stock = value
+
+    # Sıfırlamada ilgili lokasyon stoklarını da sıfırla
+    if value == 0:
+        pids = [p.id for p in products]
+        if pids:
+            LocationStock.query.filter(LocationStock.product_id.in_(pids)).update(
+                {LocationStock.quantity: 0}, synchronize_session=False)
+
+    db.session.commit()
+    scope_label = {'all': 'tüm ürünler', 'hammadde': 'hammaddeler',
+                   'yarimamul': 'yarı mamuller', 'mamul': 'mamuller'}.get(scope, scope)
+    flash(f'TEST: {len(products)} üründe ({scope_label}) stok {value:g} olarak ayarlandı.', 'success')
+    return redirect(url_for('stock.bulk_entry'))
+
+
 @stock_bp.route('/api/search-products')
 @login_required
 @roles_required('Genel', 'Yönetici')
