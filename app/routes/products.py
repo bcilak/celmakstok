@@ -447,7 +447,14 @@ def edit(id):
         product.name = request.form.get('name')
         product.category_id = request.form.get('category_id', type=int)
         product.unit_type = request.form.get('unit_type', 'adet')
-        product.type = request.form.get('type', 'hammadde')
+        new_type = request.form.get('type', 'hammadde')
+        product.type = new_type
+        # Bu ürüne BAĞLI BOM satırlarının tipini de senkronla — yoksa ürün ağacından
+        # üretime gidince BomItem'ın eski tipi (ör. yarımamül) görünüp üretim yanlış
+        # davranıyor. Kod senkronuyla (yukarıda) aynı mantık.
+        from app.models import BomItem as _BomItem
+        _BomItem.query.filter_by(product_id=product.id).update(
+            {'type': new_type}, synchronize_session=False)
         product.minimum_stock = request.form.get('minimum_stock', 0, type=float)
         product.barcode = request.form.get('barcode', '')
         product.notes = request.form.get('notes', '')
