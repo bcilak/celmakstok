@@ -900,6 +900,66 @@ def weight_audit():
                            unlinked=unlinked, missing=missing, bom_count=bom_count)
 
 
+@production_bp.route('/link-audit')
+@login_required
+@roles_required('Genel', 'Yönetici')
+def link_audit():
+    """Tüm ürün ağaçlarında, BOM parçasının bağlı olduğu stok kartı parçanın
+    ölçü/malzeme imzasıyla UYUŞMAYAN satırları listeler
+    (ör. '... 2 mm' parça yanlışlıkla '... 10 mm' kartına bağlı).
+    SALT-OKUNUR: hiçbir bağlantı değiştirilmez. Düzeltme, her ürün ağacının
+    kendi 'Hammadde Bağlantı Denetimi' (bom_material_audit) sayfasından
+    tek tek gözden geçirilip onaylanarak yapılır."""
+    from app.models import BomNode
+
+    roots = BomNode.query.filter_by(level=0).all()
+    problems = []
+    per_bom = {}
+    scanned = 0
+    for root in roots:
+        try:
+            audit = audit_bom_material_links(root.bom_id, db, apply=False)
+        except Exception:
+            continue
+        scanned += 1
+        label = root.display_name or f'BOM #{root.bom_id}'
+        for row in audit.get('rows', []):
+            if row.get('status') not in ('mismatch', 'suggested'):
+                continue
+            cur = row.get('current') or {}
+            sug = row.get('suggested') or {}
+            problems.append({
+                'bom_id': root.bom_id,
+                'bom_label': label,
+                'num': row.get('num'),
+                'name': row.get('name'),
+                'unit_type': row.get('unit_type'),
+                'current_name': cur.get('name'),
+                'current_code': cur.get('code'),
+                'suggested_name': sug.get('name'),
+                'suggested_code': sug.get('code'),
+                'has_suggestion': bool(sug),
+                'status': row.get('status'),
+                'reason': row.get('reason'),
+                'affected_nodes': row.get('affected_nodes', 1),
+            })
+            b = per_bom.setdefault(root.bom_id, {
+                'bom_id': root.bom_id, 'label': label,
+                'mismatch': 0, 'suggested': 0, 'count': 0})
+            b['count'] += 1
+            if row.get('status') == 'suggested':
+                b['suggested'] += 1
+            else:
+                b['mismatch'] += 1
+
+    bom_summary = sorted(per_bom.values(), key=lambda x: -x['count'])
+    problems.sort(key=lambda x: (x['bom_label'] or '', x['num'] or ''))
+    return render_template('production/link_audit.html',
+                           problems=problems, bom_summary=bom_summary,
+                           scanned=scanned, total=len(problems),
+                           fixable=sum(1 for p in problems if p['has_suggestion']))
+
+
 @production_bp.route('/unlinked-fix', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')
