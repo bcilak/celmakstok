@@ -900,63 +900,133 @@ def weight_audit():
                            unlinked=unlinked, missing=missing, bom_count=bom_count)
 
 
-@production_bp.route('/link-audit')
+@production_bp.route('/link-audit', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')
 def link_audit():
-    """Tüm ürün ağaçlarında, BOM parçasının bağlı olduğu stok kartı parçanın
-    ölçü/malzeme imzasıyla UYUŞMAYAN satırları listeler
-    (ör. '... 2 mm' parça yanlışlıkla '... 10 mm' kartına bağlı).
-    SALT-OKUNUR: hiçbir bağlantı değiştirilmez. Düzeltme, her ürün ağacının
-    kendi 'Hammadde Bağlantı Denetimi' (bom_material_audit) sayfasından
-    tek tek gözden geçirilip onaylanarak yapılır."""
-    from app.models import BomNode
+    """Yanlış stok kartına bağlı BOM parçalarını bulur.
 
+    ÖNEMLİ: Mevcut per-BOM denetimi (audit_bom_material_links) parçanın 'kaynak'
+    metnini önce BAĞLI KARTTAN türetir; parça yanlış karta bağlıysa kart kendini
+    doğrular ve hata gizlenir (ör. '2 mm' parça '10 mm' kartına bağlıyken sorunsuz
+    görünür). Burada bunun yerine parçanın KENDİ ADI (item.name) imzasını bağlı
+    kartın imzasıyla DOĞRUDAN karşılaştırırız; böylece o kaçış yakalanır.
+
+    GET: yalnızca hammadde kartına bağlı, ölçülebilir (sac/lama/profil/boru/mil)
+         parçalarda ad↔kart imzası farkını listeler (salt-okunur).
+    POST: yalnızca kullanıcının seçtiği kalemleri, imza-doğrulaması yaparak
+          önerilen doğru karta bağlar (product_id günceller). Node/edge değişmez."""
+    from app.models import BomNode, BomItem, Product
+    from app.utils.bom_utils import _strict_material_signature, _strict_signatures_match
+    from sqlalchemy.orm import joinedload
+
+    def _sig(product):
+        return _strict_material_signature(' '.join([
+            product.name or '', getattr(product, 'material', '') or '',
+            product.code or '', getattr(product, 'notes', '') or '']))
+
+    # Aktif ürünlerin imzaları + (aile, ölçü) indeksinden doğru kart önerisi
+    products = Product.query.filter(Product.is_active == True).all()
+    prod_sig = {}
+    prod_index = {}
+    for p in products:
+        sig = _sig(p)
+        prod_sig[p.id] = sig
+        if sig:
+            prod_index.setdefault((sig['family'], sig['dimensions']), []).append((p, sig))
+
+    def _suggest(name_sig, exclude_id):
+        best = None
+        for p, sig in prod_index.get((name_sig['family'], name_sig['dimensions']), []):
+            if p.id == exclude_id or not _strict_signatures_match(name_sig, sig):
+                continue
+            rank = ((p.type == 'hammadde'), ((p.unit_cost or 0) > 0), p.id)
+            if best is None or rank > best[0]:
+                best = (rank, p)
+        return best[1] if best else None
+
+    linked_items = (BomItem.query
+                    .options(joinedload(BomItem.product))
+                    .filter(BomItem.product_id.isnot(None)).all())
+
+    # POST: seçili kalemleri önerilen doğru karta bağla
+    if request.method == 'POST':
+        by_id = {it.id: it for it in linked_items}
+        fixed_items = fixed_nodes = 0
+        for raw in request.form.getlist('item_id'):
+            try:
+                iid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if request.form.get(f'inc_{iid}') != '1':
+                continue
+            it = by_id.get(iid) or BomItem.query.get(iid)
+            if not it:
+                continue
+            try:
+                tid = int(request.form.get(f'sug_{iid}') or 0)
+            except (TypeError, ValueError):
+                continue
+            target = Product.query.get(tid)
+            if not target or target.id == it.product_id:
+                continue
+            # Güvenlik: kalem adı imzası hedef kartla gerçekten eşleşmeli
+            nsig = _strict_material_signature(it.name or '')
+            if not (nsig and _strict_signatures_match(nsig, _sig(target))):
+                continue
+            it.product_id = target.id
+            fixed_items += 1
+            fixed_nodes += it.nodes.count()
+        if fixed_items:
+            db.session.commit()
+            flash(f'{fixed_items} parça doğru karta bağlandı '
+                  f'({fixed_nodes} BOM satırı etkilendi).', 'success')
+        else:
+            db.session.rollback()
+            flash('Uygulanacak seçim bulunamadı.', 'info')
+        return redirect(url_for('production.link_audit'))
+
+    # GET: yanlış bağlantıları tespit et
     roots = BomNode.query.filter_by(level=0).all()
+    bom_label = {r.bom_id: (r.display_name or f'BOM #{r.bom_id}') for r in roots}
+
     problems = []
     per_bom = {}
-    scanned = 0
-    for root in roots:
-        try:
-            audit = audit_bom_material_links(root.bom_id, db, apply=False)
-        except Exception:
+    for it in linked_items:
+        product = it.product
+        if not product or product.type != 'hammadde':
             continue
-        scanned += 1
-        label = root.display_name or f'BOM #{root.bom_id}'
-        for row in audit.get('rows', []):
-            if row.get('status') not in ('mismatch', 'suggested'):
-                continue
-            cur = row.get('current') or {}
-            sug = row.get('suggested') or {}
-            problems.append({
-                'bom_id': root.bom_id,
-                'bom_label': label,
-                'num': row.get('num'),
-                'name': row.get('name'),
-                'unit_type': row.get('unit_type'),
-                'current_name': cur.get('name'),
-                'current_code': cur.get('code'),
-                'suggested_name': sug.get('name'),
-                'suggested_code': sug.get('code'),
-                'has_suggestion': bool(sug),
-                'status': row.get('status'),
-                'reason': row.get('reason'),
-                'affected_nodes': row.get('affected_nodes', 1),
-            })
-            b = per_bom.setdefault(root.bom_id, {
-                'bom_id': root.bom_id, 'label': label,
-                'mismatch': 0, 'suggested': 0, 'count': 0})
-            b['count'] += 1
-            if row.get('status') == 'suggested':
-                b['suggested'] += 1
-            else:
-                b['mismatch'] += 1
+        nsig = _strict_material_signature(it.name or '')
+        psig = prod_sig.get(product.id)
+        # Yalnızca her iki taraf da ölçülebilir VE imzalar farklıysa = kesin yanlış bağlantı
+        if not (nsig and psig) or _strict_signatures_match(nsig, psig):
+            continue
+        nodes = it.nodes.all()
+        bom_ids = sorted({n.bom_id for n in nodes})
+        suggestion = _suggest(nsig, product.id)
+        problems.append({
+            'item_id': it.id,
+            'name': it.name,
+            'unit_type': it.unit_type,
+            'current_name': product.name,
+            'current_code': product.code,
+            'suggested_id': suggestion.id if suggestion else None,
+            'suggested_name': suggestion.name if suggestion else None,
+            'suggested_code': suggestion.code if suggestion else None,
+            'has_suggestion': bool(suggestion),
+            'affected_nodes': len(nodes),
+            'bom_count': len(bom_ids),
+            'boms': [bom_label.get(b, f'BOM #{b}') for b in bom_ids][:6],
+        })
+        for b in bom_ids:
+            e = per_bom.setdefault(b, {'bom_id': b, 'label': bom_label.get(b, f'BOM #{b}'), 'count': 0})
+            e['count'] += 1
 
+    problems.sort(key=lambda x: (not x['has_suggestion'], x['name'] or ''))
     bom_summary = sorted(per_bom.values(), key=lambda x: -x['count'])
-    problems.sort(key=lambda x: (x['bom_label'] or '', x['num'] or ''))
     return render_template('production/link_audit.html',
                            problems=problems, bom_summary=bom_summary,
-                           scanned=scanned, total=len(problems),
+                           scanned=len(roots), total=len(problems),
                            fixable=sum(1 for p in problems if p['has_suggestion']))
 
 
