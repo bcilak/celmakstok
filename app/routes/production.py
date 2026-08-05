@@ -900,6 +900,72 @@ def weight_audit():
                            unlinked=unlinked, missing=missing, bom_count=bom_count)
 
 
+@production_bp.route('/unlinked-fix', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def unlinked_fix():
+    """FAZ 1: BOM'da stok kartı olmayan (unlinked) parçalara önizlemeli olarak
+    toplu Product kartı oluşturur ve bağlı BomItem satırlarını bağlar."""
+    import re as _re
+    from app.models import BomItem, Product
+
+    def _gen_code(name):
+        tr = str.maketrans('çğıöşüÇĞİÖŞÜ', 'cgiosuCGIOSU')
+        s = _re.sub(r'[^A-Za-z0-9]+', '-', (name or '').translate(tr)).strip('-').upper()
+        return ('OTO-' + s)[:45] if s else 'OTO-PARCA'
+
+    if request.method == 'POST':
+        created = linked = 0
+        for idx in request.form.getlist('row_index'):
+            if request.form.get(f'include_{idx}') != '1':
+                continue
+            name = (request.form.get(f'name_{idx}') or '').strip()
+            if not name:
+                continue
+            ptype = (request.form.get(f'type_{idx}') or 'hammadde').strip() or 'hammadde'
+            unit = (request.form.get(f'unit_{idx}') or 'adet').strip() or 'adet'
+            code = (request.form.get(f'code_{idx}') or '').strip() or _gen_code(name)
+            # kodu benzersizle
+            base, n = code, 1
+            while Product.query.filter_by(code=code).first():
+                n += 1
+                code = f'{base}-{n}'
+            prod = Product(code=code, name=name, type=ptype, unit_type=unit, current_stock=0)
+            db.session.add(prod)
+            db.session.flush()
+            created += 1
+            linked += BomItem.query.filter(
+                BomItem.product_id.is_(None), BomItem.name == name
+            ).update({'product_id': prod.id, 'type': ptype, 'unit_type': unit},
+                     synchronize_session=False)
+        db.session.commit()
+        flash(f'{created} kart oluşturuldu, {linked} BOM satırı bağlandı.', 'success')
+        return redirect(url_for('production.unlinked_fix'))
+
+    # GET: kartsız BomItem'leri isme göre grupla
+    items = BomItem.query.filter(BomItem.product_id.is_(None)).all()
+    groups = {}
+    for it in items:
+        name = (it.name or '').strip()
+        if not name:
+            continue
+        g = groups.setdefault(name.lower(), {
+            'name': name, 'code': (it.code or '').strip(),
+            'type': (it.type or 'hammadde').strip() or 'hammadde',
+            'unit': (it.unit_type or 'adet').strip() or 'adet', 'count': 0})
+        g['count'] += 1
+        if not g['code'] and it.code:
+            g['code'] = it.code.strip()
+
+    ph_words = ('yari mamul', 'montaj', 'dolu malzeme', 'sarf malzeme', 'resim')
+    rows = []
+    for g in sorted(groups.values(), key=lambda x: -x['count']):
+        low = g['name'].lower().replace('ı', 'i')
+        g['is_placeholder'] = any(w in low for w in ph_words)
+        rows.append(g)
+    return render_template('production/unlinked_fix.html', rows=rows)
+
+
 @production_bp.route('/bom/<int:bom_id>/sync-prices', methods=['POST'])
 @login_required
 @roles_required('YÃ¶netici', 'Genel')

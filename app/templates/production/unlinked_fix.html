@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Kartsız Parçalara Kart Oluştur - ÇELMAK{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start gap-3">
+    <div>
+        <h1 class="page-title">Kartsız Parçalara Kart Oluştur (Faz 1)</h1>
+        <p class="page-subtitle">
+            Stok kartı olmayan BOM parçalarına toplu kart aç ve bağla. Her satırın birimini/tipini
+            aşağıda seçebilirsin. Kart oluşturmak stok eklemez (stok 0 başlar).
+        </p>
+    </div>
+    <a href="{{ url_for('production.weight_audit') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-clipboard-data me-1"></i> Denetim Raporu
+    </a>
+</div>
+
+{% if rows %}
+<form method="POST">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-link-45deg me-2"></i>Kartsız parçalar ({{ rows|length }} çeşit)</span>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAll(true)">Tümünü seç</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAll(false)">Temizle</button>
+                <button type="submit" class="btn btn-sm btn-success"
+                    onclick="return confirm('Seçili parçalara kart oluşturulup BOM satırları bağlanacak. Devam?');">
+                    <i class="bi bi-check-lg me-1"></i>Seçilenlere Kart Oluştur + Bağla
+                </button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3" style="width:40px;">✓</th>
+                        <th>Parça</th>
+                        <th style="width:210px;">Kod</th>
+                        <th style="width:150px;">Tip</th>
+                        <th style="width:120px;">Birim</th>
+                        <th class="text-center" style="width:90px;">BOM say.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    {% set i = loop.index %}
+                    <tr class="{{ 'table-warning' if r.is_placeholder else '' }}">
+                        <td class="ps-3">
+                            <input type="hidden" name="row_index" value="{{ i }}">
+                            <input type="hidden" name="name_{{ i }}" value="{{ r.name }}">
+                            <input class="form-check-input row-chk" type="checkbox" name="include_{{ i }}" value="1"
+                                {% if not r.is_placeholder %}checked{% endif %}>
+                        </td>
+                        <td>
+                            <div class="fw-semibold">{{ r.name }}</div>
+                            {% if r.is_placeholder %}
+                            <small class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>Gerçek parça olmayabilir — önce BOM'da kontrol et</small>
+                            {% endif %}
+                        </td>
+                        <td><input type="text" name="code_{{ i }}" value="{{ r.code }}"
+                                class="form-control form-control-sm" placeholder="(otomatik üret)"></td>
+                        <td>
+                            <select name="type_{{ i }}" class="form-select form-select-sm">
+                                {% for t in ['hammadde','standart_parca','hazir_parca','yarimamul','mamul'] %}
+                                <option value="{{ t }}" {% if r.type==t %}selected{% endif %}>{{ t }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <select name="unit_{{ i }}" class="form-select form-select-sm">
+                                {% for u in ['adet','kg','metre'] %}
+                                <option value="{{ u }}" {% if r.unit==u %}selected{% endif %}>{{ u }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td class="text-center"><span class="badge bg-secondary">{{ r.count }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</form>
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-check-circle display-1 text-success"></i>
+        <h4 class="mt-3">Kartsız parça yok 🎉</h4>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleAll(v) {
+        document.querySelectorAll('.row-chk').forEach(c => c.checked = v);
+    }
+</script>
+{% endblock %}
