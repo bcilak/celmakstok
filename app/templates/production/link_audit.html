@@ -67,11 +67,11 @@
         <div class="card-header bg-danger bg-opacity-10 d-flex flex-wrap justify-content-between align-items-center gap-2">
             <span><i class="bi bi-exclamation-octagon me-2 text-danger"></i>Yanlış bağlı parçalar</span>
             <div class="d-flex gap-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAll(true)">Önerilileri seç</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAll(true)">Tümünü seç</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAll(false)">Temizle</button>
                 <button type="submit" class="btn btn-sm btn-success"
-                    onclick="return confirm('Seçili parçalar önerilen doğru karta yeniden bağlanacak. Ürün ağacı yapısı değişmez, yalnızca kart bağı düzelir. Devam?');">
-                    <i class="bi bi-check-lg me-1"></i>Seçilenleri Doğru Karta Bağla
+                    onclick="return confirm('Seçili parçalar doğru karta bağlanacak (öneri varsa ona, yoksa girdiğin bilgilerle YENİ kart açılıp ona). Ürün ağacı yapısı değişmez, yalnızca kart bağı düzelir. Devam?');">
+                    <i class="bi bi-check-lg me-1"></i>Seçilenleri Uygula
                 </button>
             </div>
         </div>
@@ -91,11 +91,13 @@
                         <td class="ps-3">
                             <input type="hidden" name="item_id" value="{{ p.item_id }}">
                             {% if p.has_suggestion %}
+                            <input type="hidden" name="mode_{{ p.item_id }}" value="link">
                             <input type="hidden" name="sug_{{ p.item_id }}" value="{{ p.suggested_id }}">
-                            <input class="form-check-input row-chk" type="checkbox" name="inc_{{ p.item_id }}" value="1">
                             {% else %}
-                            <i class="bi bi-dash-circle text-muted" title="Öneri yok — elle düzelt"></i>
+                            <input type="hidden" name="mode_{{ p.item_id }}" value="create">
+                            <input type="hidden" name="name_{{ p.item_id }}" value="{{ p.name }}">
                             {% endif %}
+                            <input class="form-check-input row-chk" type="checkbox" name="inc_{{ p.item_id }}" value="1">
                         </td>
                         <td class="fw-semibold">{{ p.name }}
                             {% if p.unit_type %}<span class="badge bg-secondary bg-opacity-50 ms-1">{{ p.unit_type }}</span>{% endif %}
@@ -109,7 +111,21 @@
                             <span class="text-success">{{ p.suggested_name }}</span>
                             <code class="small d-block text-muted">{{ p.suggested_code or '—' }}</code>
                             {% else %}
-                            <span class="text-muted small"><i class="bi bi-question-circle me-1"></i>Uygun kart bulunamadı (elle bağla)</span>
+                            <div class="small text-success mb-1"><i class="bi bi-plus-circle me-1"></i>Yeni kart oluştur:</div>
+                            <div class="d-flex flex-wrap gap-1">
+                                <input type="text" name="code_{{ p.item_id }}" value="{{ p.new_code }}"
+                                    class="form-control form-control-sm" style="max-width:170px;" title="Kart kodu">
+                                <select name="type_{{ p.item_id }}" class="form-select form-select-sm" style="max-width:130px;" title="Tip">
+                                    {% for t in ['hammadde','standart_parca','hazir_parca','yarimamul','mamul'] %}
+                                    <option value="{{ t }}" {% if t=='hammadde' %}selected{% endif %}>{{ t }}</option>
+                                    {% endfor %}
+                                </select>
+                                <select name="unit_{{ p.item_id }}" class="form-select form-select-sm" style="max-width:90px;" title="Birim">
+                                    {% for u in ['kg','metre','adet'] %}
+                                    <option value="{{ u }}" {% if u==p.new_unit %}selected{% endif %}>{{ u }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                             {% endif %}
                         </td>
                         <td class="text-center">
@@ -125,8 +141,8 @@
         </div>
         <div class="card-footer text-end">
             <button type="submit" class="btn btn-success"
-                onclick="return confirm('Seçili parçalar önerilen doğru karta yeniden bağlanacak. Devam?');">
-                <i class="bi bi-check-lg me-1"></i>Seçilenleri Doğru Karta Bağla
+                onclick="return confirm('Seçili parçalar doğru karta bağlanacak (öneri varsa ona, yoksa yeni kart açılıp ona). Devam?');">
+                <i class="bi bi-check-lg me-1"></i>Seçilenleri Uygula
             </button>
         </div>
     </div>

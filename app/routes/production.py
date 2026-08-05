@@ -916,8 +916,11 @@ def link_audit():
          parçalarda ad↔kart imzası farkını listeler (salt-okunur).
     POST: yalnızca kullanıcının seçtiği kalemleri, imza-doğrulaması yaparak
           önerilen doğru karta bağlar (product_id günceller). Node/edge değişmez."""
+    import re as _re
     from app.models import BomNode, BomItem, Product
-    from app.utils.bom_utils import _strict_material_signature, _strict_signatures_match
+    from app.utils.bom_utils import (
+        _strict_material_signature, _strict_signatures_match,
+        _find_matching_raw_material, _costing_unit_family)
     from sqlalchemy.orm import joinedload
 
     def _sig(product):
@@ -925,34 +928,39 @@ def link_audit():
             product.name or '', getattr(product, 'material', '') or '',
             product.code or '', getattr(product, 'notes', '') or '']))
 
-    # Aktif ürünlerin imzaları + (aile, ölçü) indeksinden doğru kart önerisi
-    products = Product.query.filter(Product.is_active == True).all()
-    prod_sig = {}
-    prod_index = {}
-    for p in products:
-        sig = _sig(p)
-        prod_sig[p.id] = sig
-        if sig:
-            prod_index.setdefault((sig['family'], sig['dimensions']), []).append((p, sig))
+    def _gen_code(name):
+        tr = str.maketrans('çğıöşüÇĞİÖŞÜ', 'cgiosuCGIOSU')
+        s = _re.sub(r'[^A-Za-z0-9]+', '-', (name or '').translate(tr)).strip('-').upper()
+        return s[:45] if s else 'OTO-PARCA'
 
-    def _suggest(name_sig, exclude_id):
-        best = None
-        for p, sig in prod_index.get((name_sig['family'], name_sig['dimensions']), []):
-            if p.id == exclude_id or not _strict_signatures_match(name_sig, sig):
-                continue
-            rank = ((p.type == 'hammadde'), ((p.unit_cost or 0) > 0), p.id)
-            if best is None or rank > best[0]:
-                best = (rank, p)
-        return best[1] if best else None
+    def _default_unit(item):
+        return _costing_unit_family(item.name or '') or (item.unit_type or 'adet')
+
+    # Aktif ürünler + hammadde adayları (öneri, korumalı eşleştiriciyle bulunur)
+    products = Product.query.filter(Product.is_active == True).all()
+    prod_sig = {p.id: _sig(p) for p in products}
+    hammadde_candidates = [p for p in products if p.type == 'hammadde']
+
+    def _suggest(item, exclude_id):
+        """Yalnızca GERÇEK ham malzeme kartı önerir: 3TB- (mamul/parça) kodları
+        elenir, isim + kalite + ölçü token'ları örtüşmeli, eşik altındaysa None.
+        Böylece 'Boğaz İç Sacı' gibi alakasız kartlar asla önerilmez."""
+        s = _find_matching_raw_material(
+            {'is_auto_hammadde': True, 'name': item.name or '',
+             'unit_type': item.unit_type or '', 'weight_per_unit': 0},
+            candidates=hammadde_candidates)
+        if s and s.id != exclude_id:
+            return s
+        return None
 
     linked_items = (BomItem.query
                     .options(joinedload(BomItem.product))
                     .filter(BomItem.product_id.isnot(None)).all())
 
-    # POST: seçili kalemleri önerilen doğru karta bağla
+    # POST: seçili kalemleri (a) önerilen karta bağla ya da (b) yeni kart açıp bağla
     if request.method == 'POST':
         by_id = {it.id: it for it in linked_items}
-        fixed_items = fixed_nodes = 0
+        fixed_items = fixed_nodes = created = 0
         for raw in request.form.getlist('item_id'):
             try:
                 iid = int(raw)
@@ -963,24 +971,57 @@ def link_audit():
             it = by_id.get(iid) or BomItem.query.get(iid)
             if not it:
                 continue
-            try:
-                tid = int(request.form.get(f'sug_{iid}') or 0)
-            except (TypeError, ValueError):
-                continue
-            target = Product.query.get(tid)
-            if not target or target.id == it.product_id:
-                continue
-            # Güvenlik: kalem adı imzası hedef kartla gerçekten eşleşmeli
-            nsig = _strict_material_signature(it.name or '')
-            if not (nsig and _strict_signatures_match(nsig, _sig(target))):
-                continue
-            it.product_id = target.id
-            fixed_items += 1
-            fixed_nodes += it.nodes.count()
+            mode = (request.form.get(f'mode_{iid}') or 'link').strip()
+
+            if mode == 'create':
+                name = (request.form.get(f'name_{iid}') or it.name or '').strip()
+                if not name:
+                    continue
+                ptype = (request.form.get(f'type_{iid}') or 'hammadde').strip() or 'hammadde'
+                unit = (request.form.get(f'unit_{iid}') or 'adet').strip() or 'adet'
+                code = (request.form.get(f'code_{iid}') or '').strip() or _gen_code(name)
+                # Aynı adda aktif kart zaten varsa yenisini AÇMA; mevcudu kullan
+                existing = Product.query.filter(
+                    func.lower(Product.name) == name.lower(),
+                    Product.is_active == True).first()
+                if existing:
+                    target = existing
+                else:
+                    base, n = code, 1
+                    while Product.query.filter_by(code=code).first():
+                        n += 1
+                        code = f'{base}-{n}'
+                    target = Product(code=code, name=name, type=ptype,
+                                     unit_type=unit, current_stock=0)
+                    db.session.add(target)
+                    db.session.flush()
+                    created += 1
+                if target.id == it.product_id:
+                    continue
+                it.product_id = target.id
+                fixed_items += 1
+                fixed_nodes += it.nodes.count()
+            else:  # link: mevcut karta bağla (imza yeniden doğrulanır)
+                try:
+                    tid = int(request.form.get(f'sug_{iid}') or 0)
+                except (TypeError, ValueError):
+                    continue
+                target = Product.query.get(tid)
+                if not target or target.id == it.product_id:
+                    continue
+                nsig = _strict_material_signature(it.name or '')
+                if not (nsig and _strict_signatures_match(nsig, _sig(target))):
+                    continue
+                it.product_id = target.id
+                fixed_items += 1
+                fixed_nodes += it.nodes.count()
+
         if fixed_items:
             db.session.commit()
-            flash(f'{fixed_items} parça doğru karta bağlandı '
-                  f'({fixed_nodes} BOM satırı etkilendi).', 'success')
+            msg = f'{fixed_items} parça doğru karta bağlandı ({fixed_nodes} BOM satırı etkilendi).'
+            if created:
+                msg += f' {created} yeni kart oluşturuldu.'
+            flash(msg, 'success')
         else:
             db.session.rollback()
             flash('Uygulanacak seçim bulunamadı.', 'info')
@@ -1003,7 +1044,7 @@ def link_audit():
             continue
         nodes = it.nodes.all()
         bom_ids = sorted({n.bom_id for n in nodes})
-        suggestion = _suggest(nsig, product.id)
+        suggestion = _suggest(it, product.id)
         problems.append({
             'item_id': it.id,
             'name': it.name,
@@ -1014,6 +1055,9 @@ def link_audit():
             'suggested_name': suggestion.name if suggestion else None,
             'suggested_code': suggestion.code if suggestion else None,
             'has_suggestion': bool(suggestion),
+            # Öneri yoksa: doğru kartı oluşturmak için önceden dolu, düzenlenebilir varsayılanlar
+            'new_code': _gen_code(it.name),
+            'new_unit': _default_unit(it),
             'affected_nodes': len(nodes),
             'bom_count': len(bom_ids),
             'boms': [bom_label.get(b, f'BOM #{b}') for b in bom_ids][:6],
