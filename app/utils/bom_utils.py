@@ -2637,6 +2637,19 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
             w_per_unit = float(node.weight_per_unit) if node.weight_per_unit else 0.0
             product_unit = product.unit_type
 
+            # FAZ 2A: Hazır/standart (dışarıdan alınan, sayılan) parçalar ya da kartı
+            # 'adet' olanlar HER ZAMAN adet tüketilir — malzeme adına ("Çelik Dövme")
+            # takılıp kg'a çevrilmeye çalışılmaz, fireli ağırlık aranmaz.
+            def _nt(s):
+                return (s or '').lower().replace('ı', 'i').replace('İ', 'i')
+            _leaf_type = _nt(getattr(item, 'type', '')) + ' ' + _nt(getattr(product, 'type', ''))
+            if (product_unit or '').lower() == 'adet' or 'hazir' in _leaf_type or 'standart' in _leaf_type:
+                key = product.id
+                if key not in required:
+                    required[key] = {'product': product, 'quantity': 0.0, 'node': node}
+                required[key]['quantity'] += current_qty
+                return
+
             if _force_cost_by_length(material_text, product_unit):
                 consume_qty = current_qty
             elif _should_cost_by_weight(material_text, node.unit_type, w_per_unit, product_unit):
