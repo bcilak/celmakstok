@@ -491,7 +491,7 @@ def bulk_reset():
         value = 0.0
 
     q = Product.query.filter_by(is_active=True)
-    if scope in ('hammadde', 'yarimamul', 'mamul', 'standart_parca'):
+    if scope in ('hammadde', 'yarimamul', 'mamul', 'standart_parca', 'hazir_parca'):
         q = q.filter(Product.type == scope)
     products = q.all()
 
@@ -508,7 +508,8 @@ def bulk_reset():
     db.session.commit()
     scope_label = {'all': 'tüm ürünler', 'hammadde': 'hammaddeler',
                    'yarimamul': 'yarı mamuller', 'mamul': 'mamuller',
-                   'standart_parca': 'standart parçalar'}.get(scope, scope)
+                   'standart_parca': 'standart parçalar',
+                   'hazir_parca': 'hazır parçalar'}.get(scope, scope)
     flash(f'TEST: {len(products)} üründe ({scope_label}) stok {value:g} olarak ayarlandı.', 'success')
     return redirect(url_for('stock.bulk_entry'))
 
