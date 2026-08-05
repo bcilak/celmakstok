@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Ağırlık Tamamla (Faz 2B) - ÇELMAK{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start gap-3">
+    <div>
+        <h1 class="page-title">Ağırlık Tamamla (Faz 2B)</h1>
+        <p class="page-subtitle">
+            Üretimde stoktan düşülemeyen (ağırlığı eksik) parçalara <strong>parça başı</strong> ağırlık gir.
+            Kartı <strong>kg</strong> olanlara kg, <strong>metre</strong> olanlara metre. Boş bıraktığın satır atlanır.
+        </p>
+    </div>
+    <a href="{{ url_for('production.weight_audit') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-clipboard-data me-1"></i> Denetim Raporu
+    </a>
+</div>
+
+{% if groups %}
+<form method="POST">
+    <div class="card mb-3">
+        <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+                <span class="fw-semibold me-3">Girdiğim değer:</span>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="mode" id="modePiece" value="piece" checked>
+                    <label class="form-check-label" for="modePiece">Parça başı (kg/parça)</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="mode" id="modeTotal" value="total">
+                    <label class="form-check-label" for="modeTotal">Satır toplamı (÷ adet)</label>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <span class="text-muted small">Toplam {{ total_rows }} eksik parça</span>
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-check-lg me-1"></i>Girilenleri Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {% for g in groups %}
+    <div class="card mb-3">
+        <div class="card-header bg-light">
+            <i class="bi bi-diagram-3 me-2"></i><strong>{{ g.label }}</strong>
+            <span class="badge bg-secondary ms-2">{{ g.rows|length }} parça</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3" style="width:70px;">No</th>
+                        <th>Parça</th>
+                        <th>Kod</th>
+                        <th class="text-center" style="width:80px;">Kart brm.</th>
+                        <th class="text-center" style="width:70px;">Adet</th>
+                        <th class="text-end" style="width:90px;">Mevcut</th>
+                        <th style="width:150px;">Ağırlık gir</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in g.rows %}
+                    <tr>
+                        <td class="ps-3 text-muted">{{ r.num }}</td>
+                        <td class="fw-semibold">{{ r.name }}</td>
+                        <td><code class="small">{{ r.code or '—' }}</code></td>
+                        <td class="text-center">
+                            <span class="badge {{ 'bg-primary' if r.unit in ['kg','metre'] else 'bg-secondary' }} bg-opacity-75">{{ r.unit or '?' }}</span>
+                        </td>
+                        <td class="text-center">{{ r.adet|round(2) }}</td>
+                        <td class="text-end text-muted small">{{ r.current|round(3) if r.current else '—' }}</td>
+                        <td>
+                            <input type="hidden" name="node_id" value="{{ r.node_id }}">
+                            <div class="input-group input-group-sm">
+                                <input type="number" step="0.0001" min="0" name="w_{{ r.node_id }}"
+                                    class="form-control" placeholder="0">
+                                <span class="input-group-text">{{ 'metre' if r.unit == 'metre' else 'kg' }}</span>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="mb-4">
+        <button type="submit" class="btn btn-success">
+            <i class="bi bi-check-lg me-1"></i>Girilenleri Kaydet
+        </button>
+    </div>
+</form>
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-check-circle display-1 text-success"></i>
+        <h4 class="mt-3">Ağırlığı eksik parça yok 🎉</h4>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

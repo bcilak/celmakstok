@@ -966,6 +966,71 @@ def unlinked_fix():
     return render_template('production/unlinked_fix.html', rows=rows)
 
 
+@production_bp.route('/weight-fill', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def weight_fill():
+    """FAZ 2B (elle): Ağırlığı eksik BOM düğümlerine elle parça-başı ağırlık girilir.
+    Girilen değer node.weight_per_unit'e yazılır; üretim bunu kg/metre çevriminde kullanır."""
+    from app.models import BomNode
+
+    if request.method == 'POST':
+        mode = request.form.get('mode', 'piece')  # piece = parça başı, total = satır toplamı ÷ adet
+        saved = 0
+        for nid in request.form.getlist('node_id'):
+            raw = (request.form.get(f'w_{nid}') or '').strip().replace(',', '.')
+            if not raw:
+                continue
+            try:
+                val = float(raw)
+            except ValueError:
+                continue
+            if val <= 0:
+                continue
+            node = BomNode.query.get(int(nid))
+            if not node:
+                continue
+            if mode == 'total':
+                pc = float(node.piece_count or node.quantity or 1) or 1.0
+                val = val / pc
+            node.weight_per_unit = round(val, 4)
+            saved += 1
+        db.session.commit()
+        flash(f'{saved} parçanın ağırlığı kaydedildi.', 'success')
+        return redirect(url_for('production.weight_fill'))
+
+    # GET: eksik ağırlıklı düğümleri BOM'a göre grupla
+    roots = BomNode.query.filter_by(level=0).all()
+    groups, seen = [], set()
+    for root in roots:
+        try:
+            exp = explode_bom_materials(root.bom_id, root.id, 1, db)
+        except Exception:
+            continue
+        rows = []
+        for m in exp.get('missing_weight', []):
+            nid = m.get('node_id')
+            if not nid or nid in seen:
+                continue
+            seen.add(nid)
+            node = BomNode.query.get(nid)
+            if not node:
+                continue
+            prod = node.item.product if node.item else None
+            rows.append({
+                'node_id': nid, 'num': node.num,
+                'name': m.get('name') or node.display_name,
+                'code': m.get('product_code') or '',
+                'unit': (prod.unit_type if prod else '') or '',
+                'adet': float(node.piece_count or node.quantity or 1),
+                'current': float(node.weight_per_unit or 0),
+            })
+        if rows:
+            groups.append({'label': root.display_name or f'BOM #{root.bom_id}', 'rows': rows})
+    total_rows = sum(len(g['rows']) for g in groups)
+    return render_template('production/weight_fill.html', groups=groups, total_rows=total_rows)
+
+
 @production_bp.route('/bom/<int:bom_id>/sync-prices', methods=['POST'])
 @login_required
 @roles_required('YÃ¶netici', 'Genel')
