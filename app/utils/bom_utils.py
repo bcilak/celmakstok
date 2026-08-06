@@ -2185,8 +2185,13 @@ def get_bom_tree(bom_id: int, db) -> dict:
             product.name if product else '',
             n.display_name or '',
         ])
-        if _should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0,
-                                   costing_product.unit_type if costing_product else None):
+        # Ağırlıkla maliyetlendirmeye YALNIZCA gerçek ölçülü hammadde (sac/lama/
+        # profil/boru/mil — malzeme imzası olan) için izin ver. Dişli yağı gibi
+        # Hazır/Sarf sarf malzemeleri (ölçü imzası yok) ağırlıkla ŞİŞİRİLMEMELİ;
+        # adet bazlı maliyetlenir.
+        if (_should_cost_by_weight(material_text, n.unit_type, w_per_unit or 0,
+                                   costing_product.unit_type if costing_product else None)
+                and _strict_material_signature(material_text)):
             is_hazir = False
 
         if built_children and not is_hazir:
@@ -2207,17 +2212,17 @@ def get_bom_tree(bom_id: int, db) -> dict:
             
             if is_hazir:
                 p_count = float(n.piece_count) if getattr(n, 'piece_count', None) else 1.0
-                cost_basis_qty = _cost_basis_quantity(q_fireli or p_count, q_firesiz)
-                if _force_cost_by_length(material_text, costing_product.unit_type if costing_product else None):
-                    cost_qty = cost_basis_qty
+                unit_l = (n.unit_type or '').lower()
+                if unit_l == 'adet':
+                    # Adet birimli hazır/standart: fireli adet kadar
+                    cost_qty = _cost_basis_quantity(q_fireli or p_count, q_firesiz)
+                elif _force_cost_by_length(material_text, costing_product.unit_type if costing_product else None):
+                    # Metre bazlı hazır kalem (profil/boru): uzunluk kadar
+                    cost_qty = _cost_basis_quantity(q_fireli or p_count, q_firesiz)
                 else:
-                    cost_qty = _cost_quantity_for_unit(
-                        costing_product.unit_type if costing_product else n.unit_type,
-                        n.unit_type,
-                        cost_basis_qty,
-                        p_count,
-                        w_per_unit or 0
-                    )
+                    # kg/ağırlık birimli hazır-sarf (ör. dişli yağı): satın alma ADEDİ
+                    # kadar maliyetlenir; ağırlık (kg) maliyete KATILMAZ → şişme biter.
+                    cost_qty = p_count
                 calc_total_cost = calc_unit_cost * cost_qty
             else:
                 cost_basis_qty = _cost_basis_quantity(q_fireli or 0, q_firesiz)
