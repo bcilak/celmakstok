@@ -512,6 +512,23 @@
                     </div>
                 </div>
                 <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Birim</label>
+                        <select class="form-select" id="edit-node-unit">
+                            <option value="adet">Adet</option>
+                            <option value="kg">Kg</option>
+                            <option value="metre">Metre</option>
+                            <option value="gr">Gr</option>
+                            <option value="ton">Ton</option>
+                        </select>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Birim Ağırlık (kg / metre-adet)</label>
+                        <input type="number" step="any" min="0" class="form-control" id="edit-node-weight">
+                        <small class="text-muted">Maliyeti ağırlıkla hesaplanan (sac/lama/boru) parçalar için. 0 = ağırlıkla hesaplama.</small>
+                    </div>
+                </div>
+                <div class="row">
                     <div class="col-8 mb-3">
                         <label class="form-label">Birim Maliyet</label>
                         <input type="number" step="any" min="0" class="form-control" id="edit-node-unit-cost">
@@ -1114,6 +1131,8 @@
                 document.getElementById('edit-node-quantity-net').value = data.quantity_net || 0;
                 document.getElementById('edit-node-unit-cost').value = data.unit_cost || 0;
                 document.getElementById('edit-node-currency').value = data.currency || 'TRY';
+                document.getElementById('edit-node-unit').value = (data.unit || 'adet').toLowerCase();
+                document.getElementById('edit-node-weight').value = data.weight_per_unit || 0;
 
                 var modal = new bootstrap.Modal(document.getElementById('editNodeModal'));
                 modal.show();
@@ -1133,7 +1152,9 @@
             quantity_net: parseFloat(document.getElementById('edit-node-quantity-net').value) || 0,
             piece_count: parseFloat(document.getElementById('edit-node-piece-count').value) || 1,
             unit_cost: parseFloat(document.getElementById('edit-node-unit-cost').value) || 0,
-            currency: document.getElementById('edit-node-currency').value || 'TRY'
+            currency: document.getElementById('edit-node-currency').value || 'TRY',
+            unit: document.getElementById('edit-node-unit').value,
+            weight_per_unit: parseFloat(document.getElementById('edit-node-weight').value) || 0
         };
 
         fetch('/production/api/bom_node/' + nodeId, {

@@ -747,7 +747,8 @@ def api_bom_node(node_id):
             'product_code': product.code if product else '',
             'unit_cost': float(product.unit_cost) if product and product.unit_cost is not None else 0,
             'currency': product.currency if product and product.currency else 'TRY',
-            'unit': node.unit_type
+            'unit': node.unit_type,
+            'weight_per_unit': float(node.weight_per_unit) if node.weight_per_unit else 0
         })
     elif request.method == 'POST':
         data = request.json
@@ -763,7 +764,18 @@ def api_bom_node(node_id):
                 node.quantity_net = data['quantity_net']
             if 'piece_count' in data:
                 node.piece_count = data['piece_count']
-            
+            if 'unit' in data and data['unit']:
+                node.unit_type = str(data['unit']).strip()[:20]
+            if 'weight_per_unit' in data:
+                wv = data.get('weight_per_unit')
+                try:
+                    wv = float(wv) if wv not in (None, '') else 0.0
+                except (TypeError, ValueError):
+                    wv = 0.0
+                # 0/boş → temizle (None); pozitif → kaydet. Böylece yanlış/şişik
+                # ağırlık elle sıfırlanabilir ya da doğru değere çekilebilir.
+                node.weight_per_unit = wv if wv > 0 else None
+
             if item:
                 if 'name' in data and data['name']:
                     item.name = data['name']
