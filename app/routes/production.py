@@ -1086,6 +1086,84 @@ def link_audit():
                            fixable=sum(1 for p in problems if p['has_suggestion']))
 
 
+@production_bp.route('/substitution-audit', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def substitution_audit():
+    """İkame kart denetimi. Kendi geçerli fiyatı OLMAYAN (unit_cost<=0) hammadde
+    kalemleri, maliyette başka bir kartın fiyatıyla (İKAME) gösterilir. Bu sayfa
+    o kalemleri listeler; kalemin GERÇEK birim fiyatını girip 'ikameyi kaldır' —
+    fiyat girilince sistem artık kartın kendi fiyatını kullanır, ikame kalkar."""
+    from app.models import BomItem, BomNode, Product
+    from app.utils.bom_utils import _find_costing_raw_material
+    from sqlalchemy.orm import joinedload
+
+    candidates = Product.query.filter(Product.is_active == True,
+                                      Product.type == 'hammadde').all()
+
+    if request.method == 'POST':
+        updated = 0
+        for raw in request.form.getlist('product_id'):
+            try:
+                pid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if request.form.get(f'inc_{pid}') != '1':
+                continue
+            try:
+                price = float(request.form.get(f'price_{pid}') or 0)
+            except (TypeError, ValueError):
+                continue
+            if price <= 0:
+                continue
+            p = Product.query.get(pid)
+            if not p:
+                continue
+            p.unit_cost = price
+            cur = (request.form.get(f'cur_{pid}') or '').strip().upper()
+            if cur:
+                p.currency = cur[:10]
+            updated += 1
+        if updated:
+            db.session.commit()
+            flash(f'{updated} kartın fiyatı güncellendi; bu kalemlerde ikame kalktı.', 'success')
+        else:
+            db.session.rollback()
+            flash('Uygulanacak fiyat girişi bulunamadı.', 'info')
+        return redirect(url_for('production.substitution_audit'))
+
+    # GET: kendi fiyatı olmayan ama ikame ile fiyatlanan hammadde kalemleri
+    items = (BomItem.query
+             .options(joinedload(BomItem.product))
+             .filter(BomItem.type == 'hammadde', BomItem.product_id.isnot(None)).all())
+    groups = {}
+    for it in items:
+        product = it.product
+        if not product or (product.unit_cost and product.unit_cost > 0):
+            continue  # kartın kendi fiyatı var → ikame yok
+        fallback = _find_costing_raw_material({
+            'name': it.name, 'unit_type': it.unit_type, 'weight_per_unit': 0,
+            'material': (product.material or it.name or ''), 'is_auto_hammadde': True,
+        }, exclude_product_id=product.id, candidates=candidates)
+        if not (fallback and fallback.unit_cost and fallback.unit_cost > 0):
+            continue  # ikame edilmiyorsa listeye alma
+        g = groups.get(product.id)
+        if not g:
+            g = groups[product.id] = {
+                'product_id': product.id,
+                'own_name': product.name, 'own_code': product.code,
+                'own_currency': product.currency or 'TRY',
+                'sub_code': fallback.code, 'sub_name': fallback.name,
+                'sub_price': float(fallback.unit_cost), 'sub_currency': fallback.currency or 'TRY',
+                'items': 0,
+            }
+        g['items'] += 1
+
+    rows = sorted(groups.values(), key=lambda x: -x['sub_price'])
+    return render_template('production/substitution_audit.html',
+                           rows=rows, total=len(rows))
+
+
 @production_bp.route('/unlinked-fix', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')

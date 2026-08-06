@@ -2112,24 +2112,11 @@ def get_bom_tree(bom_id: int, db) -> dict:
             }, exclude_product_id=product.id if product else None, candidates=candidates)
             if fallback_product and (not costing_product or fallback_product.unit_cost and fallback_product.unit_cost > 0):
                 costing_product = fallback_product
-        elif item and item.type == 'hammadde' and costing_product:
-            fallback_product = _find_costing_raw_material({
-                'name': n.display_name or item.name,
-                'unit_type': n.unit_type,
-                'weight_per_unit': float(n.weight_per_unit or 0) if n.weight_per_unit else 0,
-                'material': (product.material if product else None) or item.name or n.display_name or '',
-                'is_auto_hammadde': True,
-            }, exclude_product_id=product.id if product else None, candidates=candidates)
-            costing_code = (costing_product.code or '').upper()
-            fallback_code = (fallback_product.code or '').upper() if fallback_product else ''
-            if (
-                fallback_product
-                and fallback_product.unit_cost
-                and fallback_product.unit_cost > 0
-                and costing_code.startswith('3TB-')
-                and not fallback_code.startswith('3TB-')
-            ):
-                costing_product = fallback_product
+        # NOT: Kartın KENDİ geçerli fiyatı (unit_cost > 0) varsa artık İKAME YAPILMAZ.
+        # Eskiden 3TB- kodlu kalemlerde fiyat olsa bile ham-malzeme kartına ikame
+        # ediliyordu; bu, gerçek alış fiyatı olan Hazır Parçaların maliyetini yanlış
+        # gösteriyordu (ör. 1220 yerine 35 TRY). Fiyatı OLMAYAN kartlar için ikame,
+        # yukarıdaki dalda (unit_cost yok/<=0) yapılmaya devam eder.
         children_ids = sorted(parent_to_children.get(nid, []),
                               key=lambda i: _num_key(node_map[i].num))
         # fireli / firesiz

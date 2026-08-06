@@ -14,9 +14,14 @@
             karşılaştırılır; işaretlediklerin doğru karta bağlanır.
         </p>
     </div>
-    <a href="{{ url_for('production.weight_audit') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-clipboard-data me-1"></i> Eksik Veri Denetimi
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('production.substitution_audit') }}" class="btn btn-outline-warning">
+            <i class="bi bi-arrow-left-right me-1"></i> İkame Kart Denetimi
+        </a>
+        <a href="{{ url_for('production.weight_audit') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-clipboard-data me-1"></i> Eksik Veri Denetimi
+        </a>
+    </div>
 </div>
 
 <div class="row g-3 mb-4">

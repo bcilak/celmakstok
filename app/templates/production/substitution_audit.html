@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}İkame Kart Denetimi - ÇELMAK{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start gap-3">
+    <div>
+        <h1 class="page-title">İkame Kart Denetimi</h1>
+        <p class="page-subtitle">
+            Aşağıdaki kartların <strong>kendi birim fiyatı yok</strong>, bu yüzden maliyette
+            <strong>başka bir kartın fiyatı (İKAME)</strong> kullanılıyor. Kalemin
+            <strong>gerçek birim fiyatını</strong> girip işaretlersen, ikame kalkar ve
+            sistem artık <strong>kartın kendi fiyatını</strong> kullanır.
+        </p>
+    </div>
+    <a href="{{ url_for('production.link_audit') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-link-45deg me-1"></i> Bağlantı Denetimi
+    </a>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card border-warning h-100">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle p-3 me-3" style="background:rgba(245,158,11,.12);">
+                    <i class="bi bi-arrow-left-right fs-4 text-warning"></i>
+                </div>
+                <div>
+                    <h3 class="mb-0 fw-bold text-warning">{{ total }}</h3>
+                    <small class="text-muted">İkame ile fiyatlanan kart</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if rows %}
+<form method="POST">
+    <div class="card border-warning">
+        <div class="card-header bg-warning bg-opacity-10 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <span><i class="bi bi-arrow-left-right me-2 text-warning"></i>Kendi fiyatı olmayıp ikame kullanan kartlar</span>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAll(true)">Tümünü seç</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAll(false)">Temizle</button>
+                <button type="submit" class="btn btn-sm btn-success"
+                    onclick="return confirm('Seçili kartların girdiğin gerçek fiyatı kaydedilecek; bu kartlarda ikame kalkacak. Devam?');">
+                    <i class="bi bi-check-lg me-1"></i>Girilen Fiyatları Uygula (İkameyi Kaldır)
+                </button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light"><tr>
+                    <th class="ps-3" style="width:40px;">✓</th>
+                    <th>Kart (kendi fiyatı yok)</th>
+                    <th>Şu an kullanılan <span class="text-danger">ikame</span> kart</th>
+                    <th class="text-end" style="width:120px;">İkame fiyatı</th>
+                    <th class="text-center" style="width:80px;">Kalem</th>
+                    <th style="width:220px;">Gerçek birim fiyat</th>
+                </tr></thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr>
+                        <td class="ps-3">
+                            <input type="hidden" name="product_id" value="{{ r.product_id }}">
+                            <input class="form-check-input row-chk" type="checkbox" name="inc_{{ r.product_id }}" value="1">
+                        </td>
+                        <td>
+                            <div class="fw-semibold">{{ r.own_name }}</div>
+                            <code class="small text-muted">{{ r.own_code or '—' }}</code>
+                        </td>
+                        <td>
+                            <span class="text-danger">{{ r.sub_name }}</span>
+                            <code class="small d-block text-muted">{{ r.sub_code or '—' }}</code>
+                        </td>
+                        <td class="text-end text-danger">{{ '%.2f'|format(r.sub_price) }} {{ r.sub_currency }}</td>
+                        <td class="text-center"><span class="badge bg-secondary bg-opacity-75">{{ r.items }}</span></td>
+                        <td>
+                            <div class="input-group input-group-sm">
+                                <input type="number" step="any" min="0" name="price_{{ r.product_id }}"
+                                    class="form-control" value="{{ '%.2f'|format(r.sub_price) }}" title="Kartın gerçek birim fiyatı">
+                                <input type="text" name="cur_{{ r.product_id }}" value="{{ r.own_currency }}"
+                                    class="form-control text-uppercase" style="max-width:60px;" maxlength="10">
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer text-end">
+            <button type="submit" class="btn btn-success"
+                onclick="return confirm('Seçili kartların girdiğin gerçek fiyatı kaydedilecek; ikame kalkacak. Devam?');">
+                <i class="bi bi-check-lg me-1"></i>Girilen Fiyatları Uygula
+            </button>
+        </div>
+    </div>
+    <p class="text-muted small mt-2">
+        <i class="bi bi-info-circle me-1"></i>İpucu: İkame fiyatı doğruysa olduğu gibi bırakıp uygula —
+        o değer kartın kendi fiyatı olur ve ikame kalkar. Farklıysa gerçek fiyatı yaz.
+    </p>
+</form>
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-check-circle display-1 text-success"></i>
+        <h4 class="mt-3">İkame ile fiyatlanan kart yok 🎉</h4>
+        <p>Fiyatı olan kartlar kendi fiyatını kullanıyor; ikame gerektiren fiyatsız kart bulunamadı.</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleAll(v) {
+        document.querySelectorAll('.row-chk').forEach(c => c.checked = v);
+    }
+</script>
+{% endblock %}
