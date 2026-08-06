@@ -1086,6 +1086,156 @@ def link_audit():
                            fixable=sum(1 for p in problems if p['has_suggestion']))
 
 
+@production_bp.route('/shared-card-split', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def shared_card_split():
+    """Tek bir stok kartına bağlı FARKLI isimli parçaları ayrıştırır: her farklı
+    parçaya kendi kartını açıp bağlar. Böylece bir parçanın kodu/fiyatı ötekileri
+    etkilemeden düzenlenebilir. Yeni kartlar fiyatsız (0) açılır; fiyatlar sonra
+    'Hızlı Fiyat Girişi' sayfasından girilir. Node/edge/ağaç yapısı değişmez."""
+    import re as _re
+    from collections import defaultdict
+    from app.models import BomItem, Product
+
+    def _gen_code(name):
+        tr = str.maketrans('çğıöşüÇĞİÖŞÜ', 'cgiosuCGIOSU')
+        s = _re.sub(r'[^A-Za-z0-9]+', '-', (name or '').translate(tr)).strip('-').upper()
+        return ('AYR-' + s)[:45] if s else 'AYR-PARCA'
+
+    def _norm(s):
+        return _re.sub(r'\s+', ' ', (s or '').strip()).lower()
+
+    linked = BomItem.query.filter(BomItem.product_id.isnot(None)).all()
+    by_prod = defaultdict(list)
+    for it in linked:
+        by_prod[it.product_id].append(it)
+
+    if request.method == 'POST':
+        sel = set(request.form.getlist('product_id'))
+        created = relinked = 0
+        for pid_str in sel:
+            try:
+                pid = int(pid_str)
+            except (TypeError, ValueError):
+                continue
+            group_items = by_prod.get(pid, [])
+            shared = Product.query.get(pid)
+            if not shared or len(group_items) < 2:
+                continue
+            name_groups = defaultdict(list)
+            for it in group_items:
+                name_groups[_norm(it.name)].append(it)
+            if len(name_groups) < 2:
+                continue  # tek isim → ayrıştırmaya gerek yok
+            for grp in name_groups.values():
+                real_name = grp[0].name
+                code = _gen_code(real_name)
+                base, n = code, 1
+                while Product.query.filter_by(code=code).first():
+                    n += 1
+                    code = f'{base}-{n}'
+                newp = Product(code=code, name=real_name,
+                               type=shared.type or 'hammadde',
+                               unit_type=grp[0].unit_type or shared.unit_type or 'adet',
+                               current_stock=0, unit_cost=0,
+                               currency=shared.currency or 'TRY')
+                db.session.add(newp)
+                db.session.flush()
+                created += 1
+                for it in grp:
+                    it.product_id = newp.id
+                    relinked += 1
+        if created:
+            db.session.commit()
+            flash(f'{created} yeni kart açıldı, {relinked} parça ayrıştırıldı. '
+                  f'Şimdi fiyatları hızlıca girebilirsin.', 'success')
+            return redirect(url_for('production.card_prices'))
+        db.session.rollback()
+        flash('Ayrıştırılacak kart seçilmedi.', 'info')
+        return redirect(url_for('production.shared_card_split'))
+
+    # GET: farklı isimli ≥2 parçaya bağlı (aşırı paylaşılan) kartları listele
+    rows = []
+    shared_ids = [pid for pid, its in by_prod.items()
+                  if len({_norm(x.name) for x in its}) >= 2]
+    if shared_ids:
+        prods = {p.id: p for p in Product.query.filter(Product.id.in_(shared_ids)).all()}
+        for pid in shared_ids:
+            p = prods.get(pid)
+            if not p:
+                continue
+            its = by_prod[pid]
+            names, seen = [], set()
+            for x in its:
+                k = _norm(x.name)
+                if k not in seen:
+                    seen.add(k)
+                    names.append(x.name)
+            rows.append({
+                'product_id': pid,
+                'card_name': p.name, 'card_code': p.code,
+                'unit_cost': float(p.unit_cost or 0),
+                'distinct': len(names),
+                'total_items': len(its),
+                'samples': names[:8],
+                'more': max(0, len(names) - 8),
+            })
+    rows.sort(key=lambda x: -x['distinct'])
+    return render_template('production/shared_card_split.html',
+                           rows=rows, total=len(rows))
+
+
+@production_bp.route('/card-prices', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def card_prices():
+    """Fiyatsız (unit_cost<=0) ve BOM'da kullanılan stok kartlarına hızlı toplu
+    birim fiyat girişi. Yalnızca değer yazdığın satırlar kaydedilir."""
+    from sqlalchemy import or_
+    from app.models import Product, BomItem
+
+    if request.method == 'POST':
+        updated = 0
+        for key, val in request.form.items():
+            if not key.startswith('price_'):
+                continue
+            try:
+                pid = int(key[6:])
+                price = float(val or 0)
+            except (TypeError, ValueError):
+                continue
+            if price <= 0:
+                continue
+            p = Product.query.get(pid)
+            if p:
+                p.unit_cost = price
+                updated += 1
+        if updated:
+            db.session.commit()
+            flash(f'{updated} kartın fiyatı girildi.', 'success')
+        else:
+            flash('Fiyat girilmedi.', 'info')
+        return redirect(url_for('production.card_prices', page=request.args.get('page', 1)))
+
+    used_ids = {row[0] for row in BomItem.query
+                .with_entities(BomItem.product_id)
+                .filter(BomItem.product_id.isnot(None)).distinct().all()}
+    prods = [p for p in Product.query.filter(
+                Product.is_active == True,
+                or_(Product.unit_cost.is_(None), Product.unit_cost <= 0))
+             .order_by(Product.name).all()
+             if p.id in used_ids]
+
+    per = 200
+    total = len(prods)
+    pages = max(1, (total + per - 1) // per)
+    page = min(max(1, request.args.get('page', 1, type=int)), pages)
+    page_prods = prods[(page - 1) * per: page * per]
+    return render_template('production/card_prices.html',
+                           prods=page_prods, page=page, pages=pages, total=total)
+
+
 @production_bp.route('/substitution-audit', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')
