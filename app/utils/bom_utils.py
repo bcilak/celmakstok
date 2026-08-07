@@ -2608,7 +2608,7 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
     missing_weight = []
     breakdown = []   # her yaprak katkısı: {num,name,code,unit,leaf_qty,mult,contrib}
 
-    def walk(current_node_id, current_qty):
+    def walk(current_node_id, current_qty, factors):
         node = node_map.get(current_node_id)
         if not node:
             return
@@ -2646,7 +2646,7 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
                     'num': node.num, 'name': node.display_name or (item.name if item else ''),
                     'code': product.code or '', 'unit': product_unit or '',
                     'leaf_qty': _lq, 'mult': (current_qty / _lq) if _lq else 1.0,
-                    'contrib': current_qty})
+                    'contrib': current_qty, 'factors': list(factors)})
                 return
 
             if _force_cost_by_length(material_text, product_unit):
@@ -2684,7 +2684,7 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
                 'num': node.num, 'name': node.display_name or (item.name if item else ''),
                 'code': product.code or '', 'unit': product_unit or '',
                 'leaf_qty': _lq, 'mult': (current_qty / _lq) if _lq else 1.0,
-                'contrib': consume_qty})
+                'contrib': consume_qty, 'factors': list(factors)})
             return
 
         for child_edge in children:
@@ -2698,9 +2698,17 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
                       else float(child_edge.quantity or 1))
             except (TypeError, ValueError):
                 cq = 1.0
-            walk(child_edge.child_node_id, float(current_qty or 0) * cq)
+            # Ara düğümün miktarı 1'den farklıysa, altındaki yapraklara bir "çarpan
+            # kaynağı" olarak eklenir — böylece '2 adeti nereden aldı' izlenebilir.
+            child_factors = factors
+            if children_of.get(child_edge.child_node_id) and abs(cq - 1.0) > 1e-9:
+                child_factors = factors + [{
+                    'num': child_node.num if child_node else '',
+                    'name': (child_node.display_name or (child_node.item.name if child_node and child_node.item else '')) if child_node else '',
+                    'qty': cq}]
+            walk(child_edge.child_node_id, float(current_qty or 0) * cq, child_factors)
 
-    walk(node_id, build_qty)
+    walk(node_id, build_qty, [])
     return {
         'materials': list(required.values()),
         'unlinked': unlinked,

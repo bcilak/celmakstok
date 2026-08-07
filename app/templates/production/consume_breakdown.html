@@ -63,6 +63,7 @@
                 <th style="width:190px;">Kod</th>
                 <th class="text-end" style="width:120px;">Düğüm miktarı</th>
                 <th class="text-center" style="width:100px;">Üst çarpan</th>
+                <th>Çarpan kaynağı (2 nereden)</th>
                 <th class="text-end" style="width:120px;">Katkı</th>
                 <th style="width:60px;">Birim</th>
             </tr></thead>
@@ -77,6 +78,12 @@
                         {% if l.mult and l.mult > 1.0001 %}
                         <span class="badge bg-warning text-dark">×{{ '%.2f'|format(l.mult) }}</span>
                         {% else %}<span class="text-muted">×1</span>{% endif %}
+                    </td>
+                    <td class="small">
+                        {% for f in l.factors %}
+                        <div><code class="text-muted">{{ f.num }}</code> {{ f.name }}
+                            <span class="badge bg-warning text-dark">×{{ '%.2f'|format(f.qty) }}</span></div>
+                        {% else %}<span class="text-muted">—</span>{% endfor %}
                     </td>
                     <td class="text-end fw-semibold">{{ '%.4f'|format(l.contrib) }}</td>
                     <td class="text-muted small">{{ l.unit }}</td>
