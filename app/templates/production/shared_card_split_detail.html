@@ -40,6 +40,7 @@
                     <th style="width:230px;">Doğru kod</th>
                     <th style="width:140px;">Tip</th>
                     <th style="width:100px;">Birim</th>
+                    <th style="width:150px;">Birim fiyat</th>
                     <th class="text-center" style="width:80px;">Düğüm</th>
                 </tr></thead>
                 <tbody>
@@ -68,6 +69,13 @@
                                 <option value="{{ u }}" {% if p.unit==u %}selected{% endif %}>{{ u }}</option>
                                 {% endfor %}
                             </select>
+                        </td>
+                        <td>
+                            <div class="input-group input-group-sm">
+                                <input type="number" step="any" min="0" name="price_{{ i }}"
+                                    class="form-control" placeholder="0">
+                                <span class="input-group-text">{{ shared.currency or 'TRY' }}</span>
+                            </div>
                         </td>
                         <td class="text-center"><span class="badge bg-secondary bg-opacity-75">{{ p.count }}</span></td>
                     </tr>

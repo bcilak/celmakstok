@@ -1242,6 +1242,10 @@ def shared_card_split_detail(pid):
             ptype = (request.form.get(f'type_{i}') or shared.type or 'hammadde').strip()
             unit = (request.form.get(f'unit_{i}') or 'adet').strip() or 'adet'
             code = (request.form.get(f'code_{i}') or '').strip() or _gen_code(name)
+            try:
+                price = float(request.form.get(f'price_{i}') or 0)
+            except (TypeError, ValueError):
+                price = 0.0
             existing = Product.query.filter_by(code=code).first()
             if existing:
                 target = existing
@@ -1253,6 +1257,8 @@ def shared_card_split_detail(pid):
                 db.session.add(target)
                 db.session.flush()
                 created += 1
+            if price > 0:
+                target.unit_cost = price  # bu ekranda girilen birim fiyat kartı fiyatlar
             newi = BomItem(code=code, name=name, type=ptype, unit_type=unit,
                            product_id=target.id)
             db.session.add(newi)
