@@ -1106,10 +1106,23 @@ def shared_card_split():
     def _norm(s):
         return _re.sub(r'\s+', ' ', (s or '').strip()).lower()
 
-    linked = BomItem.query.filter(BomItem.product_id.isnot(None)).all()
-    by_prod = defaultdict(list)
-    for it in linked:
-        by_prod[it.product_id].append(it)
+    from app.models import BomNode
+    from sqlalchemy.orm import joinedload
+
+    # Paylaşım DÜĞÜM seviyesinde olabilir: aynı BomItem/kart, farklı görünen adlı
+    # çok sayıda düğümce kullanılır (ör. tek '999-000-1' kartı 10 farklı parçada).
+    # Bu yüzden kartın (product_id) altındaki düğümleri GÖRÜNEN ADA göre grupluyoruz.
+    nodes = (BomNode.query
+             .options(joinedload(BomNode.item).joinedload(BomItem.product))
+             .join(BomItem, BomNode.item_id == BomItem.id)
+             .filter(BomItem.product_id.isnot(None)).all())
+
+    def _dn(n):
+        return _norm(n.display_name or (n.item.name if n.item else ''))
+
+    by_prod = defaultdict(list)   # product_id -> [BomNode, ...]
+    for n in nodes:
+        by_prod[n.item.product_id].append(n)
 
     if request.method == 'POST':
         sel = set(request.form.getlist('product_id'))
@@ -1119,65 +1132,68 @@ def shared_card_split():
                 pid = int(pid_str)
             except (TypeError, ValueError):
                 continue
-            group_items = by_prod.get(pid, [])
+            ns = by_prod.get(pid, [])
             shared = Product.query.get(pid)
-            if not shared or len(group_items) < 2:
+            if not shared or len({_dn(x) for x in ns}) < 2:
                 continue
-            name_groups = defaultdict(list)
-            for it in group_items:
-                name_groups[_norm(it.name)].append(it)
-            if len(name_groups) < 2:
-                continue  # tek isim → ayrıştırmaya gerek yok
-            for grp in name_groups.values():
-                real_name = grp[0].name
-                code = _gen_code(real_name)
-                base, n = code, 1
+            groups = defaultdict(list)
+            for x in ns:
+                groups[_dn(x)].append(x)
+            for gnodes in groups.values():
+                first = gnodes[0]
+                disp = first.display_name or (first.item.name if first.item else 'Parça')
+                src_type = (first.item.type if first.item else None) or shared.type or 'hammadde'
+                src_unit = first.unit_type or (first.item.unit_type if first.item else None) or shared.unit_type or 'adet'
+                code = _gen_code(disp)
+                base, k = code, 1
                 while Product.query.filter_by(code=code).first():
-                    n += 1
-                    code = f'{base}-{n}'
-                newp = Product(code=code, name=real_name,
-                               type=shared.type or 'hammadde',
-                               unit_type=grp[0].unit_type or shared.unit_type or 'adet',
-                               current_stock=0, unit_cost=0,
+                    k += 1
+                    code = f'{base}-{k}'
+                newp = Product(code=code, name=disp, type=src_type,
+                               unit_type=src_unit, current_stock=0, unit_cost=0,
                                currency=shared.currency or 'TRY')
                 db.session.add(newp)
                 db.session.flush()
+                newi = BomItem(code=code, name=disp, type=src_type,
+                               unit_type=src_unit, product_id=newp.id)
+                db.session.add(newi)
+                db.session.flush()
+                for x in gnodes:
+                    x.item_id = newi.id
                 created += 1
-                for it in grp:
-                    it.product_id = newp.id
-                    relinked += 1
+                relinked += len(gnodes)
         if created:
             db.session.commit()
-            flash(f'{created} yeni kart açıldı, {relinked} parça ayrıştırıldı. '
+            flash(f'{created} yeni kart açıldı, {relinked} parça (düğüm) ayrıştırıldı. '
                   f'Şimdi fiyatları hızlıca girebilirsin.', 'success')
             return redirect(url_for('production.card_prices'))
         db.session.rollback()
         flash('Ayrıştırılacak kart seçilmedi.', 'info')
         return redirect(url_for('production.shared_card_split'))
 
-    # GET: farklı isimli ≥2 parçaya bağlı (aşırı paylaşılan) kartları listele
+    # GET: bir karta bağlı FARKLI görünen adlı ≥2 düğüm = aşırı paylaşılan kart
     rows = []
-    shared_ids = [pid for pid, its in by_prod.items()
-                  if len({_norm(x.name) for x in its}) >= 2]
+    shared_ids = [pid for pid, ns in by_prod.items()
+                  if len({_dn(x) for x in ns}) >= 2]
     if shared_ids:
         prods = {p.id: p for p in Product.query.filter(Product.id.in_(shared_ids)).all()}
         for pid in shared_ids:
             p = prods.get(pid)
             if not p:
                 continue
-            its = by_prod[pid]
+            ns = by_prod[pid]
             names, seen = [], set()
-            for x in its:
-                k = _norm(x.name)
-                if k not in seen:
-                    seen.add(k)
-                    names.append(x.name)
+            for x in ns:
+                key = _dn(x)
+                if key not in seen:
+                    seen.add(key)
+                    names.append(x.display_name or (x.item.name if x.item else ''))
             rows.append({
                 'product_id': pid,
                 'card_name': p.name, 'card_code': p.code,
                 'unit_cost': float(p.unit_cost or 0),
                 'distinct': len(names),
-                'total_items': len(its),
+                'total_items': len(ns),
                 'samples': names[:8],
                 'more': max(0, len(names) - 8),
             })
