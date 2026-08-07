@@ -729,7 +729,7 @@ def bom_tree(bom_id):
 @login_required
 @roles_required('Yönetici', 'Genel')
 def api_bom_node(node_id):
-    from app.models import BomNode, Product, BomItem
+    from app.models import BomNode, Product, BomItem, BomEdge
     node = BomNode.query.get_or_404(node_id)
     item = node.item
     product = item.product if item else None
@@ -760,6 +760,10 @@ def api_bom_node(node_id):
                 node.display_name = data['name']
             if 'quantity' in data:
                 node.quantity = data['quantity']
+                # node.quantity <-> edge.quantity senkron: üretim sarfiyatı da bu
+                # düğüme bağlı kenar(lar)dan güncel miktarı görsün.
+                BomEdge.query.filter_by(child_node_id=node.id).update(
+                    {'quantity': node.quantity}, synchronize_session=False)
             if 'quantity_net' in data:
                 node.quantity_net = data['quantity_net']
             if 'piece_count' in data:

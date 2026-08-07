@@ -2675,11 +2675,17 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
             return
 
         for child_edge in children:
+            child_node = node_map.get(child_edge.child_node_id)
             try:
-                edge_qty = float(child_edge.quantity or 1)
+                # Miktar kaynağı: DÜĞÜM (node.quantity) — maliyet/ağaç (get_bom_tree)
+                # ile AYNI kaynak. Kalem düzenlemeleri node'a işlendiğinden üretim
+                # sarfiyatı da güncel kalır. (Eski hâl edge.quantity kullanıyordu;
+                # düzenleme edge'e yansımadığı için üretim ağaçtan sapıyordu.)
+                cq = (float(child_node.quantity) if (child_node and child_node.quantity)
+                      else float(child_edge.quantity or 1))
             except (TypeError, ValueError):
-                edge_qty = 1.0
-            walk(child_edge.child_node_id, float(current_qty or 0) * edge_qty)
+                cq = 1.0
+            walk(child_edge.child_node_id, float(current_qty or 0) * cq)
 
     walk(node_id, build_qty)
     return {
