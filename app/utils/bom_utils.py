@@ -2606,6 +2606,7 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
     required: dict[int, dict] = {}
     unlinked = []
     missing_weight = []
+    breakdown = []   # her yaprak katkısı: {num,name,code,unit,leaf_qty,mult,contrib}
 
     def walk(current_node_id, current_qty):
         node = node_map.get(current_node_id)
@@ -2640,6 +2641,12 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
                 if key not in required:
                     required[key] = {'product': product, 'quantity': 0.0, 'node': node}
                 required[key]['quantity'] += current_qty
+                _lq = float(node.quantity or 0)
+                breakdown.append({
+                    'num': node.num, 'name': node.display_name or (item.name if item else ''),
+                    'code': product.code or '', 'unit': product_unit or '',
+                    'leaf_qty': _lq, 'mult': (current_qty / _lq) if _lq else 1.0,
+                    'contrib': current_qty})
                 return
 
             if _force_cost_by_length(material_text, product_unit):
@@ -2672,6 +2679,12 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
             if key not in required:
                 required[key] = {'product': product, 'quantity': 0.0, 'node': node}
             required[key]['quantity'] += consume_qty
+            _lq = float(node.quantity or 0)
+            breakdown.append({
+                'num': node.num, 'name': node.display_name or (item.name if item else ''),
+                'code': product.code or '', 'unit': product_unit or '',
+                'leaf_qty': _lq, 'mult': (current_qty / _lq) if _lq else 1.0,
+                'contrib': consume_qty})
             return
 
         for child_edge in children:
@@ -2692,6 +2705,7 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
         'materials': list(required.values()),
         'unlinked': unlinked,
         'missing_weight': missing_weight,
+        'breakdown': breakdown,
     }
 
 

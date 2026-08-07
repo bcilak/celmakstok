@@ -1090,6 +1090,41 @@ def link_audit():
                            fixable=sum(1 for p in problems if p['has_suggestion']))
 
 
+@production_bp.route('/bom/<int:bom_id>/consume-breakdown')
+@login_required
+@roles_required('Genel', 'Yönetici')
+def consume_breakdown(bom_id):
+    """Üretim sarfiyatının satır satır dökümü: her yaprak malzemenin düğüm
+    miktarı, üst-adet çarpanı ve katkısı (kg/metre/adet). Salt-okunur;
+    'toplam neden bu kadar' sorusunu şeffaf gösterir."""
+    from collections import defaultdict
+    from app.models import BomNode
+    root = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root:
+        flash(f'BOM #{bom_id} bulunamadı.', 'error')
+        return redirect(url_for('production.bom_list'))
+    exp = explode_bom_materials(bom_id, root.id, 1, db)
+    q = (request.args.get('q') or '').strip().lower()
+    lines = exp.get('breakdown', [])
+    if q:
+        lines = [l for l in lines
+                 if q in (l.get('name') or '').lower() or q in (l.get('code') or '').lower()]
+    lines.sort(key=lambda l: ((l.get('code') or ''), (l.get('num') or '')))
+    totals = defaultdict(lambda: {'code': '', 'name': '', 'unit': '', 'total': 0.0, 'count': 0})
+    for l in lines:
+        key = l.get('code') or '—'
+        t = totals[key]
+        t['code'] = key
+        t['name'] = l.get('name')
+        t['unit'] = l.get('unit')
+        t['total'] += float(l.get('contrib') or 0)
+        t['count'] += 1
+    total_rows = sorted(totals.values(), key=lambda x: -x['total'])
+    return render_template('production/consume_breakdown.html',
+                           bom_id=bom_id, root_name=root.display_name,
+                           lines=lines, totals=total_rows, q=q)
+
+
 @production_bp.route('/shared-card-split', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')

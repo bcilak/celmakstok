@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Sarfiyat Dökümü - ÇELMAK{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start gap-3">
+    <div>
+        <h1 class="page-title">Sarfiyat Dökümü</h1>
+        <p class="page-subtitle">
+            <strong>{{ root_name }}</strong> — 1 adet üretim için her malzemenin
+            <strong>satır satır</strong> katkısı. <em>Katkı = düğüm miktarı × üst-adet çarpanı.</em>
+            Üretim ekranındaki toplam, bu satırların toplamıdır.
+        </p>
+    </div>
+    <a href="{{ url_for('production.bom_tree', bom_id=bom_id) }}" class="btn btn-outline-secondary">
+        <i class="bi bi-diagram-3 me-1"></i> Ürün Ağacı
+    </a>
+</div>
+
+<form method="GET" class="mb-3">
+    <div class="input-group" style="max-width:420px;">
+        <input type="text" name="q" value="{{ q }}" class="form-control"
+            placeholder="Malzeme adı / kod filtrele (ör. 5 mm)">
+        <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
+        {% if q %}<a class="btn btn-outline-secondary" href="{{ url_for('production.consume_breakdown', bom_id=bom_id) }}">Temizle</a>{% endif %}
+    </div>
+</form>
+
+{% if totals %}
+<div class="card mb-3">
+    <div class="card-header bg-light"><i class="bi bi-sigma me-2"></i><strong>Malzeme bazında toplam</strong></div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead class="table-light"><tr>
+                <th class="ps-3">Kod</th><th>Malzeme</th>
+                <th class="text-center">Satır</th><th class="text-end">Toplam</th><th style="width:70px;">Birim</th>
+            </tr></thead>
+            <tbody>
+                {% for t in totals %}
+                <tr>
+                    <td class="ps-3"><code class="small">{{ t.code }}</code></td>
+                    <td>{{ t.name }}</td>
+                    <td class="text-center">{{ t.count }}</td>
+                    <td class="text-end fw-bold">{{ '%.3f'|format(t.total) }}</td>
+                    <td class="text-muted">{{ t.unit }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-ol me-2"></i>Satır dökümü</span>
+        <span class="badge bg-secondary">{{ lines|length }} satır</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light"><tr>
+                <th class="ps-3" style="width:90px;">No</th>
+                <th>Parça</th>
+                <th style="width:190px;">Kod</th>
+                <th class="text-end" style="width:120px;">Düğüm miktarı</th>
+                <th class="text-center" style="width:100px;">Üst çarpan</th>
+                <th class="text-end" style="width:120px;">Katkı</th>
+                <th style="width:60px;">Birim</th>
+            </tr></thead>
+            <tbody>
+                {% for l in lines %}
+                <tr class="{{ 'table-warning' if l.mult and l.mult > 1.0001 else '' }}">
+                    <td class="ps-3 text-muted small">{{ l.num }}</td>
+                    <td class="fw-semibold">{{ l.name }}</td>
+                    <td><code class="small">{{ l.code or '—' }}</code></td>
+                    <td class="text-end">{{ '%.4f'|format(l.leaf_qty) }}</td>
+                    <td class="text-center">
+                        {% if l.mult and l.mult > 1.0001 %}
+                        <span class="badge bg-warning text-dark">×{{ '%.2f'|format(l.mult) }}</span>
+                        {% else %}<span class="text-muted">×1</span>{% endif %}
+                    </td>
+                    <td class="text-end fw-semibold">{{ '%.4f'|format(l.contrib) }}</td>
+                    <td class="text-muted small">{{ l.unit }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<p class="text-muted small mt-2">
+    <i class="bi bi-info-circle me-1"></i>Sarı satır = üst-adet çarpanı 1'den büyük (o parça birden çok kez kullanılıyor).
+    Katkı sütununu toplarsan üretim ekranındaki miktarı elde edersin.
+</p>
+{% else %}
+<div class="card"><div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-search display-1"></i>
+    <h4 class="mt-3">Kayıt yok</h4>
+    <p>{{ 'Filtreye uyan malzeme bulunamadı.' if q else 'Bu ürün ağacında stoktan düşülen malzeme bulunamadı.' }}</p>
+</div></div>
+{% endif %}
+{% endblock %}
