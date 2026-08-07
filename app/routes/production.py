@@ -1202,6 +1202,98 @@ def shared_card_split():
                            rows=rows, total=len(rows))
 
 
+@production_bp.route('/shared-card-split/<int:pid>', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def shared_card_split_detail(pid):
+    """Tek bir ortak kartın altındaki parçaları TEK TEK, doğru kodu girerek
+    ayrıştırma. Girilen kod mevcut bir kartla eşleşirse o karta bağlar (yeni
+    açmaz); eşleşmezse yeni kart açar. Her parça için yeni BomItem oluşturulup
+    ilgili düğümler ona taşınır. Node/edge/ağaç yapısı değişmez."""
+    import re as _re
+    from collections import defaultdict
+    from app.models import BomNode, BomItem, Product
+    from sqlalchemy.orm import joinedload
+
+    def _gen_code(name):
+        tr = str.maketrans('çğıöşüÇĞİÖŞÜ', 'cgiosuCGIOSU')
+        s = _re.sub(r'[^A-Za-z0-9]+', '-', (name or '').translate(tr)).strip('-').upper()
+        return ('AYR-' + s)[:45] if s else 'AYR-PARCA'
+
+    def _norm(s):
+        return _re.sub(r'\s+', ' ', (s or '').strip()).lower()
+
+    shared = Product.query.get_or_404(pid)
+    nodes = (BomNode.query
+             .options(joinedload(BomNode.item))
+             .join(BomItem, BomNode.item_id == BomItem.id)
+             .filter(BomItem.product_id == pid).all())
+
+    if request.method == 'POST':
+        created = reused = relinked = 0
+        for i in request.form.getlist('row_index'):
+            if request.form.get(f'inc_{i}') != '1':
+                continue
+            node_ids = [int(x) for x in (request.form.get(f'nodes_{i}') or '').split(',')
+                        if x.strip().isdigit()]
+            if not node_ids:
+                continue
+            name = (request.form.get(f'name_{i}') or 'Parça').strip() or 'Parça'
+            ptype = (request.form.get(f'type_{i}') or shared.type or 'hammadde').strip()
+            unit = (request.form.get(f'unit_{i}') or 'adet').strip() or 'adet'
+            code = (request.form.get(f'code_{i}') or '').strip() or _gen_code(name)
+            existing = Product.query.filter_by(code=code).first()
+            if existing:
+                target = existing
+                reused += 1
+            else:
+                target = Product(code=code, name=name, type=ptype, unit_type=unit,
+                                 current_stock=0, unit_cost=0,
+                                 currency=shared.currency or 'TRY')
+                db.session.add(target)
+                db.session.flush()
+                created += 1
+            newi = BomItem(code=code, name=name, type=ptype, unit_type=unit,
+                           product_id=target.id)
+            db.session.add(newi)
+            db.session.flush()
+            for n in BomNode.query.filter(BomNode.id.in_(node_ids)).all():
+                n.item_id = newi.id
+                relinked += 1
+        if created or reused:
+            db.session.commit()
+            flash(f'{relinked} parça ayrıştırıldı ({created} yeni kart, '
+                  f'{reused} mevcut karta bağlandı).', 'success')
+            return redirect(url_for('production.shared_card_split'))
+        db.session.rollback()
+        flash('Seçim yapılmadı.', 'info')
+        return redirect(url_for('production.shared_card_split_detail', pid=pid))
+
+    # GET: parçaları görünen ada göre grupla
+    groups = {}
+    for n in nodes:
+        key = _norm(n.display_name or (n.item.name if n.item else ''))
+        g = groups.get(key)
+        if not g:
+            g = groups[key] = {
+                'name': n.display_name or (n.item.name if n.item else 'Parça'),
+                'unit': n.unit_type or (n.item.unit_type if n.item else 'adet') or 'adet',
+                'type': (n.item.type if n.item else None) or shared.type or 'hammadde',
+                'node_ids': [],
+            }
+        g['node_ids'].append(n.id)
+    parts = []
+    for g in groups.values():
+        parts.append({
+            'name': g['name'], 'unit': g['unit'], 'type': g['type'],
+            'code': _gen_code(g['name']), 'count': len(g['node_ids']),
+            'node_ids': ','.join(str(x) for x in g['node_ids']),
+        })
+    parts.sort(key=lambda x: x['name'].lower())
+    return render_template('production/shared_card_split_detail.html',
+                           shared=shared, parts=parts, total=len(parts))
+
+
 @production_bp.route('/card-prices', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')
