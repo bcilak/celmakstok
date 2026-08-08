@@ -1125,6 +1125,135 @@ def consume_breakdown(bom_id):
                            lines=lines, totals=total_rows, q=q)
 
 
+@production_bp.route('/bom/<int:bom_id>/health', methods=['GET', 'POST'])
+@login_required
+@roles_required('Genel', 'Yönetici')
+def bom_health(bom_id):
+    """Tek BOM'un bağlantı sağlık denetimi. Üç sorunu ayrıştırır ve düzeltir:
+      A) Pasif karta bağlı kalem  → kartı aktifleştir (stok gitsin, aramada çıksın)
+      B) Kimlik uyuşmazlığı (BOM kodu ≠ bağlı ürün kodu; yanlış birleştirme)
+         → BOM koduna uyan doğru karta bağla (+ pasifse aktifleştir), yoksa yeni kart
+      C) Çocuksuz yarı mamül → tipini düzelt (hazır/standart/hammadde)
+    Yalnızca product.is_active / product.type / BomItem.product_id değişir;
+    node/edge/ağaç yapısı ve stok hareketleri değişmez."""
+    import re as _re
+    from app.models import BomNode, BomItem, BomEdge, Product
+    from sqlalchemy.orm import joinedload
+
+    root = BomNode.query.filter_by(bom_id=bom_id, level=0).first()
+    if not root:
+        flash(f'BOM #{bom_id} bulunamadı.', 'error')
+        return redirect(url_for('production.bom_list'))
+
+    def _norm(s):
+        return _re.sub(r'\s+', ' ', (s or '').strip()).lower()
+
+    def _gen_code(name):
+        tr = str.maketrans('çğıöşüÇĞİÖŞÜ', 'cgiosuCGIOSU')
+        s = _re.sub(r'[^A-Za-z0-9]+', '-', (name or '').translate(tr)).strip('-').upper()
+        return s[:45] if s else 'OTO-PARCA'
+
+    if request.method == 'POST':
+        activated = relinked = created = retyped = 0
+        # A) aktifleştir
+        for iid in request.form.getlist('a_item_id'):
+            if request.form.get(f'inc_a_{iid}') != '1':
+                continue
+            it = BomItem.query.get(int(iid)) if str(iid).isdigit() else None
+            if it and it.product and not it.product.is_active:
+                it.product.is_active = True
+                activated += 1
+        # B) doğru karta bağla / yeni kart
+        for iid in request.form.getlist('b_item_id'):
+            if request.form.get(f'inc_b_{iid}') != '1':
+                continue
+            it = BomItem.query.get(int(iid)) if str(iid).isdigit() else None
+            if not it:
+                continue
+            tid = request.form.get(f'sug_{iid}')
+            if tid and str(tid).isdigit():
+                target = Product.query.get(int(tid))
+                if target:
+                    target.is_active = True
+                    it.product_id = target.id
+                    relinked += 1
+            else:
+                code = (it.code or '').strip() or _gen_code(it.name)
+                base, k = code, 1
+                while Product.query.filter_by(code=code).first():
+                    k += 1
+                    code = f'{base}-{k}'
+                newp = Product(code=code, name=it.name, type=(it.type or 'hammadde'),
+                               unit_type=(it.unit_type or 'adet'), current_stock=0,
+                               unit_cost=0, is_active=True)
+                db.session.add(newp)
+                db.session.flush()
+                it.product_id = newp.id
+                created += 1
+        # C) tip düzelt
+        for iid in request.form.getlist('c_item_id'):
+            if request.form.get(f'inc_c_{iid}') != '1':
+                continue
+            it = BomItem.query.get(int(iid)) if str(iid).isdigit() else None
+            newtype = (request.form.get(f'ctype_{iid}') or '').strip()
+            if it and newtype in ('hazir_parca', 'standart_parca', 'hammadde'):
+                it.type = newtype
+                if it.product:
+                    it.product.type = newtype
+                retyped += 1
+        if activated or relinked or created or retyped:
+            db.session.commit()
+            flash(f'Sağlık düzeltmesi: {activated} aktifleştirildi, '
+                  f'{relinked} yeniden bağlandı, {created} yeni kart, '
+                  f'{retyped} tip düzeltildi.', 'success')
+        else:
+            db.session.rollback()
+            flash('Seçim yapılmadı.', 'info')
+        return redirect(url_for('production.bom_health', bom_id=bom_id))
+
+    # GET: bu BOM'un kalemlerini tara
+    nodes = (BomNode.query
+             .options(joinedload(BomNode.item).joinedload(BomItem.product))
+             .filter(BomNode.bom_id == bom_id).all())
+    parents = {e.parent_node_id for e in BomEdge.query.filter_by(bom_id=bom_id).all()
+               if e.parent_node_id is not None}
+    items = {}
+    for n in nodes:
+        it = n.item
+        if not it or not it.product_id or not it.product:
+            continue
+        rec = items.get(it.id)
+        if not rec:
+            rec = items[it.id] = {'item': it, 'product': it.product,
+                                  'display': n.display_name or it.name, 'nums': [], 'leaf': False}
+        rec['nums'].append(n.num)
+        if n.id not in parents:
+            rec['leaf'] = True
+
+    sec_a, sec_b, sec_c = [], [], []
+    for rec in items.values():
+        it, p = rec['item'], rec['product']
+        icode = (it.code or '').strip()
+        pcode = (p.code or '').strip()
+        base = {'item_id': it.id, 'display': rec['display'], 'item_code': icode,
+                'prod_name': p.name, 'prod_code': pcode, 'active': p.is_active,
+                'nums': sorted(rec['nums'])[:6], 'num_count': len(rec['nums'])}
+        if icode and pcode and _norm(icode) != _norm(pcode):
+            sug = Product.query.filter(func.lower(Product.code) == icode.lower()).first()
+            base['sug_id'] = sug.id if sug else None
+            base['sug_name'] = sug.name if sug else None
+            base['sug_active'] = sug.is_active if sug else None
+            sec_b.append(base)
+        elif not p.is_active:
+            sec_a.append(base)
+        elif rec['leaf'] and (p.type == 'yarimamul' or it.type == 'yarimamul'):
+            sec_c.append(base)
+
+    return render_template('production/bom_health.html',
+                           bom_id=bom_id, root_name=root.display_name,
+                           sec_a=sec_a, sec_b=sec_b, sec_c=sec_c)
+
+
 @production_bp.route('/shared-card-split', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')

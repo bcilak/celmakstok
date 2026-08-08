@@ -338,6 +338,12 @@
         <a href="{{ url_for('production.bom_cost_audit', bom_id=bom_id) }}" class="btn btn-sm btn-outline-warning">
             <i class="bi bi-receipt me-1"></i>Maliyet Dökümü
         </a>
+        <a href="{{ url_for('production.bom_health', bom_id=bom_id) }}" class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-heart-pulse me-1"></i>Sağlık Denetimi
+        </a>
+        <a href="{{ url_for('production.consume_breakdown', bom_id=bom_id) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-list-ol me-1"></i>Sarfiyat Dökümü
+        </a>
         <a href="{{ url_for('production.bom_download_excel', bom_id=bom_id) }}" class="btn btn-sm btn-success">
             <i class="bi bi-file-earmark-excel me-1"></i>Excel İndir
         </a>
