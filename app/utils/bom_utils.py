@@ -971,16 +971,25 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             i_val = _float(rv_raw[col_map['qty']], 1.0) if 'qty' in col_map and col_map['qty'] < len(rv_raw) else 1.0
             price_val = _float(rv_raw[col_map['price']], 0.0) if 'price' in col_map and col_map['price'] < len(rv_raw) else 0.0
 
-            if e_val > 0:
-                qty_fireli  = e_val
-                qty_firesiz = f_val if f_val > 0 else e_val
+            # FİRELİ kolonu boş gelip yalnızca FİRESİZ dolduğunda da ölçüyü oku.
+            # Bu Excel'de ağırlık/uzunluk FİRESİZ kolonlarında (firesizM/firesizA)
+            # geliyor, FİRELİ boş. Eskiden yalnızca fireli'ye (e_val/g_val)
+            # bakıldığından satır 'adet'e düşüp gerçek kg/metre çöpe gidiyor,
+            # maliyet 0 ya da (elle ağırlık girilince) şişmiş çıkıyordu.
+            m_val = e_val or f_val   # metre: fireli yoksa firesiz
+            a_val = g_val or h_val   # ağırlık: fireli yoksa firesiz
+
+            if m_val > 0:
+                qty_fireli  = m_val
+                qty_firesiz = f_val if f_val > 0 else m_val
                 unit        = 'metre'
-                w_val  = round(g_val / e_val, 4) if g_val > 0 and e_val > 0 else 0.0
+                # kg/metre = ağırlık / uzunluk (kg bazlı stok kartı dönüşümü için)
+                w_val  = round(a_val / m_val, 4) if a_val > 0 and m_val > 0 else 0.0
                 w_unit = 'kg'
                 pc_val = i_val
-            elif g_val > 0:
-                qty_fireli  = g_val
-                qty_firesiz = h_val if h_val > 0 else g_val
+            elif a_val > 0:
+                qty_fireli  = a_val
+                qty_firesiz = h_val if h_val > 0 else a_val
                 unit        = 'kg'
                 w_val  = 0.0
                 w_unit = 'kg'
