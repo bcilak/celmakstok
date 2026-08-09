@@ -1377,6 +1377,35 @@ def _parse_format_c(ws, override_root_name=None) -> tuple[list[dict], list[dict]
 # ANA GİRİŞ NOKTASI
 # ---------------------------------------------------------------------------
 
+def _reparent_by_num_prefix(rows: list[dict]) -> None:
+    """parent_num'u num'un noktalı önekinden türetir (listeyi yerinde günceller).
+
+    Noktalı BOM numaraları hiyerarşiyi zaten kodlar (1.2.2.1. -> parent 1.2.2.).
+    Eski satır-sırası/stack tabanlı parent ataması; numaralandırma boşluklu ya da
+    atlamalı olduğunda (ör. grup başlığı satırı '1.', '2.' hiç yoksa, veya
+    1.3.1. -> 1.3.2. -> 1.3.1.2. gibi sıra bozulunca) düğümleri yanlış köke
+    bağlıyordu -> ürün ağacı çok sayıda köke bölünüyordu.
+
+    Burada parent, num'un EN UZUN mevcut öneki olarak seçilir; hiçbir önek satırı
+    yoksa kök (level 0) düğüme bağlanır. Satır sırasına, boşluğa ve tekrarlara
+    karşı dayanıklıdır.
+    """
+    nums = {r['num'] for r in rows}
+    root_num = next((r['num'] for r in rows if r.get('level') == 0), None)
+    for r in rows:
+        if r.get('level', 0) == 0:
+            r['parent_num'] = None
+            continue
+        parts = [p for p in str(r['num']).rstrip('.').split('.') if p]
+        parent = None
+        for k in range(len(parts) - 1, 0, -1):
+            cand = '.'.join(parts[:k]) + '.'
+            if cand != r['num'] and cand in nums:
+                parent = cand
+                break
+        r['parent_num'] = parent or root_num
+
+
 def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict], list[dict]]:
     """
     ÇELMAK ürün ağacı Excel dosyasını parse eder.
@@ -1465,6 +1494,12 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
             transformed_rows.append(child)
         else:
             transformed_rows.append(r)
+
+    # Hiyerarşi onarımı: noktalı numaralı (numbered) formatta parent'ı num
+    # önekinden yeniden türet. Böylece boşluklu/atlamalı/sırasız numaralandırma
+    # ürün ağacını çok sayıda köke bölmez (bkz. _reparent_by_num_prefix).
+    if fmt == 'numbered':
+        _reparent_by_num_prefix(transformed_rows)
 
     return transformed_rows, errors
 
@@ -2033,7 +2068,9 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
         db.session.add(node)
         db.session.flush()
         nodes_c += 1
-        num_to_node_id[row['num']] = node.id
+        # Aynı num birden fazla satırda geçebilir (Excel veri hatası). İlk gören
+        # kazanır ki alt düğümler tutarlı/deterministik biçimde ilk üste bağlansın.
+        num_to_node_id.setdefault(row['num'], node.id)
 
         parent_num = row.get('parent_num')
         parent_node_id = num_to_node_id.get(parent_num) if parent_num else None
