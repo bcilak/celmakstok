@@ -1145,37 +1145,39 @@ def weight_mixup_audit():
              .join(BomItem, BomNode.item_id == BomItem.id)
              .filter(BomItem.product_id.isnot(None)).all())
 
-    rows = []
-    per_bom = defaultdict(int)
+    groups = {}
+    total = 0
+    matched_count = 0
     for n in nodes:
-        if (n.unit_type or '').lower() != 'adet':
-            continue
-        w = float(n.weight_per_unit or 0)
-        if w <= 0:
+        # ŞÜPHELİ = fireli VE firesiz DEĞERİ BOŞ olan ölçülü hammadde.
+        # Fireli ya da firesiz girilmişse doğru kabul edilir, atlanır.
+        if float(n.quantity or 0) != 0 or float(n.quantity_net or 0) != 0:
             continue
         it = n.item
         p = it.product
         text = ' '.join([p.material or '', p.name or '', n.display_name or ''])
         fam = _costing_unit_family(text)
         if not fam:
-            continue  # yalnızca ölçülü malzemeler
+            continue  # yalnızca ölçülü hammadde (sac/lama/boru/mil)
+        w = float(n.weight_per_unit or 0)
         uw = float(p.unit_weight or 0)
-        matched = bool(uw > 0 and abs(w - uw) <= max(0.01, uw * 0.01))
-        rows.append({
-            'bom_id': n.bom_id, 'bom': roots.get(n.bom_id, f'BOM #{n.bom_id}'),
-            'num': n.num, 'name': n.display_name or it.name, 'code': p.code or '',
-            'family': fam, 'wpu': w, 'unit_weight': uw, 'matched': matched,
-        })
-        per_bom[n.bom_id] += 1
+        matched = bool(w > 0 and uw > 0 and abs(w - uw) <= max(0.01, uw * 0.01))
+        if matched:
+            matched_count += 1
+        g = groups.get(n.bom_id)
+        if not g:
+            g = groups[n.bom_id] = {'bom_id': n.bom_id,
+                                    'bom': roots.get(n.bom_id, f'BOM #{n.bom_id}'), 'rows': []}
+        g['rows'].append({'num': n.num, 'name': n.display_name or it.name,
+                          'code': p.code or '', 'family': fam, 'wpu': w,
+                          'unit_weight': uw, 'matched': matched})
+        total += 1
 
-    rows.sort(key=lambda r: (r['bom'], r['num']))
-    bom_summary = sorted(
-        [{'bom_id': k, 'bom': roots.get(k, f'BOM #{k}'), 'count': v} for k, v in per_bom.items()],
-        key=lambda x: -x['count'])
-    matched_count = sum(1 for r in rows if r['matched'])
+    bom_groups = sorted(groups.values(), key=lambda x: -len(x['rows']))
+    for g in bom_groups:
+        g['rows'].sort(key=lambda r: r['num'])
     return render_template('production/weight_mixup_audit.html',
-                           rows=rows, bom_summary=bom_summary,
-                           total=len(rows), matched=matched_count)
+                           bom_groups=bom_groups, total=total, matched=matched_count)
 
 
 @production_bp.route('/bom/<int:bom_id>/health', methods=['GET', 'POST'])
