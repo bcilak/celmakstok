@@ -2215,10 +2215,15 @@ def get_bom_tree(bom_id: int, db) -> dict:
             display_type = raw_type
 
         built_children = [build(cid) for cid in children_ids]
+        # Altında çocuğu olan düğüm üretilen bir yarımamüldür; maliyeti
+        # çocuklardan toplanır. raw_type/ready_purchase metni "Hazır" dese bile
+        # çocuklu düğüm "hazır" sayılmamalı — aksi halde roll-up yapılmayıp
+        # yarımamülün toplam maliyeti 0.00 çıkıyordu.
         is_hazir = (
-            raw_type in ['hazir_parca', 'standart_parca']
-            or display_type in ['hazir_parca', 'standart_parca']
-            or ready_purchase
+            (raw_type in ['hazir_parca', 'standart_parca']
+             or display_type in ['hazir_parca', 'standart_parca']
+             or ready_purchase)
+            and not (has_children and n.level > 0)
         )
         material_text = ' '.join(_c(value) for value in [
             product.material if product else '',
