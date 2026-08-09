@@ -2200,10 +2200,17 @@ def get_bom_tree(bom_id: int, db) -> dict:
         
         if code_prefix in STANDARD_PREFIXES:
             display_type = 'standart_parca'
+        elif has_children and n.level > 0:
+            # Altında çocuk varsa üretilen bir yarımamüldür — malzeme metni "Hazır"
+            # dese bile yapı bunu ezer.
+            display_type = 'yarimamul'
+        elif raw_type == 'yarimamul' and n.level > 0:
+            # Kullanıcı ürün tipini açıkça 'yarımamül' yaptıysa, metin sezgisi
+            # (ready_purchase) bunu ezmemeli — aksi halde tip değişikliği ağaca
+            # yansımıyordu.
+            display_type = 'yarimamul'
         elif ready_purchase and n.level > 0:
             display_type = 'hazir_parca'
-        elif has_children and n.level > 0:
-            display_type = 'yarimamul'
         else:
             display_type = raw_type
 
