@@ -7,9 +7,10 @@
     <div>
         <h1 class="page-title">Toplu Fireli Ağırlık Girişi</h1>
         <p class="page-subtitle">
-            <strong>{{ root_name }}</strong> — fireli/firesiz değeri boş ölçülü hammaddeler.
-            Her satırın gerçek fireli birim ağırlığını (kg) gir, tek seferde kaydet.
-            <em>Yalnızca sarfiyat ağırlığı yazılır; stok 1-adet ağırlığına dokunulmaz.</em>
+            <strong>{{ root_name }}</strong> — ölçülü hammaddeler (sac/lama/boru/mil), malzeme koduna göre gruplu.
+            Her malzemenin <strong>1 adet ağırlığını (kg)</strong> grup başlığına <strong>bir kere</strong> yaz,
+            <strong>"Tümüne uygula"</strong> ile o malzemenin tüm kullanımlarına bas, kaydet.
+            <em>Sarfiyat = parçanın fireli katsayısı × bu ağırlık. Stok 1-adet ağırlığına dokunulmaz.</em>
         </p>
     </div>
     <a href="{{ url_for('production.bom_tree', bom_id=bom_id) }}" class="btn btn-outline-secondary">
@@ -22,7 +23,7 @@
     <div class="col-md-4">
         <div class="card border-danger h-100"><div class="card-body d-flex align-items-center">
             <div class="rounded-circle p-3 me-3" style="background:rgba(239,68,68,.12);"><i class="bi bi-input-cursor-text fs-4 text-danger"></i></div>
-            <div><h3 class="mb-0 fw-bold text-danger">{{ total }}</h3><small class="text-muted">Ağırlığı eksik satır</small></div>
+            <div><h3 class="mb-0 fw-bold text-danger">{{ total }}</h3><small class="text-muted">Hammadde kullanımı (satır)</small></div>
         </div></div>
     </div>
     <div class="col-md-4">
@@ -62,15 +63,17 @@
         </div>
         <div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
             <thead class="table-light"><tr>
-                <th class="ps-3" style="width:120px;">No</th>
+                <th class="ps-3" style="width:110px;">No</th>
                 <th>Kullanıldığı parça</th>
-                <th class="text-end" style="width:180px;">Fireli ağırlık (kg)</th>
+                <th class="text-end" style="width:110px;">Fireli katsayı</th>
+                <th class="text-end" style="width:170px;">1 adet ağırlığı (kg)</th>
             </tr></thead>
             <tbody>
                 {% for r in g.rows %}
                 <tr class="{{ '' if r.wpu else 'table-warning' }}">
                     <td class="ps-3 text-muted small">{{ r.num }}</td>
                     <td class="fw-semibold">{{ r.part }}</td>
+                    <td class="text-end text-muted small">{{ ('%.4f'|format(r.fireli)).rstrip('0').rstrip('.') if r.fireli else '—' }}</td>
                     <td class="text-end">
                         <input type="number" step="any" min="0" name="w_{{ r.id }}"
                                class="form-control form-control-sm text-end row-w{{ ' is-filled' if r.wpu else '' }}"
@@ -120,7 +123,7 @@
 {% else %}
 <div class="card"><div class="card-body text-center py-5 text-muted">
     <i class="bi bi-check-circle display-1 text-success"></i>
-    <h4 class="mt-3">Bu ürün ağacında ağırlığı eksik ölçülü hammadde yok 🎉</h4>
+    <h4 class="mt-3">Bu ürün ağacında ölçülü hammadde (sac/lama/boru/mil) bulunamadı 🎉</h4>
 </div></div>
 {% endif %}
 {% endblock %}

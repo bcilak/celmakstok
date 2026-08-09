@@ -1203,7 +1203,7 @@ def bom_weight_entry(bom_id):
     fireli birim ağırlığını (kg) TEK EKRANDA toplu gir. Malzeme koduna göre
     gruplanır; aynı gruba tek tuşla toplu değer atanabilir. Yalnızca
     node.weight_per_unit yazılır — Product.unit_weight'e dokunulmaz."""
-    from app.models import BomNode, BomItem
+    from app.models import BomNode, BomItem, BomEdge
     from app.utils.bom_utils import _costing_unit_family
     from sqlalchemy.orm import joinedload
 
@@ -1247,28 +1247,33 @@ def bom_weight_entry(bom_id):
         flash(f'✅ {updated} satırın ağırlığı kaydedildi.', 'success')
         return redirect(url_for('production.bom_weight_entry', bom_id=bom_id))
 
+    # Yaprak = altında çocuğu olmayan düğüm. Ölçülü hammaddeler zaten yapraktır;
+    # yanlışlıkla ölçü adına takılan ara düğümleri elemek için çocuk kontrolü.
+    parent_ids = {e.parent_node_id for e in BomEdge.query.filter_by(bom_id=bom_id).all()
+                  if e.parent_node_id}
+
     groups = {}
     total = 0
     for n in nodes:
-        if n.level == 0:
+        if n.level == 0 or n.id in parent_ids:
             continue
         it = n.item
         if not it or not it.product:
-            continue
-        # Sadece fireli+firesiz BOŞ ölçülü hammadde (girişi gereken kalemler)
-        if float(n.quantity or 0) != 0 or float(n.quantity_net or 0) != 0:
             continue
         p = it.product
         text = ' '.join([p.material or '', p.name or '', n.display_name or ''])
         fam = _costing_unit_family(text)
         if not fam:
-            continue
+            continue  # yalnızca ölçülü hammadde (sac/lama/boru/mil)
         code = p.code or '—'
         g = groups.get(code)
         if not g:
             g = groups[code] = {'code': code, 'name': n.display_name or it.name,
                                 'family': fam, 'rows': []}
+        # fireli = parça-başı katsayı (node.quantity), ağırlık = malzeme sabiti
+        # (node.weight_per_unit). Sarfiyat = fireli × ağırlık.
         g['rows'].append({'id': n.id, 'num': n.num, 'part': parent_name(n.num),
+                          'fireli': float(n.quantity or 0),
                           'wpu': float(n.weight_per_unit or 0)})
         total += 1
 
