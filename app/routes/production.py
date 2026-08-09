@@ -1125,6 +1125,59 @@ def consume_breakdown(bom_id):
                            lines=lines, totals=total_rows, q=q)
 
 
+@production_bp.route('/weight-mixup-audit')
+@login_required
+@roles_required('Genel', 'Yönetici')
+def weight_mixup_audit():
+    """SALT-OKUNUR. Fireli ağırlığı Excel'de olmayınca sistem satırı 'adet' yapıp
+    tam/stok ağırlığını weight_per_unit'e yazmış olabilir → üretimde aşırı sarfiyat.
+    Bu tür kalemleri bulur: ölçülü malzeme (sac/lama/boru/mil) + birim=adet +
+    weight_per_unit>0. weight_per_unit ≈ Product.unit_weight ise 'karışmış' işareti."""
+    from collections import defaultdict
+    from app.models import BomNode, BomItem, Product
+    from app.utils.bom_utils import _costing_unit_family
+    from sqlalchemy.orm import joinedload
+
+    roots = {r.bom_id: (r.display_name or f'BOM #{r.bom_id}')
+             for r in BomNode.query.filter_by(level=0).all()}
+    nodes = (BomNode.query
+             .options(joinedload(BomNode.item).joinedload(BomItem.product))
+             .join(BomItem, BomNode.item_id == BomItem.id)
+             .filter(BomItem.product_id.isnot(None)).all())
+
+    rows = []
+    per_bom = defaultdict(int)
+    for n in nodes:
+        if (n.unit_type or '').lower() != 'adet':
+            continue
+        w = float(n.weight_per_unit or 0)
+        if w <= 0:
+            continue
+        it = n.item
+        p = it.product
+        text = ' '.join([p.material or '', p.name or '', n.display_name or ''])
+        fam = _costing_unit_family(text)
+        if not fam:
+            continue  # yalnızca ölçülü malzemeler
+        uw = float(p.unit_weight or 0)
+        matched = bool(uw > 0 and abs(w - uw) <= max(0.01, uw * 0.01))
+        rows.append({
+            'bom_id': n.bom_id, 'bom': roots.get(n.bom_id, f'BOM #{n.bom_id}'),
+            'num': n.num, 'name': n.display_name or it.name, 'code': p.code or '',
+            'family': fam, 'wpu': w, 'unit_weight': uw, 'matched': matched,
+        })
+        per_bom[n.bom_id] += 1
+
+    rows.sort(key=lambda r: (r['bom'], r['num']))
+    bom_summary = sorted(
+        [{'bom_id': k, 'bom': roots.get(k, f'BOM #{k}'), 'count': v} for k, v in per_bom.items()],
+        key=lambda x: -x['count'])
+    matched_count = sum(1 for r in rows if r['matched'])
+    return render_template('production/weight_mixup_audit.html',
+                           rows=rows, bom_summary=bom_summary,
+                           total=len(rows), matched=matched_count)
+
+
 @production_bp.route('/bom/<int:bom_id>/health', methods=['GET', 'POST'])
 @login_required
 @roles_required('Genel', 'Yönetici')
