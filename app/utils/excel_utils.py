@@ -440,6 +440,108 @@ def export_production_report_to_excel(productions, avg_costs, meta=None):
     return output
 
 
+def export_production_cost_to_excel(pr, data):
+    """Tek bir üretimin maliyet kırılımını Excel olarak dışa aktarır.
+    data = reports._production_detail_data() çıktısı (node ağacı + maliyetler)."""
+    node = data.get('node')
+    currency = data.get('currency') or 'TRY'
+    money_fmt = '#,##0.00'
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    type_map = {'yarimamul': 'Yarı Mamül', 'hammadde': 'Hammadde', 'hazir_parca': 'Hazır',
+                'standart_parca': 'Standart', 'mamul': 'Mamul'}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Maliyet"
+
+    ws.merge_cells('A1:G1')
+    t = ws['A1']
+    t.value = f"Üretim Maliyet Detayı — {data.get('product_name', '')}"
+    t.font = Font(bold=True, size=14, color="FFFFFF")
+    t.fill = PatternFill(start_color="2563eb", end_color="2563eb", fill_type="solid")
+    t.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 24
+
+    info = [
+        ('Ürün Kodu', data.get('product_code') or '-'),
+        ('Tarih', pr.date.strftime('%d.%m.%Y %H:%M') if pr.date else '-'),
+        ('Kullanıcı', pr.user.name if pr.user else '-'),
+        ('Üretilen Adet', data.get('quantity')),
+        (f"Birim Maliyet ({'tahmini' if data.get('is_estimate') else 'üretim anı'})", data.get('unit_cost')),
+        ('Toplam Maliyet', data.get('total_cost')),
+    ]
+    if data.get('avg_unit_cost') is not None:
+        info.append(('Mamul Ortalama Birim Maliyet', data.get('avg_unit_cost')))
+    r = 3
+    for k, v in info:
+        ws.cell(row=r, column=1, value=k).font = Font(bold=True)
+        c = ws.cell(row=r, column=2, value=v)
+        if isinstance(v, (int, float)):
+            c.number_format = money_fmt
+        r += 1
+
+    r += 1
+    headers = ['No', 'Parça', 'Tür', 'Miktar', 'Birim', 'Birim Maliyet', f'Toplam ({currency})']
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=r, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+    header_row = r
+    r += 1
+
+    def _write(n, depth):
+        nonlocal r
+        ws.cell(row=r, column=1, value=n.get('num', ''))
+        ws.cell(row=r, column=2, value=('    ' * depth) + (n.get('name') or '-'))
+        ws.cell(row=r, column=3, value=type_map.get(n.get('item_type'), n.get('item_type') or ''))
+        ws.cell(row=r, column=4, value=n.get('quantity'))
+        ws.cell(row=r, column=5, value=n.get('unit') or '')
+        uc = ws.cell(row=r, column=6, value=n.get('unit_cost'))
+        tc = ws.cell(row=r, column=7, value=n.get('total_cost'))
+        uc.number_format = money_fmt
+        tc.number_format = money_fmt
+        if depth == 0 or n.get('children'):
+            for col in range(1, 8):
+                ws.cell(row=r, column=col).font = Font(bold=(depth == 0))
+        r += 1
+        for ch in n.get('children', []):
+            _write(ch, depth + 1)
+
+    if node:
+        _write(node, 0)
+
+    for col, w in enumerate([10, 44, 14, 10, 8, 14, 16], 1):
+        ws.column_dimensions[get_column_letter(col)].width = w
+    ws.freeze_panes = f"A{header_row + 1}"
+
+    # Tüketilenler sayfası
+    ws2 = wb.create_sheet("Tüketilenler")
+    for col, h in enumerate(['Kod', 'Malzeme', 'Tür', 'Miktar', 'Birim', 'Birim Maliyet', 'Toplam'], 1):
+        cell = ws2.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+    for i, cn in enumerate(data.get('consumptions') or [], 2):
+        ws2.cell(row=i, column=1, value=cn.get('code'))
+        ws2.cell(row=i, column=2, value=cn.get('name'))
+        ws2.cell(row=i, column=3, value=type_map.get(cn.get('type'), cn.get('type') or ''))
+        ws2.cell(row=i, column=4, value=cn.get('quantity'))
+        ws2.cell(row=i, column=5, value=cn.get('unit_type'))
+        u = ws2.cell(row=i, column=6, value=cn.get('unit_cost'))
+        t2 = ws2.cell(row=i, column=7, value=cn.get('total_cost'))
+        u.number_format = money_fmt
+        t2.number_format = money_fmt
+    for col, w in enumerate([16, 34, 14, 10, 8, 14, 16], 1):
+        ws2.column_dimensions[get_column_letter(col)].width = w
+    ws2.freeze_panes = "A2"
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
 def export_stock_movements_to_excel(movements):
     """
     Stok hareketlerini Excel'e dışa aktar

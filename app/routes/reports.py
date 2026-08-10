@@ -3127,6 +3127,24 @@ def production_report_export():
         q = q.filter(ProductionRecord.date < datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1))
     records = q.order_by(ProductionRecord.date.desc()).all()
 
+    # Eski (snapshot öncesi) kayıtlarda dondurulmuş maliyet yok; güncel fiyatlarla
+    # TAHMİN et. Aynı (bom, düğüm) tekrar tekrar hesaplanmasın diye önbellekle.
+    from app.utils.bom_utils import get_bom_subtree
+    _cost_cache = {}
+
+    def _live_unit_cost(bid, nid):
+        if not bid or not nid:
+            return None
+        key = (bid, nid)
+        if key not in _cost_cache:
+            try:
+                sub = get_bom_subtree(bid, nid, db)
+                n = sub.get('node') if sub else None
+                _cost_cache[key] = float(n.get('unit_cost') or 0) if n else None
+            except Exception:
+                _cost_cache[key] = None
+        return _cost_cache[key]
+
     productions = []
     for pr in records:
         prod = pr.product
@@ -3135,16 +3153,26 @@ def production_report_export():
         name = (prod.name if prod else None) \
             or (pr.bom_node.display_name if pr.bom_node else None) or 'Bilinmiyor'
         code = (prod.code if prod else None) or ''
-        frozen = pr.total_cost is not None or pr.unit_cost is not None
+        qty = float(pr.quantity or 0)
+        if pr.unit_cost is not None or pr.total_cost is not None:
+            uc = float(pr.unit_cost) if pr.unit_cost is not None else (float(pr.total_cost) / qty if qty else 0.0)
+            tc = float(pr.total_cost) if pr.total_cost is not None else uc * qty
+            ctype = 'Üretim anı'
+        else:
+            luc = _live_unit_cost(pr.bom_id, pr.bom_node_id)
+            if luc is not None:
+                uc, tc, ctype = luc, luc * qty, 'Tahmini (güncel fiyat)'
+            else:
+                uc, tc, ctype = None, None, 'Kaydı yok'
         productions.append({
             'date': pr.date.strftime('%d.%m.%Y %H:%M') if pr.date else '',
             'product_name': name,
             'product_code': code,
-            'quantity': float(pr.quantity or 0),
-            'unit_cost': float(pr.unit_cost) if pr.unit_cost is not None else None,
-            'total_cost': float(pr.total_cost) if pr.total_cost is not None else None,
+            'quantity': qty,
+            'unit_cost': uc,
+            'total_cost': tc,
             'currency': pr.cost_currency or 'TRY',
-            'cost_type': 'Üretim anı' if frozen else 'Kaydı yok',
+            'cost_type': ctype,
             'user_name': pr.user.name if pr.user else '',
             'note': pr.note or '',
         })
@@ -3155,20 +3183,12 @@ def production_report_export():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
-@reports_bp.route('/production/<int:production_id>')
-@login_required
-@roles_required('Genel')
-def production_detail(production_id):
-    """Tek bir üretim kaydının detaylı maliyet raporu (SALT-OKUNUR).
-
-    Üretilen ürünün BOM maliyet ağacını (alt yarımamüllerin maliyetleriyle) ve bu
-    üretimde gerçekten tüketilen kalemleri gösterir. Üretim/tüketim mantığına
-    dokunmaz; yalnızca mevcut verilerden rapor üretir.
-    """
+def _production_detail_data(pr):
+    """production_detail sayfası ile Excel export'un ORTAK veri toplayıcısı.
+    Üretilen düğümün maliyet ağacı, dondurulmuş/tahmini maliyet, mamul ortalaması
+    ve tüketilen kalemleri tek bir sözlük olarak döndürür (salt-okunur)."""
     from app.utils.bom_utils import get_bom_subtree, get_bom_tree
     from app.models import BomNode
-
-    pr = ProductionRecord.query.get_or_404(production_id)
 
     # --- Üretilen düğümün maliyet ağacını çıkar ---
     node = None
@@ -3259,14 +3279,36 @@ def production_detail(production_id):
     consumptions.sort(key=lambda x: x['total_cost'], reverse=True)
     consumed_total = sum(x['total_cost'] for x in consumptions)
 
-    return render_template('reports/production_detail.html',
-        pr=pr, node=node, tree_error=tree_error,
-        product_name=product_name, product_code=product_code,
-        quantity=qty, unit_cost=unit_cost, total_cost=total_cost, currency=currency,
-        is_estimate=is_estimate, live_unit_cost=live_unit_cost,
-        avg_unit_cost=avg_unit_cost, avg_basis_count=avg_basis_count,
-        consumptions=consumptions, consumed_total=consumed_total,
-    )
+    return {
+        'node': node, 'tree_error': tree_error,
+        'product_name': product_name, 'product_code': product_code,
+        'quantity': qty, 'unit_cost': unit_cost, 'total_cost': total_cost,
+        'currency': currency, 'is_estimate': is_estimate, 'live_unit_cost': live_unit_cost,
+        'avg_unit_cost': avg_unit_cost, 'avg_basis_count': avg_basis_count,
+        'consumptions': consumptions, 'consumed_total': consumed_total,
+    }
+
+
+@reports_bp.route('/production/<int:production_id>')
+@login_required
+@roles_required('Genel')
+def production_detail(production_id):
+    """Tek bir üretim kaydının detaylı maliyet raporu (SALT-OKUNUR)."""
+    pr = ProductionRecord.query.get_or_404(production_id)
+    return render_template('reports/production_detail.html', pr=pr, **_production_detail_data(pr))
+
+
+@reports_bp.route('/production/<int:production_id>/export')
+@login_required
+@roles_required('Genel')
+def production_detail_export(production_id):
+    """Tek bir üretimin maliyet kırılımını Excel olarak indir."""
+    from app.utils.excel_utils import export_production_cost_to_excel
+    pr = ProductionRecord.query.get_or_404(production_id)
+    output = export_production_cost_to_excel(pr, _production_detail_data(pr))
+    fname = f"uretim_{production_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return send_file(output, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @reports_bp.route('/top-consumption')
