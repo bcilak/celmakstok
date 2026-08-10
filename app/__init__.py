@@ -26,6 +26,24 @@ def _ensure_unit_weight_column(app):
             app.logger.warning(f"unit_weight kolonu kontrol/eklenemedi: {e}")
 
 
+def _ensure_production_cost_columns(app):
+    """production_records tablosunda üretim-anı maliyet kolonlarını (unit_cost,
+    total_cost, cost_currency) yoksa ekler. Böylece `flask db upgrade`
+    çalıştırılmasa bile dondurulmuş maliyet alanları hazır olur."""
+    from sqlalchemy import inspect, text
+    specs = [('unit_cost', 'FLOAT'), ('total_cost', 'FLOAT'), ('cost_currency', 'VARCHAR(10)')]
+    with app.app_context():
+        try:
+            cols = [c['name'] for c in inspect(db.engine).get_columns('production_records')]
+            for name, sqltype in specs:
+                if name not in cols:
+                    with db.engine.begin() as conn:
+                        conn.execute(text(f'ALTER TABLE production_records ADD COLUMN {name} {sqltype}'))
+                    app.logger.info(f"production_records.{name} kolonu eklendi.")
+        except Exception as e:
+            app.logger.warning(f"production_records maliyet kolonları kontrol/eklenemedi: {e}")
+
+
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
@@ -69,6 +87,9 @@ def create_app(config_class=Config):
     # unit_weight kolonu yoksa güvenle ekle (adet->kg/metre çevrimi için).
     # Böylece `flask db upgrade` çalıştırılmasa bile alan hazır olur.
     _ensure_unit_weight_column(app)
+
+    # production_records maliyet kolonları (dondurulmuş üretim maliyeti) yoksa ekle.
+    _ensure_production_cost_columns(app)
 
     # Eski sohbet geçmişini session'dan temizle (cookie overflow fix)
     from flask import session as flask_session

@@ -37,6 +37,23 @@ import urllib.error
 production_bp = Blueprint('production', __name__)
 
 
+def _freeze_production_cost(production, bom_id, node_id, quantity):
+    """Üretim anındaki birim/toplam maliyeti hesaplayıp ProductionRecord'a
+    DONDURUR (tarihsel + ortalama maliyet analizi için). Yalnızca fiyat okur;
+    stok/tüketim mantığına dokunmaz. Hata olursa sessizce geçer — maliyet raporu
+    bilgilendiricidir, üretimi asla bloke etmemeli."""
+    try:
+        from app.utils.bom_utils import get_bom_subtree
+        sub = get_bom_subtree(bom_id, node_id, db)
+        node = sub.get('node') if sub else None
+        unit_cost = float(node.get('unit_cost') or 0) if node else 0.0
+        production.unit_cost = unit_cost
+        production.total_cost = unit_cost * float(quantity or 0)
+        production.cost_currency = (node.get('currency') if node else None) or 'TRY'
+    except Exception:
+        pass
+
+
 def _limited_flash_list(prefix, items, category='error', limit=8):
     shown = list(items[:limit])
     if len(items) > limit:
@@ -2050,6 +2067,8 @@ def bom_produce(bom_id, node_id):
         )
         db.session.add(production)
         db.session.flush()
+        # Üretim anındaki maliyeti dondur (rapor/ortalama maliyet için).
+        _freeze_production_cost(production, bom_id, node_id, quantity)
 
     # 3. Stoğu Düş ve Tüketim Kaydı oluştur (Kullanılan Alt Bileşenler İçin)
     for c_product, total_req, child_node in required_consumptions:
@@ -2205,6 +2224,8 @@ def work_order():
         )
         db.session.add(pr)
         db.session.flush()
+        # Üretim anındaki maliyeti dondur (rapor/ortalama maliyet için).
+        _freeze_production_cost(pr, bom_id, root_node.id, quantity)
 
     if pr:
         for p, req in consume_list:

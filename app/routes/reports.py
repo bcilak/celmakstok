@@ -3051,17 +3051,165 @@ def production_report():
     # Özet istatistikler
     total_productions = len(productions)
     total_quantity = sum(float(p.get('quantity') or 0) for p in productions)
-    
+
+    # Mamul bazında AĞIRLIKLI ORTALAMA maliyet (yalnızca dondurulmuş üretim
+    # kayıtları): Σ(total_cost) / Σ(quantity). Yıl sonu "ortalama ne kadara mal
+    # ettim" sorusunun cevabı. Filtrelerden bağımsız, tüm zamanları kapsar.
+    product_avg_costs = []
+    try:
+        avg_rows = (db.session.query(
+                ProductionRecord.product_id,
+                func.sum(ProductionRecord.total_cost).label('sum_cost'),
+                func.sum(ProductionRecord.quantity).label('sum_qty'),
+                func.count(ProductionRecord.id).label('cnt'),
+            )
+            .filter(ProductionRecord.total_cost.isnot(None),
+                    ProductionRecord.quantity > 0,
+                    ProductionRecord.product_id.isnot(None))
+            .group_by(ProductionRecord.product_id).all())
+        if avg_rows:
+            prod_map = {p.id: p for p in Product.query.filter(
+                Product.id.in_([r.product_id for r in avg_rows])).all()}
+            for r in avg_rows:
+                p = prod_map.get(r.product_id)
+                sum_qty = float(r.sum_qty or 0)
+                product_avg_costs.append({
+                    'name': p.name if p else 'Bilinmiyor',
+                    'code': p.code if p else '',
+                    'count': int(r.cnt or 0),
+                    'total_qty': sum_qty,
+                    'total_cost': float(r.sum_cost or 0),
+                    'avg_unit_cost': (float(r.sum_cost or 0) / sum_qty) if sum_qty else 0.0,
+                })
+            product_avg_costs.sort(key=lambda x: x['total_cost'], reverse=True)
+    except Exception:
+        product_avg_costs = []
+
     return render_template('reports/production.html',
         categories=categories,
         productions=productions,
         category_totals=category_totals,
+        product_avg_costs=product_avg_costs,
         selected_category=category_id,
         start_date=start_date,
         end_date=end_date,
         total_productions=total_productions,
         total_quantity=total_quantity
     )
+
+@reports_bp.route('/production/<int:production_id>')
+@login_required
+@roles_required('Genel')
+def production_detail(production_id):
+    """Tek bir üretim kaydının detaylı maliyet raporu (SALT-OKUNUR).
+
+    Üretilen ürünün BOM maliyet ağacını (alt yarımamüllerin maliyetleriyle) ve bu
+    üretimde gerçekten tüketilen kalemleri gösterir. Üretim/tüketim mantığına
+    dokunmaz; yalnızca mevcut verilerden rapor üretir.
+    """
+    from app.utils.bom_utils import get_bom_subtree, get_bom_tree
+    from app.models import BomNode
+
+    pr = ProductionRecord.query.get_or_404(production_id)
+
+    # --- Üretilen düğümün maliyet ağacını çıkar ---
+    node = None
+    tree_error = None
+    bom_id = pr.bom_id
+    node_id = pr.bom_node_id
+
+    # bom_id eksikse (eski kayıt) düğümden türet
+    if node_id and not bom_id:
+        bn = BomNode.query.get(node_id)
+        bom_id = bn.bom_id if bn else None
+
+    if bom_id and node_id:
+        sub = get_bom_subtree(bom_id, node_id, db)
+        node = sub.get('node')
+        tree_error = sub.get('error')
+    elif bom_id:
+        tree = get_bom_tree(bom_id, db)
+        roots = tree.get('roots') or []
+        node = roots[0] if len(roots) == 1 else None
+        if node is None:
+            tree_error = 'Üretilen düğüm belirlenemedi.'
+    else:
+        tree_error = 'Bu üretim bir ürün ağacına bağlı değil.'
+
+    # --- Başlık / özet bilgileri ---
+    product = pr.product
+    product_name = (node.get('name') if node else None) \
+        or (product.name if product else None) or 'Bilinmiyor'
+    product_code = (node.get('code') if node else None) \
+        or (product.code if product else None) or ''
+
+    qty = float(pr.quantity or 0)
+    # Güncel fiyata göre (canlı) maliyet — eski kayıtlar ve ağaç kırılımı için.
+    live_unit_cost = float(node.get('unit_cost') or 0) if node else (
+        float(product.unit_cost) if product and product.unit_cost else 0.0)
+    currency = pr.cost_currency or (node.get('currency') if node else None) \
+        or getattr(product, 'currency', None) or 'TRY'
+
+    # DONDURULMUŞ üretim-anı maliyeti varsa onu kullan; yoksa (eski kayıt) canlı
+    # fiyattan TAHMİN et ve bunu kullanıcıya belirt.
+    if pr.unit_cost is not None or pr.total_cost is not None:
+        is_estimate = False
+        unit_cost = float(pr.unit_cost) if pr.unit_cost is not None else (
+            float(pr.total_cost) / qty if qty else 0.0)
+        total_cost = float(pr.total_cost) if pr.total_cost is not None else unit_cost * qty
+    else:
+        is_estimate = True
+        unit_cost = live_unit_cost
+        total_cost = unit_cost * qty
+
+    # Bu mamulün TÜM üretimlerinden ağırlıklı ortalama maliyeti (yalnızca
+    # dondurulmuş kayıtlar): Σ(total_cost) / Σ(quantity).
+    avg_unit_cost = None
+    avg_basis_count = 0
+    if pr.product_id:
+        agg = db.session.query(
+            func.sum(ProductionRecord.total_cost),
+            func.sum(ProductionRecord.quantity),
+            func.count(ProductionRecord.id),
+        ).filter(
+            ProductionRecord.product_id == pr.product_id,
+            ProductionRecord.total_cost.isnot(None),
+            ProductionRecord.quantity > 0,
+        ).first()
+        if agg and agg[0] is not None and agg[1]:
+            avg_unit_cost = float(agg[0]) / float(agg[1])
+            avg_basis_count = int(agg[2] or 0)
+
+    # --- Bu üretimde gerçekten tüketilen kalemler (ProductionConsumption) ---
+    consumptions = []
+    try:
+        for c in pr.consumptions.all():
+            cp = c.product
+            c_unit_cost = float(cp.unit_cost) if cp and cp.unit_cost else 0.0
+            c_qty = float(c.quantity or 0)
+            consumptions.append({
+                'code': cp.code if cp else '',
+                'name': cp.name if cp else 'Bilinmiyor',
+                'type': cp.type if cp else '',
+                'unit_type': cp.unit_type if cp else '',
+                'quantity': c_qty,
+                'unit_cost': c_unit_cost,
+                'total_cost': c_unit_cost * c_qty,
+            })
+    except Exception:
+        consumptions = []
+    consumptions.sort(key=lambda x: x['total_cost'], reverse=True)
+    consumed_total = sum(x['total_cost'] for x in consumptions)
+
+    return render_template('reports/production_detail.html',
+        pr=pr, node=node, tree_error=tree_error,
+        product_name=product_name, product_code=product_code,
+        quantity=qty, unit_cost=unit_cost, total_cost=total_cost, currency=currency,
+        is_estimate=is_estimate, live_unit_cost=live_unit_cost,
+        avg_unit_cost=avg_unit_cost, avg_basis_count=avg_basis_count,
+        consumptions=consumptions, consumed_total=consumed_total,
+    )
+
 
 @reports_bp.route('/top-consumption')
 @login_required

@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block title %}Üretim Detayı - ÇELMAK Stok Takip{% endblock %}
+
+{% macro money(v, cur='TRY') -%}
+{{ "%.2f"|format(v or 0) }} {{ cur }}
+{%- endmacro %}
+
+{% macro type_badge(t) -%}
+{% if t == 'yarimamul' %}<span class="badge bg-warning text-dark">Yarı Mamül</span>
+{% elif t == 'hammadde' %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Hammadde</span>
+{% elif t == 'hazir_parca' %}<span class="badge bg-info-subtle text-info border border-info-subtle">Hazır Parça</span>
+{% elif t == 'standart_parca' %}<span class="badge bg-secondary-subtle text-secondary border">Standart Parça</span>
+{% elif t == 'mamul' %}<span class="badge bg-success-subtle text-success border border-success-subtle">Mamul</span>
+{% else %}<span class="badge bg-light text-muted border">{{ t or '-' }}</span>{% endif %}
+{%- endmacro %}
+
+{# Ağacı satır satır, girintili ve özyinelemeli çizer #}
+{% macro render_row(n, depth, cur) %}
+<tr class="{% if n.item_type == 'yarimamul' %}table-warning bg-opacity-25{% endif %}">
+    <td class="text-muted small">{{ n.num }}</td>
+    <td>
+        <div style="padding-left: {{ depth * 22 }}px;">
+            {% if n.children %}<i class="bi bi-diagram-3 text-warning me-1"></i>{% else %}<i class="bi bi-dot text-muted"></i>{% endif %}
+            <span class="{% if n.item_type == 'yarimamul' %}fw-semibold{% endif %}">{{ n.name or '-' }}</span>
+            {% if n.code %}<small class="text-muted ms-1">{{ n.code }}</small>{% endif %}
+        </div>
+    </td>
+    <td>{{ type_badge(n.item_type) }}</td>
+    <td class="text-end">
+        {{ "%.4g"|format(n.quantity or 0) }}
+        <small class="text-muted">{{ n.unit or '' }}</small>
+    </td>
+    <td class="text-end">{{ money(n.unit_cost, cur) }}</td>
+    <td class="text-end fw-semibold">{{ money(n.total_cost, cur) }}</td>
+</tr>
+{% for c in n.children %}{{ render_row(c, depth + 1, cur) }}{% endfor %}
+{% endmacro %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h1 class="page-title"><i class="bi bi-receipt me-2"></i>Üretim Detayı</h1>
+            <p class="page-subtitle">{{ product_name }}{% if product_code %} <span class="text-muted">({{ product_code }})</span>{% endif %}</p>
+        </div>
+        <a href="{{ url_for('reports.production_report') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Üretim Raporuna Dön
+        </a>
+    </div>
+</div>
+
+<!-- Özet Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3 col-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <small class="text-muted d-block mb-1"><i class="bi bi-calendar3 me-1"></i>Tarih</small>
+                <div class="fw-semibold">{{ pr.date.strftime('%d.%m.%Y %H:%M') if pr.date else '-' }}</div>
+                <small class="text-muted">{{ pr.user.name if pr.user else '-' }}</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <small class="text-muted d-block mb-1"><i class="bi bi-hash me-1"></i>Üretilen Adet</small>
+                <div class="fs-4 fw-bold">{{ "%.4g"|format(quantity) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="card border-0 shadow-sm h-100 bg-primary bg-opacity-10">
+            <div class="card-body">
+                <small class="text-muted d-block mb-1"><i class="bi bi-tag me-1"></i>Birim Maliyet
+                    {% if is_estimate %}<span class="badge bg-warning text-dark ms-1">tahmini</span>
+                    {% else %}<span class="badge bg-success ms-1">üretim anı</span>{% endif %}
+                </small>
+                <div class="fs-4 fw-bold text-primary">{{ money(unit_cost, currency) }}</div>
+                <small class="text-muted">1 adet için</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="card border-0 shadow-sm h-100 bg-success bg-opacity-10">
+            <div class="card-body">
+                <small class="text-muted d-block mb-1"><i class="bi bi-cash-stack me-1"></i>Toplam Maliyet</small>
+                <div class="fs-4 fw-bold text-success">{{ money(total_cost, currency) }}</div>
+                <small class="text-muted">{{ "%.4g"|format(quantity) }} adet × birim</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if is_estimate %}
+<div class="alert alert-warning d-flex align-items-center py-2 mb-4">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    <div class="small">Bu, snapshot öncesi eski bir üretim kaydı — üretim anındaki maliyet saklanmadığı için maliyet
+        <strong>güncel fiyatlarla tahmin</strong> edilmiştir. Bundan sonraki üretimlerde gerçek üretim-anı maliyeti dondurulur.</div>
+</div>
+{% endif %}
+
+{% if avg_unit_cost is not none %}
+<div class="alert alert-info d-flex align-items-center justify-content-between flex-wrap gap-2 py-2 mb-4">
+    <div><i class="bi bi-graph-up me-2"></i><strong>{{ product_name }}</strong> — tüm üretimlerin ağırlıklı ortalama maliyeti</div>
+    <div class="fs-5 fw-bold text-info">{{ money(avg_unit_cost, currency) }} <small class="text-muted fw-normal">/ adet ({{ avg_basis_count }} üretim)</small></div>
+</div>
+{% endif %}
+
+<!-- Maliyet Ağacı (Yarımamül kırılımı) -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Maliyet Ağacı — 1 adet için kırılım</h5>
+        <small class="text-muted">Güncel birim fiyatlara göre</small>
+    </div>
+    {% if node %}
+    <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 80px;">No</th>
+                    <th>Ürün / Parça</th>
+                    <th style="width: 130px;">Tür</th>
+                    <th class="text-end" style="width: 110px;">Miktar</th>
+                    <th class="text-end" style="width: 130px;">Birim Maliyet</th>
+                    <th class="text-end" style="width: 140px;">Toplam</th>
+                </tr>
+            </thead>
+            <tbody>
+                {# Kökü (üretilen ürünün kendisi) vurgulu göster, sonra çocukları #}
+                <tr class="table-primary">
+                    <td class="text-muted small">{{ node.num }}</td>
+                    <td class="fw-bold"><i class="bi bi-box-seam me-1"></i>{{ node.name or product_name }}</td>
+                    <td>{{ type_badge(node.item_type) }}</td>
+                    <td class="text-end">{{ "%.4g"|format(node.quantity or 1) }} <small class="text-muted">{{ node.unit or 'adet' }}</small></td>
+                    <td class="text-end">{{ money(node.unit_cost, currency) }}</td>
+                    <td class="text-end fw-bold">{{ money(node.unit_cost, currency) }}</td>
+                </tr>
+                {% for c in node.children %}{{ render_row(c, 1, currency) }}{% endfor %}
+            </tbody>
+            {% if node.children %}
+            <tfoot class="table-light">
+                <tr>
+                    <th colspan="5" class="text-end">1 Adet Toplam Maliyet</th>
+                    <th class="text-end text-primary">{{ money(node.unit_cost, currency) }}</th>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+    {% if not node.children %}
+    <div class="card-body text-muted small">
+        <i class="bi bi-info-circle me-1"></i>Bu ürünün alt bileşeni yok; maliyeti kendi birim fiyatından gelir.
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-diagram-3 display-5 d-block mb-2"></i>
+        {{ tree_error or 'Maliyet ağacı bulunamadı.' }}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Bu Üretimde Gerçekten Tüketilenler -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0"><i class="bi bi-basket me-2"></i>Bu Üretimde Tüketilenler</h5>
+        <small class="text-muted">Üretim anında stoktan düşülen kalemler</small>
+    </div>
+    {% if consumptions %}
+    <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Kod</th>
+                    <th>Malzeme</th>
+                    <th style="width: 130px;">Tür</th>
+                    <th class="text-end" style="width: 120px;">Miktar</th>
+                    <th class="text-end" style="width: 130px;">Birim Maliyet</th>
+                    <th class="text-end" style="width: 140px;">Toplam</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in consumptions %}
+                <tr>
+                    <td class="ps-3"><small class="text-muted">{{ c.code or '-' }}</small></td>
+                    <td>{{ c.name }}</td>
+                    <td>{{ type_badge(c.type) }}</td>
+                    <td class="text-end">{{ "%.4g"|format(c.quantity) }} <small class="text-muted">{{ c.unit_type }}</small></td>
+                    <td class="text-end">{{ money(c.unit_cost, currency) }}</td>
+                    <td class="text-end fw-semibold">{{ money(c.total_cost, currency) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot class="table-light">
+                <tr>
+                    <th colspan="5" class="text-end">Tüketim Toplamı</th>
+                    <th class="text-end text-success">{{ money(consumed_total, currency) }}</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-center py-4 text-muted">
+        <i class="bi bi-basket display-6 d-block mb-2"></i>
+        Bu üretim için ayrı tüketim kaydı bulunmuyor.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

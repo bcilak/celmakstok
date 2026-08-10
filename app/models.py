@@ -308,6 +308,13 @@ class ProductionRecord(db.Model):
     date = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     note = db.Column(db.Text)
 
+    # Üretim anındaki DONDURULMUŞ maliyet (tarihsel/ortalama maliyet analizi için).
+    # Üretim yapıldığı andaki fiyatlarla hesaplanıp buraya yazılır; sonradan fiyat
+    # değişse de bu değer değişmez. NULL = eski kayıt (snapshot öncesi).
+    unit_cost = db.Column(db.Float, nullable=True)          # 1 adet için maliyet
+    total_cost = db.Column(db.Float, nullable=True)         # unit_cost × quantity
+    cost_currency = db.Column(db.String(10), nullable=True, default='TRY')
+
     user = db.relationship('User', backref='productions')
     bom_node = db.relationship('BomNode', backref='productions_records')
     product = db.relationship('Product', backref='productions_records')

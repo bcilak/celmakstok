@@ -127,7 +127,9 @@
             </thead>
             <tbody>
                 {% for p in productions[:100] %}
-                <tr>
+                <tr class="production-row" style="cursor: pointer;"
+                    onclick="window.location='{{ url_for('reports.production_detail', production_id=p.id) }}'"
+                    title="Detaylı maliyet raporunu aç">
                     <td class="ps-4">
                         <div class="d-flex align-items-center">
                             <div class="bg-light rounded-circle p-2 me-2">
@@ -202,6 +204,46 @@
     </div>
     {% endif %}
 </div>
+
+<!-- Mamul Ortalama Maliyetleri (Dondurulmuş üretim kayıtlarından) -->
+{% if product_avg_costs %}
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0"><i class="bi bi-graph-up-arrow me-2"></i>Mamul Ortalama Maliyetleri</h5>
+        <small class="text-muted">Ağırlıklı ortalama — Σ(maliyet) / Σ(adet)</small>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-4">Mamul</th>
+                    <th class="text-center">Üretim Sayısı</th>
+                    <th class="text-end">Toplam Adet</th>
+                    <th class="text-end">Toplam Maliyet</th>
+                    <th class="text-end pe-4">Ortalama Birim Maliyet</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in product_avg_costs %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="fw-semibold">{{ m.name }}</div>
+                        {% if m.code %}<small class="text-muted">{{ m.code }}</small>{% endif %}
+                    </td>
+                    <td class="text-center"><span class="badge bg-secondary rounded-pill px-3">{{ m.count }}</span></td>
+                    <td class="text-end">{{ "%.4g"|format(m.total_qty) }}</td>
+                    <td class="text-end">{{ "%.2f"|format(m.total_cost) }} TL</td>
+                    <td class="text-end pe-4 fw-bold text-primary">{{ "%.2f"|format(m.avg_unit_cost) }} TL</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer bg-light small text-muted">
+        <i class="bi bi-info-circle me-1"></i>Yalnızca üretim anında maliyeti dondurulmuş kayıtlar dahildir; snapshot öncesi eski üretimler bu ortalamaya girmez.
+    </div>
+</div>
+{% endif %}
 
 <!-- Kategori Bazlı Özet (Varsa) -->
 {% if category_totals and productions %}
