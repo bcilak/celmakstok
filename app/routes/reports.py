@@ -2952,6 +2952,42 @@ def monthly_report():
 
 # ================== ÜRETİM HATTI RAPORLARI ==================
 
+def _compute_product_avg_costs():
+    """Mamul bazında AĞIRLIKLI ORTALAMA maliyet (yalnızca dondurulmuş üretim
+    kayıtları): Σ(total_cost) / Σ(quantity). Liste raporu ve Excel export ortak
+    kullanır. Snapshot öncesi eski kayıtlar (total_cost NULL) sayılmaz."""
+    result = []
+    try:
+        rows = (db.session.query(
+                ProductionRecord.product_id,
+                func.sum(ProductionRecord.total_cost).label('sum_cost'),
+                func.sum(ProductionRecord.quantity).label('sum_qty'),
+                func.count(ProductionRecord.id).label('cnt'),
+            )
+            .filter(ProductionRecord.total_cost.isnot(None),
+                    ProductionRecord.quantity > 0,
+                    ProductionRecord.product_id.isnot(None))
+            .group_by(ProductionRecord.product_id).all())
+        if rows:
+            prod_map = {p.id: p for p in Product.query.filter(
+                Product.id.in_([r.product_id for r in rows])).all()}
+            for r in rows:
+                p = prod_map.get(r.product_id)
+                sum_qty = float(r.sum_qty or 0)
+                result.append({
+                    'name': p.name if p else 'Bilinmiyor',
+                    'code': p.code if p else '',
+                    'count': int(r.cnt or 0),
+                    'total_qty': sum_qty,
+                    'total_cost': float(r.sum_cost or 0),
+                    'avg_unit_cost': (float(r.sum_cost or 0) / sum_qty) if sum_qty else 0.0,
+                })
+            result.sort(key=lambda x: x['total_cost'], reverse=True)
+    except Exception:
+        result = []
+    return result
+
+
 @reports_bp.route('/production')
 @login_required
 @roles_required('Genel')
@@ -3052,38 +3088,9 @@ def production_report():
     total_productions = len(productions)
     total_quantity = sum(float(p.get('quantity') or 0) for p in productions)
 
-    # Mamul bazında AĞIRLIKLI ORTALAMA maliyet (yalnızca dondurulmuş üretim
-    # kayıtları): Σ(total_cost) / Σ(quantity). Yıl sonu "ortalama ne kadara mal
-    # ettim" sorusunun cevabı. Filtrelerden bağımsız, tüm zamanları kapsar.
-    product_avg_costs = []
-    try:
-        avg_rows = (db.session.query(
-                ProductionRecord.product_id,
-                func.sum(ProductionRecord.total_cost).label('sum_cost'),
-                func.sum(ProductionRecord.quantity).label('sum_qty'),
-                func.count(ProductionRecord.id).label('cnt'),
-            )
-            .filter(ProductionRecord.total_cost.isnot(None),
-                    ProductionRecord.quantity > 0,
-                    ProductionRecord.product_id.isnot(None))
-            .group_by(ProductionRecord.product_id).all())
-        if avg_rows:
-            prod_map = {p.id: p for p in Product.query.filter(
-                Product.id.in_([r.product_id for r in avg_rows])).all()}
-            for r in avg_rows:
-                p = prod_map.get(r.product_id)
-                sum_qty = float(r.sum_qty or 0)
-                product_avg_costs.append({
-                    'name': p.name if p else 'Bilinmiyor',
-                    'code': p.code if p else '',
-                    'count': int(r.cnt or 0),
-                    'total_qty': sum_qty,
-                    'total_cost': float(r.sum_cost or 0),
-                    'avg_unit_cost': (float(r.sum_cost or 0) / sum_qty) if sum_qty else 0.0,
-                })
-            product_avg_costs.sort(key=lambda x: x['total_cost'], reverse=True)
-    except Exception:
-        product_avg_costs = []
+    # Mamul bazında ağırlıklı ortalama maliyet (yıl sonu "ortalama ne kadara mal
+    # ettim" cevabı). Tüm zamanları kapsar, filtreden bağımsız.
+    product_avg_costs = _compute_product_avg_costs()
 
     return render_template('reports/production.html',
         categories=categories,
@@ -3096,6 +3103,57 @@ def production_report():
         total_productions=total_productions,
         total_quantity=total_quantity
     )
+
+@reports_bp.route('/production/export')
+@login_required
+@roles_required('Genel')
+def production_report_export():
+    """Üretim raporunu Excel olarak indir (sayfadaki tarih/hat filtreleriyle)."""
+    from sqlalchemy.orm import joinedload
+    from app.utils.excel_utils import export_production_report_to_excel
+
+    category_id = request.args.get('category', type=int)
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    q = ProductionRecord.query.options(
+        joinedload(ProductionRecord.product),
+        joinedload(ProductionRecord.user),
+        joinedload(ProductionRecord.bom_node),
+    )
+    if start_date:
+        q = q.filter(ProductionRecord.date >= datetime.strptime(start_date, '%Y-%m-%d'))
+    if end_date:
+        q = q.filter(ProductionRecord.date < datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1))
+    records = q.order_by(ProductionRecord.date.desc()).all()
+
+    productions = []
+    for pr in records:
+        prod = pr.product
+        if category_id and (not prod or prod.category_id != category_id):
+            continue
+        name = (prod.name if prod else None) \
+            or (pr.bom_node.display_name if pr.bom_node else None) or 'Bilinmiyor'
+        code = (prod.code if prod else None) or ''
+        frozen = pr.total_cost is not None or pr.unit_cost is not None
+        productions.append({
+            'date': pr.date.strftime('%d.%m.%Y %H:%M') if pr.date else '',
+            'product_name': name,
+            'product_code': code,
+            'quantity': float(pr.quantity or 0),
+            'unit_cost': float(pr.unit_cost) if pr.unit_cost is not None else None,
+            'total_cost': float(pr.total_cost) if pr.total_cost is not None else None,
+            'currency': pr.cost_currency or 'TRY',
+            'cost_type': 'Üretim anı' if frozen else 'Kaydı yok',
+            'user_name': pr.user.name if pr.user else '',
+            'note': pr.note or '',
+        })
+
+    output = export_production_report_to_excel(productions, _compute_product_avg_costs())
+    fname = f"uretim_raporu_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return send_file(output, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 
 @reports_bp.route('/production/<int:production_id>')
 @login_required

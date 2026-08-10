@@ -368,6 +368,78 @@ def export_products_to_excel(products):
     return output
 
 
+def export_production_report_to_excel(productions, avg_costs, meta=None):
+    """Üretim raporunu iki sayfalı Excel olarak dışa aktarır.
+
+    productions: [{date, product_name, product_code, quantity, unit_cost,
+                   total_cost, currency, cost_type, user_name, note}, ...]
+    avg_costs:   [{name, code, count, total_qty, total_cost, avg_unit_cost}, ...]
+    meta:        {start_date, end_date, category_name} — başlık/filtre bilgisi (ops.)
+    """
+    wb = Workbook()
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    money_fmt = '#,##0.00'
+
+    # --- Sayfa 1: Üretim Kayıtları ---
+    ws = wb.active
+    ws.title = "Üretim Kayıtları"
+    headers = ['Tarih', 'Üretilen Ürün', 'Ürün Kodu', 'Adet', 'Birim Maliyet',
+               'Toplam Maliyet', 'Para Birimi', 'Maliyet Tipi', 'Kullanıcı', 'Not']
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for r, p in enumerate(productions, 2):
+        ws.cell(row=r, column=1, value=p.get('date'))
+        ws.cell(row=r, column=2, value=p.get('product_name'))
+        ws.cell(row=r, column=3, value=p.get('product_code'))
+        ws.cell(row=r, column=4, value=p.get('quantity'))
+        uc = ws.cell(row=r, column=5, value=p.get('unit_cost'))
+        tc = ws.cell(row=r, column=6, value=p.get('total_cost'))
+        uc.number_format = money_fmt
+        tc.number_format = money_fmt
+        ws.cell(row=r, column=7, value=p.get('currency') or 'TRY')
+        ws.cell(row=r, column=8, value=p.get('cost_type'))
+        ws.cell(row=r, column=9, value=p.get('user_name'))
+        ws.cell(row=r, column=10, value=p.get('note'))
+
+    for col_num, width in enumerate([18, 34, 16, 10, 14, 16, 10, 16, 16, 30], 1):
+        ws.column_dimensions[get_column_letter(col_num)].width = width
+    ws.freeze_panes = "A2"
+
+    # --- Sayfa 2: Mamul Ortalama Maliyet ---
+    ws2 = wb.create_sheet("Mamul Ortalama Maliyet")
+    headers2 = ['Mamul', 'Kod', 'Üretim Sayısı', 'Toplam Adet', 'Toplam Maliyet',
+                'Ortalama Birim Maliyet']
+    for col_num, header in enumerate(headers2, 1):
+        cell = ws2.cell(row=1, column=col_num, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for r, a in enumerate(avg_costs, 2):
+        ws2.cell(row=r, column=1, value=a.get('name'))
+        ws2.cell(row=r, column=2, value=a.get('code'))
+        ws2.cell(row=r, column=3, value=a.get('count'))
+        ws2.cell(row=r, column=4, value=a.get('total_qty'))
+        c_tot = ws2.cell(row=r, column=5, value=a.get('total_cost'))
+        c_avg = ws2.cell(row=r, column=6, value=a.get('avg_unit_cost'))
+        c_tot.number_format = money_fmt
+        c_avg.number_format = money_fmt
+
+    for col_num, width in enumerate([34, 16, 14, 12, 16, 20], 1):
+        ws2.column_dimensions[get_column_letter(col_num)].width = width
+    ws2.freeze_panes = "A2"
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
 def export_stock_movements_to_excel(movements):
     """
     Stok hareketlerini Excel'e dışa aktar
