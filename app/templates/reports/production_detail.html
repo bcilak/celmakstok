@@ -7,34 +7,35 @@
 {%- endmacro %}
 
 {% macro type_badge(t) -%}
-{% if t == 'yarimamul' %}<span class="badge bg-warning text-dark">Yarı Mamül</span>
-{% elif t == 'hammadde' %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Hammadde</span>
-{% elif t == 'hazir_parca' %}<span class="badge bg-info-subtle text-info border border-info-subtle">Hazır Parça</span>
-{% elif t == 'standart_parca' %}<span class="badge bg-secondary-subtle text-secondary border">Standart Parça</span>
-{% elif t == 'mamul' %}<span class="badge bg-success-subtle text-success border border-success-subtle">Mamul</span>
-{% else %}<span class="badge bg-light text-muted border">{{ t or '-' }}</span>{% endif %}
+{% if t == 'yarimamul' %}<span class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle">Yarı Mamül</span>
+{% elif t == 'hammadde' %}<span class="badge rounded-pill bg-danger-subtle text-danger-emphasis border border-danger-subtle">Hammadde</span>
+{% elif t == 'hazir_parca' %}<span class="badge rounded-pill bg-info-subtle text-info-emphasis border border-info-subtle">Hazır</span>
+{% elif t == 'standart_parca' %}<span class="badge rounded-pill bg-secondary-subtle text-secondary-emphasis border">Standart</span>
+{% elif t == 'mamul' %}<span class="badge rounded-pill bg-success-subtle text-success-emphasis border border-success-subtle">Mamul</span>
+{% else %}<span class="badge rounded-pill bg-light text-muted border">{{ t or '-' }}</span>{% endif %}
 {%- endmacro %}
 
-{# Ağacı satır satır, girintili ve özyinelemeli çizer #}
-{% macro render_row(n, depth, cur) %}
-<tr class="{% if n.item_type == 'yarimamul' %}table-warning bg-opacity-25{% endif %}">
-    <td class="text-muted small">{{ n.num }}</td>
+{# Katlanabilir ağaç satırı: yarımamüller açılıp kapanır, yapraklar sade kalır. #}
+{% macro render_row(n, depth, cur, parent_id) %}
+{% set has_children = n.children and n.children|length > 0 %}
+<tr class="tree-row{% if has_children %} ym-row{% endif %}" data-id="{{ n.id }}" data-parent="{{ parent_id }}" style="display:none;">
     <td>
-        <div style="padding-left: {{ depth * 22 }}px;">
-            {% if n.children %}<i class="bi bi-diagram-3 text-warning me-1"></i>{% else %}<i class="bi bi-dot text-muted"></i>{% endif %}
-            <span class="{% if n.item_type == 'yarimamul' %}fw-semibold{% endif %}">{{ n.name or '-' }}</span>
-            {% if n.code %}<small class="text-muted ms-1">{{ n.code }}</small>{% endif %}
+        <div class="d-flex align-items-center" style="padding-left: {{ depth * 20 }}px;">
+            {% if has_children %}
+            <span class="caret me-2" role="button"><i class="bi bi-chevron-right"></i></span>
+            {% else %}
+            <span class="me-2 text-muted" style="opacity:.35;">•</span>
+            {% endif %}
+            <span class="{% if has_children %}fw-semibold{% endif %}">{{ n.name or '-' }}</span>
+            {% if n.code %}<small class="text-muted ms-2">{{ n.code }}</small>{% endif %}
         </div>
     </td>
-    <td>{{ type_badge(n.item_type) }}</td>
-    <td class="text-end">
-        {{ "%.4g"|format(n.quantity or 0) }}
-        <small class="text-muted">{{ n.unit or '' }}</small>
-    </td>
-    <td class="text-end">{{ money(n.unit_cost, cur) }}</td>
-    <td class="text-end fw-semibold">{{ money(n.total_cost, cur) }}</td>
+    <td class="text-center">{{ type_badge(n.item_type) }}</td>
+    <td class="text-end text-nowrap">{{ "%.4g"|format(n.quantity or 0) }} <small class="text-muted">{{ n.unit or '' }}</small></td>
+    <td class="text-end text-nowrap">{{ money(n.unit_cost, cur) }}</td>
+    <td class="text-end text-nowrap fw-semibold">{{ money(n.total_cost, cur) }}</td>
 </tr>
-{% for c in n.children %}{{ render_row(c, depth + 1, cur) }}{% endfor %}
+{% for c in n.children %}{{ render_row(c, depth + 1, cur, n.id) }}{% endfor %}
 {% endmacro %}
 
 {% block content %}
@@ -45,7 +46,7 @@
             <p class="page-subtitle">{{ product_name }}{% if product_code %} <span class="text-muted">({{ product_code }})</span>{% endif %}</p>
         </div>
         <a href="{{ url_for('reports.production_report') }}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left me-1"></i>Üretim Raporuna Dön
+            <i class="bi bi-arrow-left me-1"></i>Geri
         </a>
     </div>
 </div>
@@ -95,8 +96,7 @@
 {% if is_estimate %}
 <div class="alert alert-warning d-flex align-items-center py-2 mb-4">
     <i class="bi bi-exclamation-triangle me-2"></i>
-    <div class="small">Bu, snapshot öncesi eski bir üretim kaydı — üretim anındaki maliyet saklanmadığı için maliyet
-        <strong>güncel fiyatlarla tahmin</strong> edilmiştir. Bundan sonraki üretimlerde gerçek üretim-anı maliyeti dondurulur.</div>
+    <div class="small">Bu, snapshot öncesi eski bir üretim kaydı — maliyet <strong>güncel fiyatlarla tahmin</strong> edilmiştir.</div>
 </div>
 {% endif %}
 
@@ -107,52 +107,51 @@
 </div>
 {% endif %}
 
-<!-- Maliyet Ağacı (Yarımamül kırılımı) -->
+<!-- Maliyet Ağacı (katlanabilir) -->
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
-        <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Maliyet Ağacı — 1 adet için kırılım</h5>
-        <small class="text-muted">Güncel birim fiyatlara göre</small>
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3 flex-wrap gap-2">
+        <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Maliyet Kırılımı <small class="text-muted fw-normal">— 1 adet</small></h5>
+        {% if node and node.children %}
+        <button type="button" id="toggleAll" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrows-expand me-1"></i>Tümünü Aç
+        </button>
+        {% endif %}
     </div>
     {% if node %}
     <div class="table-responsive">
-        <table class="table table-hover table-sm align-middle mb-0">
+        <table class="table table-hover align-middle mb-0" id="costTree">
             <thead class="table-light">
                 <tr>
-                    <th style="width: 80px;">No</th>
-                    <th>Ürün / Parça</th>
-                    <th style="width: 130px;">Tür</th>
+                    <th class="ps-3">Ürün / Parça</th>
+                    <th class="text-center" style="width: 110px;">Tür</th>
                     <th class="text-end" style="width: 110px;">Miktar</th>
                     <th class="text-end" style="width: 130px;">Birim Maliyet</th>
-                    <th class="text-end" style="width: 140px;">Toplam</th>
+                    <th class="text-end pe-3" style="width: 140px;">Toplam</th>
                 </tr>
             </thead>
             <tbody>
-                {# Kökü (üretilen ürünün kendisi) vurgulu göster, sonra çocukları #}
-                <tr class="table-primary">
-                    <td class="text-muted small">{{ node.num }}</td>
-                    <td class="fw-bold"><i class="bi bi-box-seam me-1"></i>{{ node.name or product_name }}</td>
-                    <td>{{ type_badge(node.item_type) }}</td>
+                {# Üretilen ürünün kendisi — kök, varsayılan açık #}
+                <tr class="tree-root table-primary expanded" data-id="{{ node.id }}" data-parent="">
+                    <td class="ps-3">
+                        <div class="d-flex align-items-center">
+                            {% if node.children %}<span class="caret me-2" role="button"><i class="bi bi-chevron-right"></i></span>{% endif %}
+                            <i class="bi bi-box-seam me-1 text-primary"></i>
+                            <span class="fw-bold">{{ node.name or product_name }}</span>
+                        </div>
+                    </td>
+                    <td class="text-center">{{ type_badge(node.item_type) }}</td>
                     <td class="text-end">{{ "%.4g"|format(node.quantity or 1) }} <small class="text-muted">{{ node.unit or 'adet' }}</small></td>
-                    <td class="text-end">{{ money(node.unit_cost, currency) }}</td>
-                    <td class="text-end fw-bold">{{ money(node.unit_cost, currency) }}</td>
+                    <td class="text-end text-muted">—</td>
+                    <td class="text-end pe-3 fw-bold">{{ money(node.unit_cost, currency) }}</td>
                 </tr>
-                {% for c in node.children %}{{ render_row(c, 1, currency) }}{% endfor %}
+                {% for c in node.children %}{{ render_row(c, 1, currency, node.id) }}{% endfor %}
             </tbody>
-            {% if node.children %}
-            <tfoot class="table-light">
-                <tr>
-                    <th colspan="5" class="text-end">1 Adet Toplam Maliyet</th>
-                    <th class="text-end text-primary">{{ money(node.unit_cost, currency) }}</th>
-                </tr>
-            </tfoot>
-            {% endif %}
         </table>
     </div>
-    {% if not node.children %}
-    <div class="card-body text-muted small">
-        <i class="bi bi-info-circle me-1"></i>Bu ürünün alt bileşeni yok; maliyeti kendi birim fiyatından gelir.
+    <div class="card-footer bg-light small text-muted d-flex justify-content-between flex-wrap gap-2">
+        <span><i class="bi bi-info-circle me-1"></i>Kırılım güncel fiyatlara göredir. Üstteki birim maliyet üretim anında dondurulmuştur.</span>
+        <span class="fw-semibold text-dark">1 Adet Toplam: {{ money(node.unit_cost, currency) }}</span>
     </div>
-    {% endif %}
     {% else %}
     <div class="card-body text-center py-5 text-muted">
         <i class="bi bi-diagram-3 display-5 d-block mb-2"></i>
@@ -161,50 +160,94 @@
     {% endif %}
 </div>
 
-<!-- Bu Üretimde Gerçekten Tüketilenler -->
-<div class="card border-0 shadow-sm">
-    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
-        <h5 class="mb-0"><i class="bi bi-basket me-2"></i>Bu Üretimde Tüketilenler</h5>
-        <small class="text-muted">Üretim anında stoktan düşülen kalemler</small>
-    </div>
+<!-- Bu Üretimde Tüketilenler (katlanır) -->
+<details class="card border-0 shadow-sm">
+    <summary class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center" style="cursor:pointer; list-style:none;">
+        <h5 class="mb-0"><i class="bi bi-basket me-2"></i>Bu Üretimde Tüketilenler
+            {% if consumptions %}<span class="badge bg-secondary rounded-pill ms-1">{{ consumptions|length }}</span>{% endif %}
+        </h5>
+        <small class="text-muted"><i class="bi bi-chevron-down"></i> göster/gizle</small>
+    </summary>
     {% if consumptions %}
     <div class="table-responsive">
         <table class="table table-hover table-sm align-middle mb-0">
             <thead class="table-light">
                 <tr>
-                    <th class="ps-3">Kod</th>
-                    <th>Malzeme</th>
-                    <th style="width: 130px;">Tür</th>
-                    <th class="text-end" style="width: 120px;">Miktar</th>
-                    <th class="text-end" style="width: 130px;">Birim Maliyet</th>
-                    <th class="text-end" style="width: 140px;">Toplam</th>
+                    <th class="ps-3">Malzeme</th>
+                    <th class="text-center" style="width: 100px;">Tür</th>
+                    <th class="text-end" style="width: 110px;">Miktar</th>
+                    <th class="text-end" style="width: 120px;">Birim</th>
+                    <th class="text-end pe-3" style="width: 130px;">Toplam</th>
                 </tr>
             </thead>
             <tbody>
                 {% for c in consumptions %}
                 <tr>
-                    <td class="ps-3"><small class="text-muted">{{ c.code or '-' }}</small></td>
-                    <td>{{ c.name }}</td>
-                    <td>{{ type_badge(c.type) }}</td>
-                    <td class="text-end">{{ "%.4g"|format(c.quantity) }} <small class="text-muted">{{ c.unit_type }}</small></td>
-                    <td class="text-end">{{ money(c.unit_cost, currency) }}</td>
-                    <td class="text-end fw-semibold">{{ money(c.total_cost, currency) }}</td>
+                    <td class="ps-3">{{ c.name }}{% if c.code %}<small class="text-muted ms-2">{{ c.code }}</small>{% endif %}</td>
+                    <td class="text-center">{{ type_badge(c.type) }}</td>
+                    <td class="text-end text-nowrap">{{ "%.4g"|format(c.quantity) }} <small class="text-muted">{{ c.unit_type }}</small></td>
+                    <td class="text-end text-nowrap">{{ money(c.unit_cost, currency) }}</td>
+                    <td class="text-end text-nowrap pe-3 fw-semibold">{{ money(c.total_cost, currency) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
             <tfoot class="table-light">
                 <tr>
-                    <th colspan="5" class="text-end">Tüketim Toplamı</th>
-                    <th class="text-end text-success">{{ money(consumed_total, currency) }}</th>
+                    <th colspan="4" class="text-end">Tüketim Toplamı</th>
+                    <th class="text-end pe-3 text-success">{{ money(consumed_total, currency) }}</th>
                 </tr>
             </tfoot>
         </table>
     </div>
     {% else %}
-    <div class="card-body text-center py-4 text-muted">
-        <i class="bi bi-basket display-6 d-block mb-2"></i>
-        Bu üretim için ayrı tüketim kaydı bulunmuyor.
-    </div>
+    <div class="card-body text-center py-4 text-muted">Bu üretim için ayrı tüketim kaydı bulunmuyor.</div>
     {% endif %}
-</div>
+</details>
+
+<style>
+    #costTree .caret i { transition: transform .15s ease; }
+    #costTree tr.expanded > td .caret i { transform: rotate(90deg); }
+    #costTree tr.ym-row td { background-color: rgba(255, 193, 7, .06); }
+    details > summary::-webkit-details-marker { display: none; }
+</style>
+
+<script>
+(function () {
+    var tree = document.getElementById('costTree');
+    if (!tree) return;
+
+    function refresh() {
+        tree.querySelectorAll('tr.tree-row').forEach(function (r) {
+            var pid = r.getAttribute('data-parent');
+            var parent = pid ? tree.querySelector('tr[data-id="' + pid + '"]') : null;
+            if (!parent) { r.style.display = ''; return; }
+            var visible = parent.style.display !== 'none' && parent.classList.contains('expanded');
+            r.style.display = visible ? '' : 'none';
+        });
+    }
+
+    tree.addEventListener('click', function (e) {
+        var caret = e.target.closest('.caret');
+        if (!caret) return;
+        var row = caret.closest('tr');
+        row.classList.toggle('expanded');
+        refresh();
+    });
+
+    var btn = document.getElementById('toggleAll');
+    if (btn) {
+        btn.addEventListener('click', function () {
+            var rows = tree.querySelectorAll('tr.ym-row, tr.tree-root');
+            var anyClosed = Array.prototype.some.call(rows, function (r) { return !r.classList.contains('expanded'); });
+            rows.forEach(function (r) { r.classList.toggle('expanded', anyClosed); });
+            refresh();
+            btn.innerHTML = anyClosed
+                ? '<i class="bi bi-arrows-collapse me-1"></i>Tümünü Kapat'
+                : '<i class="bi bi-arrows-expand me-1"></i>Tümünü Aç';
+        });
+    }
+
+    refresh(); // kök açık → sadece ana bileşenler görünür
+})();
+</script>
 {% endblock %}
