@@ -583,6 +583,15 @@ def _is_ready_purchase_text(value: str) -> bool:
     return any(token in text for token in ('HAZIR', 'STANDART PARCA', 'STANDART'))
 
 
+def _looks_like_part_code(value: str) -> bool:
+    """Metin gerçek bir parça kodu gibi mi görünüyor? (ör. 'KDS-P001-50',
+    '203-32208-000-KM'). Malzeme cinsi metinlerini ('sfero döküm', '150x150x4')
+    dışlamak için kodun alfanümerik bir önekle başlayıp ardından '-' / '/'
+    gelmesini arar."""
+    s = _c(value).replace(' ', '')
+    return bool(re.match(r'^[A-Za-z0-9]{2,}[-/]', s))
+
+
 def _c(v) -> str:
     """None → '' temizleyici."""
     return '' if v is None else str(v).strip()
@@ -774,6 +783,27 @@ def _weight_cost_quantity(quantity: float, weight_per_unit: float = 0.0) -> floa
 # FORMAT TESPİTİ
 # ---------------------------------------------------------------------------
 
+def _pick_bom_sheet(wb):
+    """Ürün ağacı (BOM) sayfasını seç.
+
+    Bu dosyalarda genelde bir 'Yönetim Özeti' özet sayfası + asıl ürün ağacı
+    sayfası birlikte bulunur ve dosya bazen özet sayfası aktifken kaydediliyor.
+    wb.active o zaman özeti döndürüp parser'ın çöp okumasına yol açıyor. Asıl BOM
+    sayfası en çok noktalı BOM numarası (1.1., 2.3.1.) içeren sayfadır; onu seç.
+    """
+    best, best_score = None, -1
+    for ws in wb.worksheets:
+        score = 0
+        for row in ws.iter_rows(max_row=min(ws.max_row, 60), values_only=True):
+            for v in row:
+                s = _c(v)
+                if s and _is_num(s):
+                    score += 1
+        if score > best_score:
+            best, best_score = ws, score
+    return best or wb.active
+
+
 def _detect_format(ws) -> str:
     """
     İlk 15 dolu satırı inceleyerek formatı belirle.
@@ -898,6 +928,11 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
         
         if col_map_found and 'num' in col_map and col_map['num'] < len(rv):
             cv = rv[col_map['num']]
+            # Numara sütunundaki yalın tam sayı ("2") üst seviye grup numarasıdır → "2."
+            # Aksi halde "2. Döner Şanzıman" gibi gruplar tanınmayıp altındaki parçalar
+            # doğrudan ana ürüne bağlanıyor (yanlış hiyerarşi).
+            if cv and _INT_RE.match(cv):
+                cv = cv.strip() + '.'
             if cv and (_is_num(cv) or _SEC_RE.match(cv)):
                 first_val = cv
                 first_col = col_map['num']
@@ -943,6 +978,29 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
         num = _normalize_num(first_val)
         level = _calc_level(num)
 
+        # ÇELMAK numaralı formatında level 1 satırları alt-montaj grup başlığıdır
+        # (Çeki Şasesi, Döner Şanzıman...). Gerçek parça değildir; kod/ölçü/fiyat
+        # taşımaz, yalnızca isim (son sütunda opsiyonel grup maliyeti bulunabilir).
+        # Temiz grup düğümü üret; aksi halde son sütundaki maliyet 'miktar' sanılıp
+        # hayalet hammadde satırı (ör. name='1', qty=5948) üretiliyordu. Numarayı
+        # olduğu gibi koru (çocuklar 1.1, 2.1 bu numaraya bağlanır).
+        if level == 1:
+            if col_map_found and 'name' in col_map and col_map['name'] < len(rv):
+                gname = _c(rv[col_map['name']])
+            else:
+                gname = next((v for ci, v in enumerate(rv) if ci > first_col and v), '')
+            if gname:
+                for k in [l for l in list(stack) if l > 1]:
+                    del stack[k]
+                stack[1] = num
+                rows.append({'num': num, 'level': 1, 'name': gname, 'code': '',
+                             'material': '', 'quantity': 1.0, 'unit_type': 'adet',
+                             'quantity_net': 1.0, 'piece_count': 1.0,
+                             'weight_per_unit': 0.0, 'weight_unit': '',
+                             'unit_price': 0.0, 'parent_num': stack.get(0),
+                             'excel_row': row_idx})
+                continue
+
         name = ''
         code = ''
         material = ''
@@ -957,12 +1015,22 @@ def _parse_numbered(ws, override_root_name=None) -> tuple[list[dict], list[dict]
             name = _c(rv[col_map['name']]) if col_map['name'] < len(rv) else ''
             typ = _c(rv[col_map['type']]) if 'type' in col_map and col_map['type'] < len(rv) else ''
             spc = _c(rv[col_map['spec']]) if 'spec' in col_map and col_map['spec'] < len(rv) else ''
-            # Ölçü (typ = Malzeme Cinsi: Ø76×5) ve Özellik (spc: Sanayi Borusu) birleştir => "Sanayi Borusu Ø76x5"
-            if typ and spc:
+            code = _c(rv[col_map['code']]) if 'code' in col_map and col_map['code'] < len(rv) else ''
+
+            # Bazı gruplarda "Hazır"/"Standart" işareti Parça Kodu sütununa yazılmış.
+            # İşareti malzeme olarak koru (satın alma parçası olarak işlenir) ve:
+            #  • gerçek kod bir sağa (Malzeme Cinsi'ne) kaymışsa geri al,
+            #  • yoksa kodu boşalt (benzersiz kod üretilsin; birden çok parça "Hazır"
+            #    koduyla çakışmasın). Aksi halde bu parçalar "Hazır" koduyla giriyordu.
+            if _is_ready_purchase_text(code):
+                material = code
+                code = typ if _looks_like_part_code(typ) else ''
+            # Ölçü (typ = Malzeme Cinsi: Ø76×5) ve Özellik (spc: Sanayi Borusu)
+            # birleştir => "Sanayi Borusu Ø76x5"
+            elif typ and spc:
                 material = f"{spc} {typ}".strip()
             else:
                 material = typ or spc
-            code = _c(rv[col_map['code']]) if 'code' in col_map and col_map['code'] < len(rv) else ''
             
             e_val = _float(rv_raw[col_map['fireliM']], 0.0) if 'fireliM' in col_map and col_map['fireliM'] < len(rv_raw) else 0.0
             f_val = _float(rv_raw[col_map['firesizM']], 0.0) if 'firesizM' in col_map and col_map['firesizM'] < len(rv_raw) else 0.0
@@ -1422,7 +1490,7 @@ def parse_bom_excel_v2(file_stream, override_root_name=None) -> tuple[list[dict]
     """
     try:
         wb = openpyxl.load_workbook(file_stream, data_only=True)
-        ws = wb.active
+        ws = _pick_bom_sheet(wb)
     except Exception as exc:
         return [], [{'row': 0, 'error': f'Dosya okuma hatası: {exc}'}]
 
