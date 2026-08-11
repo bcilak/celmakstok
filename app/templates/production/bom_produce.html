@@ -40,45 +40,6 @@
 </div>
 {% endif %}
 
-{% if plan_produce or plan_from_stock %}
-<details class="alert alert-info py-2 mb-3">
-    <summary class="d-flex align-items-center flex-wrap gap-2" style="cursor:pointer; list-style:none;">
-        <span><i class="fas fa-sitemap"></i> <strong>Kademeli üretim planı</strong>
-            <span class="text-muted">(1 adet için)</span></span>
-        {% if plan_from_stock %}<span class="badge bg-success">{{ plan_from_stock|length }} stoktan</span>{% endif %}
-        {% if plan_produce %}<span class="badge bg-primary">{{ plan_produce|length }} üretilecek</span>{% endif %}
-        <small class="text-muted ms-auto"><i class="fas fa-chevron-down"></i> göster/gizle</small>
-    </summary>
-    <div class="small text-muted mt-2">Yarımamüller stokta varsa yeniden üretilmez, eldeki kullanılır.</div>
-    <div class="row mt-2" style="max-height: 260px; overflow-y: auto;">
-        {% if plan_from_stock %}
-        <div class="col-md-6">
-            <div class="fw-semibold text-success"><i class="fas fa-box"></i> Stoktan kullanılacak</div>
-            <ul class="mb-0 mt-1">
-                {% for s in plan_from_stock %}
-                <li>{{ s.name }} {% if s.code %}<small class="text-muted">({{ s.code }})</small>{% endif %}
-                    — <strong>{{ "%g"|format(s.qty) }}</strong></li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% endif %}
-        {% if plan_produce %}
-        <div class="col-md-6">
-            <div class="fw-semibold text-primary"><i class="fas fa-cogs"></i> Ayrıca üretilecek</div>
-            <ul class="mb-0 mt-1">
-                {% for s in plan_produce %}
-                <li>{{ s.name }} {% if s.code %}<small class="text-muted">({{ s.code }})</small>{% endif %}
-                    — <strong>{{ "%g"|format(s.qty) }}</strong></li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% endif %}
-    </div>
-    <div class="small text-muted mt-2">Bu yarımamüller için de stok hareketi oluşur: önce üretim girişi (+), ardından
-        üst montaja harcanınca çıkış (−). Plan, girilen miktara göre üretim anında yeniden hesaplanır.</div>
-</details>
-{% endif %}
-
 <div class="row">
     <!-- Üretim Formu -->
     <div class="col-md-4">

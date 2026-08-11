@@ -2007,31 +2007,10 @@ def bom_produce(bom_id, node_id):
                 'req_qty_per_unit': item['quantity'],
                 'stock': (c_product.current_stock or 0) if c_product else 0
             })
-        # Kademeli plan önizlemesi (1 adet için): hangi yarımamül eldeki stoktan
-        # karşılanacak, hangisi ayrıca üretilecek.
-        preview_plan = plan_production(bom_id, node_id, 1, db)
-        plan_produce, plan_from_stock = [], []
-        for step in preview_plan['steps']:
-            if not step['is_root'] and step['product']:
-                plan_produce.append({
-                    'name': (step['node'].display_name if step['node'] else None) or step['product'].name,
-                    'code': step['product'].code or '',
-                    'qty': float(step['quantity'] or 0),
-                })
-            for c in step['consumptions']:
-                if c.get('kind') == 'subassembly' and float(c.get('from_stock') or 0) > 1e-9:
-                    plan_from_stock.append({
-                        'name': (c['node'].display_name if c.get('node') else None) or c['product'].name,
-                        'code': c['product'].code or '',
-                        'qty': float(c['from_stock']),
-                    })
-
         return render_template('production/bom_produce.html',
                                bom_node=bom_node,
                                target_product=target_product,
                                materials=materials,
-                               plan_produce=plan_produce,
-                               plan_from_stock=plan_from_stock,
                                unlinked=explosion['unlinked'],
                                missing_weight=explosion['missing_weight'])
 
