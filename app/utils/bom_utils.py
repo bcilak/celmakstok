@@ -2173,6 +2173,55 @@ def import_bom_to_db(parsed_rows: list[dict], bom_id: int, db, category_id: int 
 # Ağaç Sorgulama
 # ---------------------------------------------------------------------------
 
+def _node_display_type(node, item, product, has_children):
+    """Bir BOM düğümünün tip sınıflandırması. Ürün ağacı (get_bom_tree) ile üretim
+    planı (plan_production) AYNI kuralı kullansın diye ortaktır — aksi halde
+    ekranda "Standart Parça" görünen bir kalem üretimde yarımamül sanılıyordu.
+
+    Öncelik sırası:
+      1. Kod öneki standart aralıkta (201-219) → standart_parca. Çocuğu OLSA BİLE:
+         eski içe aktarmalarda "Hazır" kelimesi kod sütununa kaydığı için bu
+         parçalara sahte bir 'hammadde' çocuğu üretilmiş olabilir; onlar bu
+         sınıflandırmayı bozmamalı.
+      2. Alt bileşeni varsa → yarimamul (üretilir)
+      3. Kart tipi açıkça yarımamülse → yarimamul
+      4. Metin "Hazır/Standart" diyorsa → hazir_parca
+
+    Döner: (display_type, raw_type, ready_purchase)
+    """
+    raw_type = product.type if product and product.type else (item.type if item else 'hammadde')
+    ready_purchase = _is_ready_purchase_text(
+        ' '.join(
+            _c(value)
+            for value in [
+                node.display_name,
+                item.name if item else '',
+                product.material if product else '',
+                product.name if product else '',
+            ]
+        )
+    )
+    code_str = str(item.code) if (item and item.code) else (str(product.code) if product else '')
+    code_prefix = code_str[:3]
+
+    if code_prefix in STANDARD_PREFIXES:
+        display_type = 'standart_parca'
+    elif has_children and node.level > 0:
+        # Altında çocuk varsa üretilen bir yarımamüldür — malzeme metni "Hazır"
+        # dese bile yapı bunu ezer.
+        display_type = 'yarimamul'
+    elif raw_type == 'yarimamul' and node.level > 0:
+        # Kullanıcı ürün tipini açıkça 'yarımamül' yaptıysa, metin sezgisi
+        # (ready_purchase) bunu ezmemeli — aksi halde tip değişikliği ağaca
+        # yansımıyordu.
+        display_type = 'yarimamul'
+    elif ready_purchase and node.level > 0:
+        display_type = 'hazir_parca'
+    else:
+        display_type = raw_type
+    return display_type, raw_type, ready_purchase
+
+
 def get_bom_tree(bom_id: int, db) -> dict:
     from app.models import BomNode, BomEdge, Product, BomItem
     from sqlalchemy.orm import joinedload
@@ -2248,39 +2297,11 @@ def get_bom_tree(bom_id: int, db) -> dict:
         else:
             waste_ratio = None
 
-        # item_type: eğer altında çocuk varsa 'yarimamul', yoksa item kaydından al
+        # item_type sınıflandırması — üretim planıyla ortak kural (bkz.
+        # _node_display_type): ekranda ne görünüyorsa üretim de onu yapar.
         has_children = bool(children_ids)
-        raw_type = product.type if product and product.type else (item.type if item else 'hammadde')
-        ready_purchase = _is_ready_purchase_text(
-            ' '.join(
-                _c(value)
-                for value in [
-                    n.display_name,
-                    item.name if item else '',
-                    product.material if product else '',
-                    product.name if product else '',
-                ]
-            )
-        )
-        
-        code_str = str(item.code) if (item and item.code) else (str(product.code) if product else '')
-        code_prefix = code_str[:3]
-        
-        if code_prefix in STANDARD_PREFIXES:
-            display_type = 'standart_parca'
-        elif has_children and n.level > 0:
-            # Altında çocuk varsa üretilen bir yarımamüldür — malzeme metni "Hazır"
-            # dese bile yapı bunu ezer.
-            display_type = 'yarimamul'
-        elif raw_type == 'yarimamul' and n.level > 0:
-            # Kullanıcı ürün tipini açıkça 'yarımamül' yaptıysa, metin sezgisi
-            # (ready_purchase) bunu ezmemeli — aksi halde tip değişikliği ağaca
-            # yansımıyordu.
-            display_type = 'yarimamul'
-        elif ready_purchase and n.level > 0:
-            display_type = 'hazir_parca'
-        else:
-            display_type = raw_type
+        display_type, raw_type, ready_purchase = _node_display_type(
+            n, item, product, has_children)
 
         built_children = [build(cid) for cid in children_ids]
         # Altında çocuğu olan düğüm üretilen bir yarımamüldür; maliyeti
@@ -2833,6 +2854,26 @@ def plan_production(bom_id: int, node_id: int, build_qty: float, db) -> dict:
                 gn = node_map.get(ge.child_node_id)
                 obtain(ge.child_node_id, needed_qty * _edge_qty(ge, gn),
                        parent_consumptions, depth + 1)
+            return
+
+        # --- Satın alınan parça (standart/hazır): ÜRETİLMEZ, stoktan düşülür ---
+        # Ürün ağacıyla AYNI sınıflandırma (bkz. _node_display_type). Eski içe
+        # aktarmalarda "Hazır" kelimesi kod sütununa kaydığı için bu parçalara
+        # sahte bir 'hammadde' çocuğu üretilmiş olabilir; o çocuk bunları
+        # yarımamül gibi göstermemeli. Stok yetmezse "yetersiz stok" uyarısı
+        # verilir — cıvata sessizce "imal edilmiş" gibi görünmez.
+        display_type, _raw_type, _ready = _node_display_type(node, item, product, True)
+        if display_type in ('standart_parca', 'hazir_parca'):
+            consume_qty, ok = _leaf_consume_quantity(node, item, product, needed_qty)
+            if not ok:
+                missing_weight.append({'node_id': node.id, 'num': node.num,
+                                       'name': node.display_name or (item.name if item else ''),
+                                       'product_code': product.code})
+                return
+            avail[product.id] = _stock_of(product) - consume_qty
+            needed_total[product.id] = needed_total.get(product.id, 0.0) + consume_qty
+            parent_consumptions.append({'node': node, 'product': product,
+                                        'quantity': consume_qty, 'kind': 'material'})
             return
 
         # --- Yarımamül: önce eldeki stoğu kullan, kalanı üret ---
