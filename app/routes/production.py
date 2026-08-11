@@ -20,6 +20,7 @@ from app.utils.bom_utils import (
     analyze_bom_delete,
     audit_bom_costs,
     explode_bom_materials,
+    plan_production,
     preview_standardize_name,
     standardize_bom_item_name,
     add_bom_node,
@@ -2006,10 +2007,31 @@ def bom_produce(bom_id, node_id):
                 'req_qty_per_unit': item['quantity'],
                 'stock': (c_product.current_stock or 0) if c_product else 0
             })
+        # Kademeli plan önizlemesi (1 adet için): hangi yarımamül eldeki stoktan
+        # karşılanacak, hangisi ayrıca üretilecek.
+        preview_plan = plan_production(bom_id, node_id, 1, db)
+        plan_produce, plan_from_stock = [], []
+        for step in preview_plan['steps']:
+            if not step['is_root'] and step['product']:
+                plan_produce.append({
+                    'name': (step['node'].display_name if step['node'] else None) or step['product'].name,
+                    'code': step['product'].code or '',
+                    'qty': float(step['quantity'] or 0),
+                })
+            for c in step['consumptions']:
+                if c.get('kind') == 'subassembly' and float(c.get('from_stock') or 0) > 1e-9:
+                    plan_from_stock.append({
+                        'name': (c['node'].display_name if c.get('node') else None) or c['product'].name,
+                        'code': c['product'].code or '',
+                        'qty': float(c['from_stock']),
+                    })
+
         return render_template('production/bom_produce.html',
                                bom_node=bom_node,
                                target_product=target_product,
                                materials=materials,
+                               plan_produce=plan_produce,
+                               plan_from_stock=plan_from_stock,
                                unlinked=explosion['unlinked'],
                                missing_weight=explosion['missing_weight'])
 
@@ -2021,40 +2043,36 @@ def bom_produce(bom_id, node_id):
         flash('Üretim miktarı sıfırdan büyük olmalıdır.', 'error')
         return redirect(url_for('production.bom_produce', bom_id=bom_id, node_id=node_id))
 
-    explosion = explode_bom_materials(bom_id, node_id, quantity, db)
+    # KADEMELİ üretim planı: yarımamül stokta varsa mevcut kullanılır, yetmeyen
+    # kısım ayrı bir üretim adımı olarak üretilir (kendi bileşenlerini sarf eder).
+    plan = plan_production(bom_id, node_id, quantity, db)
 
-    # 1. Stok yetiyor mu kontrolü
-    insufficient = []
-    required_consumptions = [] # [(product, total_req_qty, child_node)]
-    for item in explosion['materials']:
-        child = item['node']
-        c_product = item['product']
-        total_req = float(item['quantity'])
-        c_stock = float(c_product.current_stock or 0)
-        if c_stock < total_req:
-            insufficient.append(f"{c_product.name} (Gereken: {total_req:.2f}, Mevcut: {c_stock})")
-        else:
-            required_consumptions.append((c_product, total_req, child))
-
-    if insufficient:
-        _limited_flash_list('Yetersiz stok:', insufficient)
+    # 1. Stok yetiyor mu kontrolü — eldeki yarımamüller düşüldükten SONRA
+    #    gerçekten eksik kalan malzemeler.
+    if plan['insufficient']:
+        names = [
+            f"{i['product'].name} (Gereken: {i['needed']:.2f}, "
+            f"Mevcut: {i['stock']:.2f}, Eksik: {i['short']:.2f})"
+            for i in plan['insufficient'] if i.get('product')
+        ]
+        _limited_flash_list('Yetersiz stok:', names)
         return redirect(url_for('production.bom_produce', bom_id=bom_id, node_id=node_id))
 
-    if explosion['unlinked']:
-        names = [f"{u['num']} {u['name']}" for u in explosion['unlinked']]
+    if plan['unlinked']:
+        names = [f"{u['num']} {u['name']}" for u in plan['unlinked']]
         _limited_flash_list(
             'Stok kartı bulunamadığı için sarf edilemeyen malzemeler var (üretim yine de kaydedildi):',
             names, category='warning'
         )
 
-    if explosion['missing_weight']:
-        names = [f"{u['num']} {u['name']} ({u['product_code']})" for u in explosion['missing_weight']]
+    if plan['missing_weight']:
+        names = [f"{u['num']} {u['name']} ({u['product_code']})" for u in plan['missing_weight']]
         _limited_flash_list(
             'Ağırlık verisi eksik olduğu için sarf edilemeyen malzemeler var (üretim yine de kaydedildi, bu malzemeleri BOM\'da kontrol edin):',
             names, category='warning'
         )
 
-    # 2. Üretim kaydı oluştur
+    # 2. Üretim kaydı oluştur (ana ürün için)
     production = None
     if _production_records_support_product_id():
         production = ProductionRecord(
@@ -2070,47 +2088,69 @@ def bom_produce(bom_id, node_id):
         # Üretim anındaki maliyeti dondur (rapor/ortalama maliyet için).
         _freeze_production_cost(production, bom_id, node_id, quantity)
 
-    # 3. Stoğu Düş ve Tüketim Kaydı oluştur (Kullanılan Alt Bileşenler İçin)
-    for c_product, total_req, child_node in required_consumptions:
-        # Stoğu düş
-        c_product.current_stock = float(c_product.current_stock or 0) - total_req
-        
-        # Tüketim detayı (Üretim emri ile ilişkilendirme)
-        if production:
-            consumption = ProductionConsumption(
-                production_id=production.id,
-                product_id=c_product.id,
-                quantity=total_req
-            )
-            db.session.add(consumption)
-        
-        # Stok hareketi (Çıkış)
-        movement_out = StockMovement(
-            product_id=c_product.id,
-            movement_type='cikis',
-            quantity=total_req,
-            source='Depo',
-            destination=f'Üretim - {bom_node.display_name}',
-            note=f'Yarı Mamul/Mamul Üretimi için harcandı. Üretilen: {bom_node.display_name} ({quantity} adet)',
-            user_id=current_user.id
-        )
-        db.session.add(movement_out)
+    # 3. Planı sırayla uygula: EN DERİN alt montajdan köke doğru.
+    #    Her adımda önce bileşenler stoktan düşülür, sonra üretilen stoğa girer.
+    #    Böylece yarımamüller de stok hareketlerinde görünür: önce "+ üretildi",
+    #    ardından üst montaja "− harcandı".
+    sub_produced = []
+    for step in plan['steps']:
+        s_node = step['node']
+        s_product = step['product']
+        s_qty = float(step['quantity'] or 0)
+        is_root = step['is_root']
+        s_name = (s_node.display_name if s_node else None) \
+            or (s_product.name if s_product else 'Ürün')
 
-    # 4. Stoğu Artır (Üretilen Yarı Mamul/Mamul İçin)
-    target_product.current_stock = float(target_product.current_stock or 0) + quantity
-    movement_in = StockMovement(
-        product_id=target_product.id,
-        movement_type='giris',
-        quantity=quantity,
-        source=f'Üretim Hattı - {bom_node.display_name}',
-        destination='Depo',
-        note=f'Üretim Tamamlandı. Giren Miktar: {quantity}',
-        user_id=current_user.id
-    )
-    db.session.add(movement_in)
+        # 3a. Bu adımın bileşenlerini sarf et
+        for c in step['consumptions']:
+            c_product = c['product']
+            c_qty = float(c['quantity'] or 0)
+            if not c_product or c_qty <= 0:
+                continue
+            c_product.current_stock = float(c_product.current_stock or 0) - c_qty
+            db.session.add(StockMovement(
+                product_id=c_product.id,
+                movement_type='cikis',
+                quantity=c_qty,
+                source='Depo',
+                destination=f'Üretim - {s_name}',
+                note=(f'{s_name} üretimi için harcandı ({s_qty:g} adet).'
+                      if is_root else
+                      f'{s_name} üretimi için harcandı ({s_qty:g} adet) — '
+                      f'{bom_node.display_name} üretiminin alt adımı.'),
+                user_id=current_user.id
+            ))
+            # Tüketim detayı yalnızca ana üretime bağlanır (çift sayım olmasın).
+            if production and is_root:
+                db.session.add(ProductionConsumption(
+                    production_id=production.id,
+                    product_id=c_product.id,
+                    quantity=c_qty
+                ))
+
+        # 3b. Üretileni stoğa al
+        if not s_product or s_qty <= 0:
+            continue
+        s_product.current_stock = float(s_product.current_stock or 0) + s_qty
+        db.session.add(StockMovement(
+            product_id=s_product.id,
+            movement_type='giris',
+            quantity=s_qty,
+            source=f'Üretim Hattı - {s_name}',
+            destination='Depo',
+            note=(f'Üretim Tamamlandı. Giren Miktar: {s_qty:g}' if is_root else
+                  f'Yarımamül üretildi ({s_qty:g}) — {bom_node.display_name} üretimi için.'),
+            user_id=current_user.id
+        ))
+        if not is_root:
+            sub_produced.append(f'{s_name} ×{s_qty:g}')
 
     db.session.commit()
-    flash(f'Başarıyla {quantity} adet {bom_node.display_name} üretildi ve stoka girdi.', 'success')
+    msg = f'Başarıyla {quantity:g} adet {bom_node.display_name} üretildi ve stoka girdi.'
+    if sub_produced:
+        preview = ', '.join(sub_produced[:5]) + ('…' if len(sub_produced) > 5 else '')
+        msg += f' Ara üretim: {len(sub_produced)} yarımamül ({preview}).'
+    flash(msg, 'success')
     return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
 
@@ -2153,65 +2193,31 @@ def work_order():
         flash('Bu BOM ağacının hiç alt bileşeni (malzemesi) yok, üretim yapılamaz. Önce BOM detayını içe aktarın.', 'error')
         return redirect(url_for('production.work_order'))
 
-    explosion = explode_bom_materials(bom_id, root_node.id, quantity, db)
+    # KADEMELİ üretim planı (bom_produce ile aynı mantık): stoktaki yarımamüller
+    # yeniden üretilmez, eksik olanlar ara üretim adımı olarak üretilir.
+    plan = plan_production(bom_id, root_node.id, quantity, db)
 
-    insufficient = []
-    consume_list = []
-    for item in explosion['materials']:
-        p = item['product']
-        req = float(item['quantity'])
-        p_stock = float(p.current_stock or 0)
-        if p_stock < req:
-            insufficient.append(f"{p.name} (Eksik: {req - p_stock:.2f})")
-        else:
-            consume_list.append((p, req))
-
-    if insufficient:
-        _limited_flash_list('Yetersiz stoklar:', insufficient)
+    if plan['insufficient']:
+        names = [f"{i['product'].name} (Eksik: {i['short']:.2f})"
+                 for i in plan['insufficient'] if i.get('product')]
+        _limited_flash_list('Yetersiz stoklar:', names)
         return redirect(url_for('production.work_order'))
 
-    if explosion['unlinked']:
-        names = [f"{u['num']} {u['name']}" for u in explosion['unlinked']]
+    if plan['unlinked']:
+        names = [f"{u['num']} {u['name']}" for u in plan['unlinked']]
         _limited_flash_list(
             'Stok kartı bulunamadığı için sarf edilemeyen malzemeler var (üretim yine de kaydedildi):',
             names, category='warning'
         )
 
-    if explosion['missing_weight']:
-        names = [f"{u['num']} {u['name']} ({u['product_code']})" for u in explosion['missing_weight']]
+    if plan['missing_weight']:
+        names = [f"{u['num']} {u['name']} ({u['product_code']})" for u in plan['missing_weight']]
         _limited_flash_list(
             'Ağırlık verisi eksik olduğu için sarf edilemeyen malzemeler var (üretim yine de kaydedildi, bu malzemeleri BOM\'da kontrol edin):',
             names, category='warning'
         )
 
-    # 1. Deduct Materials
-    for p, req in consume_list:
-        p.current_stock = float(p.current_stock or 0) - float(req)
-        movement = StockMovement(
-            product_id=p.id,
-            movement_type='cikis',
-            quantity=req,
-            source='Depo',
-            destination=f'Üretim - {root_node.display_name}',
-            note=f'Üretim sarfiyatı (BOM #{bom_id}, Miktar: {quantity})',
-            user_id=current_user.id
-        )
-        db.session.add(movement)
-        
-    # 2. Add Target Product
-    target_product.current_stock = float(target_product.current_stock or 0) + quantity
-    mov_in = StockMovement(
-        product_id=target_product.id,
-        movement_type='giris',
-        quantity=quantity,
-        source=f'Üretim Hattı - {root_node.display_name}',
-        destination='Depo',
-        note=f'Üretimden giriş (BOM #{bom_id})',
-        user_id=current_user.id
-    )
-    db.session.add(mov_in)
-    
-    # 3. Production Record
+    # 1. Üretim kaydı (ana ürün)
     pr = None
     if _production_records_support_product_id():
         pr = ProductionRecord(
@@ -2227,15 +2233,56 @@ def work_order():
         # Üretim anındaki maliyeti dondur (rapor/ortalama maliyet için).
         _freeze_production_cost(pr, bom_id, root_node.id, quantity)
 
-    if pr:
-        for p, req in consume_list:
-            pc = ProductionConsumption(
-                production_id=pr.id,
-                product_id=p.id,
-                quantity=float(req)
-            )
-            db.session.add(pc)
-        
+    # 2. Planı sırayla uygula: en derin alt montajdan köke doğru. Yarımamüller
+    #    de stok hareketi üretir (önce "+ üretildi", sonra "− harcandı").
+    for step in plan['steps']:
+        s_node = step['node']
+        s_product = step['product']
+        s_qty = float(step['quantity'] or 0)
+        is_root = step['is_root']
+        s_name = (s_node.display_name if s_node else None) \
+            or (s_product.name if s_product else 'Ürün')
+
+        for c in step['consumptions']:
+            c_product = c['product']
+            c_qty = float(c['quantity'] or 0)
+            if not c_product or c_qty <= 0:
+                continue
+            c_product.current_stock = float(c_product.current_stock or 0) - c_qty
+            db.session.add(StockMovement(
+                product_id=c_product.id,
+                movement_type='cikis',
+                quantity=c_qty,
+                source='Depo',
+                destination=f'Üretim - {s_name}',
+                note=(f'Üretim sarfiyatı (BOM #{bom_id}, {s_name}: {s_qty:g})'
+                      if is_root else
+                      f'Üretim sarfiyatı (BOM #{bom_id}, {s_name}: {s_qty:g}) — '
+                      f'{root_node.display_name} üretiminin alt adımı'),
+                user_id=current_user.id
+            ))
+            # Tüketim detayı yalnızca ana üretime bağlanır (çift sayım olmasın).
+            if pr and is_root:
+                db.session.add(ProductionConsumption(
+                    production_id=pr.id,
+                    product_id=c_product.id,
+                    quantity=c_qty
+                ))
+
+        if not s_product or s_qty <= 0:
+            continue
+        s_product.current_stock = float(s_product.current_stock or 0) + s_qty
+        db.session.add(StockMovement(
+            product_id=s_product.id,
+            movement_type='giris',
+            quantity=s_qty,
+            source=f'Üretim Hattı - {s_name}',
+            destination='Depo',
+            note=(f'Üretimden giriş (BOM #{bom_id})' if is_root else
+                  f'Yarımamül üretildi ({s_qty:g}) — {root_node.display_name} üretimi için'),
+            user_id=current_user.id
+        ))
+
     db.session.commit()
     flash(f"{target_product.name} için {quantity} adet üretim başarıyla tamamlandı.", 'success')
     return redirect(url_for('production.index'))

@@ -40,6 +40,40 @@
 </div>
 {% endif %}
 
+{% if plan_produce or plan_from_stock %}
+<div class="alert alert-info">
+    <i class="fas fa-sitemap"></i>
+    <strong>Kademeli üretim planı</strong> <span class="text-muted">(1 adet için)</span> — yarımamüller stokta varsa
+    yeniden üretilmez, eldeki kullanılır:
+    <div class="row mt-2">
+        {% if plan_from_stock %}
+        <div class="col-md-6">
+            <div class="fw-semibold text-success"><i class="fas fa-box"></i> Stoktan kullanılacak</div>
+            <ul class="mb-0 mt-1">
+                {% for s in plan_from_stock %}
+                <li>{{ s.name }} {% if s.code %}<small class="text-muted">({{ s.code }})</small>{% endif %}
+                    — <strong>{{ "%g"|format(s.qty) }}</strong></li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        {% if plan_produce %}
+        <div class="col-md-6">
+            <div class="fw-semibold text-primary"><i class="fas fa-cogs"></i> Ayrıca üretilecek</div>
+            <ul class="mb-0 mt-1">
+                {% for s in plan_produce %}
+                <li>{{ s.name }} {% if s.code %}<small class="text-muted">({{ s.code }})</small>{% endif %}
+                    — <strong>{{ "%g"|format(s.qty) }}</strong></li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+    <div class="small text-muted mt-2">Bu yarımamüller için de stok hareketi oluşur: önce üretim girişi (+), ardından
+        üst montaja harcanınca çıkış (−). Plan, girilen miktara göre üretim anında yeniden hesaplanır.</div>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- Üretim Formu -->
     <div class="col-md-4">

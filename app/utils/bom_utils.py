@@ -2703,6 +2703,185 @@ def audit_bom_costs(bom_id: int, db) -> dict:
 # Üretim Sarfiyatı — Ortak Patlatma (bom_produce ve work_order tarafından kullanılır)
 # ---------------------------------------------------------------------------
 
+def _leaf_consume_quantity(node, item, product, current_qty):
+    """Bir yaprak malzemenin stok kartı BİRİMİNE dönüştürülmüş tüketim miktarı.
+
+    Döner: (consume_qty, ok). ok False ise ağırlık/birim verisi eksik olduğundan
+    dönüşüm yapılamamıştır — çağıran taraf kullanıcıyı uyarır, sessizce 0 tüketmez.
+    explode_bom_materials ve plan_production AYNI mantığı kullansın diye ortaktır.
+    """
+    material_text = ' '.join(_c(v) for v in [
+        product.material or '', product.name or '', node.display_name or ''
+    ])
+    w_per_unit = float(node.weight_per_unit) if node.weight_per_unit else 0.0
+    product_unit = product.unit_type
+
+    # FAZ 2A: Hazır/standart (dışarıdan alınan, sayılan) parçalar ya da kartı
+    # 'adet' olanlar HER ZAMAN adet tüketilir — malzeme adına ("Çelik Dövme")
+    # takılıp kg'a çevrilmeye çalışılmaz, fireli ağırlık aranmaz.
+    def _nt(s):
+        return (s or '').lower().replace('ı', 'i').replace('İ', 'i')
+    _leaf_type = _nt(getattr(item, 'type', '')) + ' ' + _nt(getattr(product, 'type', ''))
+    if (product_unit or '').lower() == 'adet' or 'hazir' in _leaf_type or 'standart' in _leaf_type:
+        return current_qty, True
+
+    if _force_cost_by_length(material_text, product_unit):
+        consume_qty = current_qty
+    elif _should_cost_by_weight(material_text, node.unit_type, w_per_unit, product_unit):
+        consume_qty = _weight_cost_quantity(current_qty, w_per_unit)
+    else:
+        consume_qty = _cost_quantity_for_unit(
+            product_unit, node.unit_type, current_qty, current_qty, w_per_unit
+        )
+
+    if (consume_qty == 0 and current_qty > 0
+            and (product_unit or '').lower() != (node.unit_type or '').lower()):
+        return 0.0, False
+    return consume_qty, True
+
+
+def plan_production(bom_id: int, node_id: int, build_qty: float, db) -> dict:
+    """KADEMELİ (çok seviyeli) üretim planı. Hiçbir DB yazması yapmaz.
+
+    explode_bom_materials tüm ağacı en alt yaprağa kadar patlatır ve ara
+    yarımamülleri "hayalet" sayar: stok hareketi oluşmaz, elde yarımamül olsa
+    bile bileşenleri yeniden sarf edilir. Bu fonksiyon yarımamülü GERÇEK bir
+    üretim adımı olarak ele alır:
+
+      • Yarımamül stokta VARSA önce mevcut stok kullanılır (yeniden üretilmez).
+      • Yetmeyen kısım için ayrı bir üretim adımı oluşur; o adım kendi
+        bileşenlerini sarf eder (gerekirse o da kendi altını üretir).
+
+    Döner:
+      {'steps': [...], 'insufficient': [...], 'unlinked': [...],
+       'missing_weight': [...]}
+
+    steps EN DERİNDEN köke doğru sıralıdır; her adım
+    {'node','product','quantity','consumptions','is_root'} içerir. Böylece
+    çağıran taraf sırayla "bileşenleri düş → üretileni stoğa ekle" uygulayabilir.
+    Her tüketim {'node','product','quantity','kind'} taşır; kind='subassembly'
+    olanlarda ayrıca 'produced' (üretilen) ve 'from_stock' (stoktan kullanılan).
+    """
+    from app.models import BomNode, BomEdge, BomItem
+    from sqlalchemy.orm import joinedload
+
+    edges = BomEdge.query.filter_by(bom_id=bom_id).all()
+    children_of: dict = {}
+    for e in edges:
+        children_of.setdefault(e.parent_node_id, []).append(e)
+
+    nodes = (
+        BomNode.query
+        .options(joinedload(BomNode.item).joinedload(BomItem.product))
+        .filter(BomNode.bom_id == bom_id)
+        .all()
+    )
+    node_map = {n.id: n for n in nodes}
+
+    steps: list[dict] = []
+    unlinked: list[dict] = []
+    missing_weight: list[dict] = []
+    avail: dict[int, float] = {}      # product_id → simüle edilen stok
+    prod_map: dict[int, object] = {}
+    needed_total: dict[int, float] = {}
+
+    def _stock_of(product):
+        if product.id not in avail:
+            avail[product.id] = float(product.current_stock or 0)
+            prod_map[product.id] = product
+        return avail[product.id]
+
+    def _edge_qty(child_edge, child_node):
+        try:
+            # Miktar kaynağı düğüm (node.quantity) — maliyet/ağaç ile aynı kaynak.
+            return (float(child_node.quantity) if (child_node and child_node.quantity)
+                    else float(child_edge.quantity or 1))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def obtain(child_nid, needed_qty, parent_consumptions, depth):
+        """child_nid düğümünden needed_qty kadar temin eder; tüketimi
+        parent_consumptions listesine ekler."""
+        node = node_map.get(child_nid)
+        if not node or depth > 25 or needed_qty <= 0:
+            return
+        item = node.item
+        product = item.product if item else None
+        grandchildren = children_of.get(child_nid, [])
+
+        # --- Yaprak: hammadde / hazır parça → doğrudan stoktan sarf ---
+        if not grandchildren:
+            if not product:
+                unlinked.append({'node_id': node.id, 'num': node.num,
+                                 'name': node.display_name or (item.name if item else '')})
+                return
+            consume_qty, ok = _leaf_consume_quantity(node, item, product, needed_qty)
+            if not ok:
+                missing_weight.append({'node_id': node.id, 'num': node.num,
+                                       'name': node.display_name or (item.name if item else ''),
+                                       'product_code': product.code})
+                return
+            avail[product.id] = _stock_of(product) - consume_qty
+            needed_total[product.id] = needed_total.get(product.id, 0.0) + consume_qty
+            parent_consumptions.append({'node': node, 'product': product,
+                                        'quantity': consume_qty, 'kind': 'material'})
+            return
+
+        # --- Ara düğüm ama stok kartı yok → hayalet: doğrudan altına in ---
+        if not product:
+            for ge in grandchildren:
+                gn = node_map.get(ge.child_node_id)
+                obtain(ge.child_node_id, needed_qty * _edge_qty(ge, gn),
+                       parent_consumptions, depth + 1)
+            return
+
+        # --- Yarımamül: önce eldeki stoğu kullan, kalanı üret ---
+        have = max(_stock_of(product), 0.0)
+        from_stock = min(have, needed_qty)
+        to_produce = needed_qty - from_stock
+
+        if to_produce > 1e-9:
+            own: list[dict] = []
+            for ge in grandchildren:
+                gn = node_map.get(ge.child_node_id)
+                obtain(ge.child_node_id, to_produce * _edge_qty(ge, gn), own, depth + 1)
+            avail[product.id] = _stock_of(product) + to_produce
+            steps.append({'node': node, 'product': product, 'quantity': to_produce,
+                          'consumptions': own, 'is_root': False})
+
+        # Üst montaja harcanır (stoktan gelen + yeni üretilen)
+        avail[product.id] = _stock_of(product) - needed_qty
+        needed_total[product.id] = needed_total.get(product.id, 0.0) + needed_qty
+        parent_consumptions.append({'node': node, 'product': product, 'quantity': needed_qty,
+                                    'kind': 'subassembly', 'produced': to_produce,
+                                    'from_stock': from_stock})
+
+    root = node_map.get(node_id)
+    root_product = root.item.product if (root and root.item) else None
+    root_consumptions: list[dict] = []
+    for ce in children_of.get(node_id, []):
+        cn = node_map.get(ce.child_node_id)
+        obtain(ce.child_node_id, float(build_qty) * _edge_qty(ce, cn), root_consumptions, 1)
+
+    steps.append({'node': root, 'product': root_product, 'quantity': float(build_qty),
+                  'consumptions': root_consumptions, 'is_root': True})
+
+    # Simülasyon sonunda eksiye düşen kartlar = yetersiz stok
+    insufficient = []
+    for pid, remaining in avail.items():
+        if remaining < -1e-9:
+            p = prod_map.get(pid)
+            insufficient.append({
+                'product': p,
+                'needed': needed_total.get(pid, 0.0),
+                'stock': float(p.current_stock or 0) if p else 0.0,
+                'short': -remaining,
+            })
+
+    return {'steps': steps, 'insufficient': insufficient,
+            'unlinked': unlinked, 'missing_weight': missing_weight}
+
+
 def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> dict:
     """Bir BOM düğümünü build_qty kadar üretmek için gereken en alt seviye
     malzeme ihtiyaçlarını, stok kartı BİRİMİNE göre doğru dönüştürülmüş
@@ -2750,47 +2929,8 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
                 })
                 return
 
-            material_text = ' '.join(_c(v) for v in [
-                product.material or '', product.name or '', node.display_name or ''
-            ])
-            w_per_unit = float(node.weight_per_unit) if node.weight_per_unit else 0.0
-            product_unit = product.unit_type
-
-            # FAZ 2A: Hazır/standart (dışarıdan alınan, sayılan) parçalar ya da kartı
-            # 'adet' olanlar HER ZAMAN adet tüketilir — malzeme adına ("Çelik Dövme")
-            # takılıp kg'a çevrilmeye çalışılmaz, fireli ağırlık aranmaz.
-            def _nt(s):
-                return (s or '').lower().replace('ı', 'i').replace('İ', 'i')
-            _leaf_type = _nt(getattr(item, 'type', '')) + ' ' + _nt(getattr(product, 'type', ''))
-            if (product_unit or '').lower() == 'adet' or 'hazir' in _leaf_type or 'standart' in _leaf_type:
-                key = product.id
-                if key not in required:
-                    required[key] = {'product': product, 'quantity': 0.0, 'node': node}
-                required[key]['quantity'] += current_qty
-                _lq = float(node.quantity or 0)
-                breakdown.append({
-                    'num': node.num, 'name': node.display_name or (item.name if item else ''),
-                    'code': product.code or '', 'unit': product_unit or '',
-                    'leaf_qty': _lq, 'mult': (current_qty / _lq) if _lq else 1.0,
-                    'contrib': current_qty, 'factors': list(factors)})
-                return
-
-            if _force_cost_by_length(material_text, product_unit):
-                consume_qty = current_qty
-            elif _should_cost_by_weight(material_text, node.unit_type, w_per_unit, product_unit):
-                consume_qty = _weight_cost_quantity(current_qty, w_per_unit)
-            else:
-                # current_qty, hem 'quantity' hem (adet/hazır satırlarda) 'piece_count'
-                # yerine geçer — bkz. parse_bom_excel_v2: bu iki alan adet bazlı
-                # satırlarda zaten birbirine eşit üretiliyor.
-                consume_qty = _cost_quantity_for_unit(
-                    product_unit, node.unit_type, current_qty, current_qty, w_per_unit
-                )
-
-            if (
-                consume_qty == 0 and current_qty > 0
-                and (product_unit or '').lower() != (node.unit_type or '').lower()
-            ):
+            consume_qty, ok = _leaf_consume_quantity(node, item, product, current_qty)
+            if not ok:
                 # Ağırlık verisi eksik olduğu için birim dönüşümü yapılamadı — bu
                 # malzeme sessizce 0 tüketilmesin, kullanıcıya ayrıca gösterilsin.
                 missing_weight.append({
@@ -2801,6 +2941,7 @@ def explode_bom_materials(bom_id: int, node_id: int, build_qty: float, db) -> di
                 })
                 return
 
+            product_unit = product.unit_type
             key = product.id
             if key not in required:
                 required[key] = {'product': product, 'quantity': 0.0, 'node': node}
