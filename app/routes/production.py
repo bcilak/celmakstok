@@ -2071,7 +2071,6 @@ def bom_produce(bom_id, node_id):
     #    Her adımda önce bileşenler stoktan düşülür, sonra üretilen stoğa girer.
     #    Böylece yarımamüller de stok hareketlerinde görünür: önce "+ üretildi",
     #    ardından üst montaja "− harcandı".
-    sub_produced = []
     for step in plan['steps']:
         s_node = step['node']
         s_product = step['product']
@@ -2121,15 +2120,9 @@ def bom_produce(bom_id, node_id):
                   f'Yarımamül üretildi ({s_qty:g}) — {bom_node.display_name} üretimi için.'),
             user_id=current_user.id
         ))
-        if not is_root:
-            sub_produced.append(f'{s_name} ×{s_qty:g}')
 
     db.session.commit()
-    msg = f'Başarıyla {quantity:g} adet {bom_node.display_name} üretildi ve stoka girdi.'
-    if sub_produced:
-        preview = ', '.join(sub_produced[:5]) + ('…' if len(sub_produced) > 5 else '')
-        msg += f' Ara üretim: {len(sub_produced)} yarımamül ({preview}).'
-    flash(msg, 'success')
+    flash(f'Başarıyla {quantity:g} adet {bom_node.display_name} üretildi ve stoka girdi.', 'success')
     return redirect(url_for('production.bom_tree', bom_id=bom_id))
 
 
