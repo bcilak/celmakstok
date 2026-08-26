@@ -8,6 +8,7 @@ import csv
 import io
 import google.generativeai as genai
 from app.utils.decorators import roles_required
+from app.utils.excel_utils import PRODUCT_TYPE_LABELS
 
 reports_bp = Blueprint('reports', __name__)
 
@@ -3449,12 +3450,15 @@ def export_products():
     output = io.StringIO()
     writer = csv.writer(output)
     
-    writer.writerow(['Kod', 'Ürün Adı', 'Kategori', 'Birim', 'Mevcut Stok', 'Minimum Stok'])
+    writer.writerow(['Kod', 'Ürün Adı', 'Tür', 'Malzeme Cinsi', 'Kategori',
+                     'Birim', 'Mevcut Stok', 'Minimum Stok'])
     
     for p in products:
         writer.writerow([
             p.code,
             p.name,
+            PRODUCT_TYPE_LABELS.get(p.type, p.type or ''),
+            p.material or '',
             p.category.name if p.category else '',
             p.unit_type,
             p.current_stock,

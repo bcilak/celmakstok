@@ -13,6 +13,16 @@ from datetime import datetime
 from app.utils import sanitize_part_code, tr_lower
 
 
+# Ürün tipi → Türkçe etiket (dışa aktarmalarda okunabilir "Tür" sütunu için)
+PRODUCT_TYPE_LABELS = {
+    'hammadde': 'Hammadde',
+    'yarimamul': 'Yarı Mamül',
+    'mamul': 'Mamul',
+    'standart_parca': 'Standart Parça',
+    'hazir_parca': 'Hazır Parça',
+}
+
+
 def create_product_template_simple():
     """
     Basitleştirilmiş ürün import şablonu (Kategori ID yok, web'de seçilecek)
@@ -309,6 +319,8 @@ def export_products_to_excel(products):
         'ID',
         'Ürün Kodu',
         'Ürün Adı',
+        'Tür',
+        'Malzeme Cinsi',
         'Kategori',
         'Birim',
         'Mevcut Stok',
@@ -332,10 +344,13 @@ def export_products_to_excel(products):
         ws.cell(row=row_num, column=1, value=product.id)
         ws.cell(row=row_num, column=2, value=product.code)
         ws.cell(row=row_num, column=3, value=product.name)
-        ws.cell(row=row_num, column=4, value=product.category.name if product.category else '')
-        ws.cell(row=row_num, column=5, value=product.unit_type)
-        ws.cell(row=row_num, column=6, value=product.current_stock)
-        ws.cell(row=row_num, column=7, value=product.minimum_stock)
+        ws.cell(row=row_num, column=4,
+                value=PRODUCT_TYPE_LABELS.get(product.type, product.type or ''))
+        ws.cell(row=row_num, column=5, value=product.material or '')
+        ws.cell(row=row_num, column=6, value=product.category.name if product.category else '')
+        ws.cell(row=row_num, column=7, value=product.unit_type)
+        ws.cell(row=row_num, column=8, value=product.current_stock)
+        ws.cell(row=row_num, column=9, value=product.minimum_stock)
 
         # Stok durumu
         if product.current_stock <= 0:
@@ -348,15 +363,17 @@ def export_products_to_excel(products):
             status = 'NORMAL'
             status_color = '00FF00'
 
-        cell = ws.cell(row=row_num, column=8, value=status)
+        cell = ws.cell(row=row_num, column=10, value=status)
         cell.font = Font(bold=True, color=status_color)
 
-        ws.cell(row=row_num, column=9, value=product.barcode or '')
-        ws.cell(row=row_num, column=10, value=product.notes or '')
-        ws.cell(row=row_num, column=11, value=product.created_at.strftime('%Y-%m-%d %H:%M') if product.created_at else '')
+        ws.cell(row=row_num, column=11, value=product.barcode or '')
+        ws.cell(row=row_num, column=12, value=product.notes or '')
+        ws.cell(row=row_num, column=13, value=product.created_at.strftime('%Y-%m-%d %H:%M') if product.created_at else '')
+
+    ws.freeze_panes = "A2"
 
     # Kolon genişliklerini ayarla
-    column_widths = [8, 15, 30, 20, 10, 12, 12, 10, 15, 30, 18]
+    column_widths = [8, 18, 34, 14, 22, 18, 10, 12, 12, 10, 15, 30, 18]
     for col_num, width in enumerate(column_widths, 1):
         ws.column_dimensions[chr(64 + col_num)].width = width
 

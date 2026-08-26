@@ -13,6 +13,10 @@
             class="btn btn-outline-primary">
             <i class="bi bi-qr-code me-2"></i>Tüm QR Kodları İndir
         </a>
+        <a href="{{ url_for('products.export_products', category=selected_category or '', search=search) }}"
+            class="btn btn-success">
+            <i class="bi bi-file-earmark-excel me-2"></i>Excel İndir
+        </a>
         <a href="{{ url_for('products.add') }}" class="btn btn-primary">
             <i class="bi bi-plus-lg me-2"></i>Yeni Ürün
         </a>
