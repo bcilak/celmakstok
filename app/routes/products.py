@@ -881,12 +881,20 @@ def upload_import():
 def export_products():
     """Ürünleri Excel'e aktar"""
     category_id = request.args.get('category', type=int)
+    selected_type = request.args.get('type', '')
     search = request.args.get('search', '')
-    
+    status = request.args.get('status', '')
+
+    # Ekrandaki listeyle AYNI süzgeçler uygulanır (bkz. products.index) — aksi
+    # halde "Hammadde" filtreliyken indirilen dosyada tüm tipler geliyordu.
+    # Pasif (arşivlenmiş) kartlar hiçbir durumda dahil edilmez.
     query = Product.query.filter_by(is_active=True)
     
     if category_id:
         query = query.filter_by(category_id=category_id)
+
+    if selected_type:
+        query = query.filter_by(type=selected_type)
     
     if search:
         query = query.filter(
@@ -895,6 +903,11 @@ def export_products():
                 Product.code.ilike(f'%{search}%')
             )
         )
+
+    if status == 'critical':
+        query = query.filter(Product.current_stock < Product.minimum_stock)
+    elif status == 'empty':
+        query = query.filter(Product.current_stock <= 0)
     
     products = query.order_by(Product.name).all()
     
