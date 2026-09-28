@@ -3472,6 +3472,27 @@ def export_products():
         headers={'Content-Disposition': 'attachment;filename=urunler.csv'}
     )
 
+@reports_bp.route('/where-used/export')
+@login_required
+@roles_required('Genel')
+def where_used_export():
+    """Nerede Kullanılıyor (where-used) raporu — 3 sayfalı Excel.
+
+    Her ürünün hangi ürün ağaçlarında, hangi ana ürünün altında ve hangi üst
+    montajın içinde geçtiğini toplu olarak verir. Ürün kartındaki kullanım
+    listesi tek ürünlüktür; bu tüm kataloğu kapsar.
+    """
+    from app.utils.bom_utils import build_where_used_report
+    from app.utils.excel_utils import export_where_used_to_excel
+
+    include_inactive = request.args.get('inactive') == '1'
+    report = build_where_used_report(db, include_inactive=include_inactive)
+    output = export_where_used_to_excel(report)
+    fname = f"nerede_kullaniliyor_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return send_file(output, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @reports_bp.route('/export/movements')
 @login_required
 @roles_required('Genel')

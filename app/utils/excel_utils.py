@@ -1274,3 +1274,77 @@ def export_catalog_inconsistencies_to_excel(analysis: dict):
     output.seek(0)
     return output
 
+
+def export_where_used_to_excel(report):
+    """Nerede Kullanılıyor (where-used) raporunu 3 sayfalı Excel olarak üretir.
+    report = bom_utils.build_where_used_report() çıktısı."""
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    num_fmt = '0.####'
+
+    def _sheet(ws, headers, widths):
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        for col, w in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(col)].width = w
+        ws.freeze_panes = "A2"
+
+    def _tur(v):
+        return PRODUCT_TYPE_LABELS.get(v, v or '')
+
+    wb = Workbook()
+
+    # --- Sayfa 1: Özet (ürün başına tek satır) ---
+    ws = wb.active
+    ws.title = "Özet"
+    _sheet(ws,
+           ['Ürün Kodu', 'Ürün Adı', 'Tür', 'Birim', 'Mevcut Stok',
+            'Kaç Ürün Ağacında', 'Kaç Yerde Geçiyor', 'Kullanıldığı Ana Ürünler'],
+           [20, 36, 15, 10, 13, 16, 16, 60])
+    for r, u in enumerate(report.get('summary') or [], 2):
+        ws.cell(row=r, column=1, value=u['code'])
+        ws.cell(row=r, column=2, value=u['name'])
+        ws.cell(row=r, column=3, value=_tur(u['type']))
+        ws.cell(row=r, column=4, value=u['unit_type'])
+        ws.cell(row=r, column=5, value=u['current_stock']).number_format = num_fmt
+        ws.cell(row=r, column=6, value=u['bom_count'])
+        ws.cell(row=r, column=7, value=u['usage_count'])
+        ws.cell(row=r, column=8, value=u['mains'])
+
+    # --- Sayfa 2: Detay (her kullanım için bir satır) ---
+    ws2 = wb.create_sheet("Detay")
+    _sheet(ws2,
+           ['Ürün Kodu', 'Ürün Adı', 'Tür', 'Ürün Ağacı', 'Ana Ürün (Mamul)',
+            'Üst Montaj', 'Pozisyon', 'Seviye', 'Fireli Miktar', 'Firesiz Miktar', 'Birim'],
+           [20, 34, 15, 12, 38, 38, 12, 9, 14, 14, 10])
+    for r, d in enumerate(report.get('detail') or [], 2):
+        ws2.cell(row=r, column=1, value=d['code'])
+        ws2.cell(row=r, column=2, value=d['name'])
+        ws2.cell(row=r, column=3, value=_tur(d['type']))
+        ws2.cell(row=r, column=4, value='BOM #%s' % d['bom_id'])
+        ws2.cell(row=r, column=5, value=d['main_product'])
+        ws2.cell(row=r, column=6, value=d['parent'])
+        ws2.cell(row=r, column=7, value=d['num'])
+        ws2.cell(row=r, column=8, value=d['level'])
+        ws2.cell(row=r, column=9, value=d['quantity']).number_format = num_fmt
+        ws2.cell(row=r, column=10, value=d['quantity_net']).number_format = num_fmt
+        ws2.cell(row=r, column=11, value=d['node_unit'])
+
+    # --- Sayfa 3: Hiçbir ağaçta kullanılmayanlar ---
+    ws3 = wb.create_sheet("Kullanılmayanlar")
+    _sheet(ws3, ['Ürün Kodu', 'Ürün Adı', 'Tür', 'Birim', 'Mevcut Stok'],
+           [20, 40, 16, 10, 13])
+    for r, p in enumerate(report.get('unused') or [], 2):
+        ws3.cell(row=r, column=1, value=p['code'])
+        ws3.cell(row=r, column=2, value=p['name'])
+        ws3.cell(row=r, column=3, value=_tur(p['type']))
+        ws3.cell(row=r, column=4, value=p['unit_type'])
+        ws3.cell(row=r, column=5, value=p['current_stock']).number_format = num_fmt
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output

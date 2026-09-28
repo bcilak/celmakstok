@@ -155,6 +155,25 @@
         </div>
     </div>
 
+    <!-- Nerede Kullanılıyor -->
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-0 shadow-sm h-100 hover-shadow">
+            <div class="card-body text-center py-5">
+                <div class="rounded-circle mx-auto mb-4 d-flex align-items-center justify-content-center"
+                    style="width: 64px; height: 64px; background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);">
+                    <i class="bi bi-diagram-3 text-white" style="font-size: 1.75rem;"></i>
+                </div>
+                <h5 class="card-title">Nerede Kullanılıyor</h5>
+                <p class="card-text text-muted mb-4">
+                    Her malzemenin hangi ürün ağacında ve hangi montajda geçtiği — Excel dökümü.
+                </p>
+                <a href="{{ url_for('reports.where_used_export') }}" class="btn btn-info w-100 text-white">
+                    <i class="bi bi-file-earmark-excel me-1"></i>Excel İndir
+                </a>
+            </div>
+        </div>
+    </div>
+
     <!-- Ortak Ürünler -->
     <div class="col-lg-4 col-md-6">
         <div class="card border-0 shadow-sm h-100 hover-shadow">

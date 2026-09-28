@@ -3614,3 +3614,109 @@ def move_bom_node(bom_id: int, node_id: int, new_parent_node_id: int, db) -> dic
 
     db.session.commit()
     return {'moved': True, 'new_num': new_num}
+
+
+# ---------------------------------------------------------------------------
+# Nerede Kullanılıyor (Where-Used) — Çapraz Kullanım Raporu
+# ---------------------------------------------------------------------------
+
+def build_where_used_report(db, include_inactive: bool = False) -> dict:
+    """Her ürünün HANGİ ürün ağaçlarında, hangi ana ürünün altında ve hangi üst
+    montajın içinde kullanıldığını çıkarır (ERP'deki "where-used" raporu).
+
+    Ürün kartı ekranındaki kullanım listesi tek ürünlüktür ve yalnızca BOM
+    numarasını gösterir; bu fonksiyon tüm kataloğu tek seferde, ana ürün ve üst
+    montaj bilgisiyle birlikte verir. Hiçbir DB yazması yapmaz.
+
+    Döner: {'detail': [...], 'summary': [...], 'unused': [...]}
+      detail  — her kullanım için bir satır (ürün × ağaçtaki konum)
+      summary — ürün başına: kaç ağaçta, kaç yerde, hangi mamullerde
+      unused  — hiçbir ağaçta geçmeyen ürünler
+    """
+    from app.models import Product, BomItem, BomNode, BomEdge
+    from sqlalchemy.orm import joinedload
+
+    nodes = (BomNode.query
+             .options(joinedload(BomNode.item).joinedload(BomItem.product))
+             .all())
+    edges = BomEdge.query.all()
+
+    parent_of = {e.child_node_id: e.parent_node_id for e in edges}
+    node_map = {n.id: n for n in nodes}
+    # Her ağacın kökü (level 0) = o ağacın ana ürünü (mamul)
+    roots = {n.bom_id: n for n in nodes if n.level == 0}
+
+    def _label(n):
+        if not n:
+            return ''
+        name = n.display_name or (n.item.name if n.item else '')
+        code = ''
+        if n.item:
+            code = (n.item.product.code if n.item.product else None) or n.item.code or ''
+        return '%s (%s)' % (name, code) if code else (name or '')
+
+    detail = []
+    usage = {}
+    root_product_ids = set()
+    for n in nodes:
+        item = n.item
+        product = item.product if item else None
+        if not product:
+            continue
+        if not include_inactive and not product.is_active:
+            continue
+
+        # Kök düğüm (level 0) bir KULLANIM değildir: ürün kendi ağacının
+        # sahibidir. Aynı ürün başka bir ağaçta alt bileşen olarak geçerse o
+        # satır normal şekilde kullanım sayılır.
+        if n.level == 0:
+            root_product_ids.add(product.id)
+            continue
+
+        root = roots.get(n.bom_id)
+        row = {
+            'code': product.code or '',
+            'name': product.name or '',
+            'type': product.type or '',
+            'unit_type': product.unit_type or '',
+            'current_stock': float(product.current_stock or 0),
+            'bom_id': n.bom_id,
+            'main_product': (root.display_name if root else '') or '',
+            'parent': _label(node_map.get(parent_of.get(n.id))),
+            'num': n.num or '',
+            'level': n.level,
+            'quantity': float(n.quantity) if n.quantity is not None else None,
+            'quantity_net': float(n.quantity_net) if n.quantity_net is not None else None,
+            'node_unit': n.unit_type or '',
+        }
+        detail.append(row)
+
+        u = usage.setdefault(product.id, {
+            'code': row['code'], 'name': row['name'], 'type': row['type'],
+            'unit_type': row['unit_type'], 'current_stock': row['current_stock'],
+            'boms': set(), 'mains': set(), 'count': 0,
+        })
+        u['boms'].add(n.bom_id)
+        if row['main_product']:
+            u['mains'].add(row['main_product'])
+        u['count'] += 1
+
+    detail.sort(key=lambda r: (r['code'] or 'zzzz', r['bom_id'], r['num']))
+
+    summary = [{
+        'code': u['code'], 'name': u['name'], 'type': u['type'],
+        'unit_type': u['unit_type'], 'current_stock': u['current_stock'],
+        'bom_count': len(u['boms']), 'usage_count': u['count'],
+        'mains': ', '.join(sorted(u['mains'])),
+    } for u in usage.values()]
+    summary.sort(key=lambda r: (-r['usage_count'], r['code']))
+
+    q = Product.query if include_inactive else Product.query.filter_by(is_active=True)
+    # Kendi ağacı olan mamuller "kullanılmıyor" sayılmaz — onlar bitmiş üründür.
+    unused = [{
+        'code': p.code or '', 'name': p.name or '', 'type': p.type or '',
+        'unit_type': p.unit_type or '', 'current_stock': float(p.current_stock or 0),
+    } for p in q.order_by(Product.code).all()
+        if p.id not in usage and p.id not in root_product_ids]
+
+    return {'detail': detail, 'summary': summary, 'unused': unused}
